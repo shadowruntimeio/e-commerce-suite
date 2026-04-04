@@ -24,7 +24,8 @@ export async function warehouseRoutes(app: FastifyInstance) {
   app.post('/', async (request, reply) => {
     const body = createWarehouseSchema.parse(request.body)
     const warehouse = await prisma.warehouse.create({
-      data: { ...body, tenantId: request.user.tenantId },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data: { ...body, tenantId: request.user.tenantId } as any,
     })
     return reply.status(201).send({ success: true, data: warehouse })
   })

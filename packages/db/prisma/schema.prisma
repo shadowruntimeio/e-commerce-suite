@@ -151,9 +151,11 @@ model Shop {
   createdAt            DateTime   @default(now())
   updatedAt            DateTime   @updatedAt
 
-  tenant        Tenant         @relation(fields: [tenantId], references: [id])
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
   onlineProducts OnlineProduct[]
-  orders        Order[]
+  orders         Order[]
+  shopMessages   ShopMessage[]
+  messageThreads MessageThread[]
 
   @@unique([tenantId, platform, externalShopId])
   @@map("shops")
@@ -265,13 +267,14 @@ model Warehouse {
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
-  tenant            Tenant             @relation(fields: [tenantId], references: [id])
-  warehouseSkus     WarehouseSku[]
-  inventoryEvents   InventoryEvent[]
-  inventorySnapshots InventorySnapshot[]
-  inboundOrders     InboundOrder[]
-  purchaseOrders    PurchaseOrder[]
-  outboundWaves     OutboundWave[]
+  tenant              Tenant              @relation(fields: [tenantId], references: [id])
+  warehouseSkus       WarehouseSku[]
+  inventoryEvents     InventoryEvent[]
+  inventorySnapshots  InventorySnapshot[]
+  inboundOrders       InboundOrder[]
+  purchaseOrders      PurchaseOrder[]
+  outboundWaves       OutboundWave[]
+  firstLegShipments   FirstLegShipment[]
 
   @@map("warehouses")
 }
@@ -562,4 +565,135 @@ model RestockingSuggestion {
   systemSku    SystemSku    @relation(fields: [systemSkuId], references: [id])
 
   @@map("restocking_suggestions")
+}
+
+// ─── Analytics / ETL ─────────────────────────────────────────────────────────
+
+model SalesFact {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  date               DateTime @db.Date
+  shopId             String
+  systemSkuId        String?
+  ordersCount        Int      @default(0)
+  unitsSold          Int      @default(0)
+  grossRevenue       Decimal  @default(0) @db.Decimal(14, 4)
+  platformCommission Decimal  @default(0) @db.Decimal(14, 4)
+  shippingCost       Decimal  @default(0) @db.Decimal(14, 4)
+  cogs               Decimal  @default(0) @db.Decimal(14, 4)
+  profit             Decimal  @default(0) @db.Decimal(14, 4)
+
+  @@unique([tenantId, date, shopId, systemSkuId])
+  @@index([tenantId, date])
+  @@map("sales_facts")
+}
+
+model InventoryDailySnapshot {
+  id             String   @id @default(cuid())
+  tenantId       String
+  date           DateTime @db.Date
+  warehouseSkuId String
+  warehouseId    String
+  quantityOnHand Int      @default(0)
+  inventoryValue Decimal  @default(0) @db.Decimal(14, 4)
+  daysOfStock    Decimal  @default(0) @db.Decimal(8, 2)
+
+  @@unique([tenantId, date, warehouseSkuId])
+  @@index([tenantId, date])
+  @@map("inventory_daily_snapshots")
+}
+
+model AdSpendFact {
+  id                String   @id @default(cuid())
+  tenantId          String
+  date              DateTime @db.Date
+  shopId            String
+  platform          Platform
+  campaignId        String
+  campaignName      String?
+  impressions       Int      @default(0)
+  clicks            Int      @default(0)
+  spend             Decimal  @default(0) @db.Decimal(14, 4)
+  revenueAttributed Decimal  @default(0) @db.Decimal(14, 4)
+  roas              Decimal  @default(0) @db.Decimal(8, 4)
+
+  @@unique([tenantId, date, shopId, campaignId])
+  @@index([tenantId, date])
+  @@map("ad_spend_facts")
+}
+
+// ─── Customer Service Inbox ───────────────────────────────────────────────────
+
+model ShopMessage {
+  id               String   @id @default(cuid())
+  tenantId         String
+  shopId           String
+  platformThreadId String
+  platformMsgId    String
+  senderType       String   // "buyer" | "seller"
+  senderName       String?
+  content          String
+  messageType      String   @default("text") // "text" | "image" | "order"
+  isRead           Boolean  @default(false)
+  tags             String[] @default([])
+  platformMetadata Json     @default("{}")
+  platformCreatedAt DateTime
+  createdAt        DateTime @default(now())
+
+  shop Shop @relation(fields: [shopId], references: [id])
+
+  @@unique([shopId, platformMsgId])
+  @@index([tenantId, isRead])
+  @@index([tenantId, platformThreadId])
+  @@map("shop_messages")
+}
+
+model MessageThread {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  shopId             String
+  platformThreadId   String
+  buyerName          String?
+  buyerPlatformId    String?
+  lastMessageAt      DateTime
+  lastMessagePreview String?
+  isRead             Boolean  @default(false)
+  tags               String[] @default([])
+  orderId            String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id])
+
+  @@unique([shopId, platformThreadId])
+  @@index([tenantId, isRead, lastMessageAt])
+  @@map("message_threads")
+}
+
+// ─── Logistics ────────────────────────────────────────────────────────────────
+
+model FirstLegShipment {
+  id               String    @id @default(cuid())
+  tenantId         String
+  warehouseId      String
+  trackingNumber   String?
+  carrier          String?
+  shipmentType     String    @default("SEA") // SEA | AIR | RAIL
+  originWarehouse  String?
+  destination      String?
+  departedAt       DateTime?
+  estimatedArrival DateTime?
+  status           String    @default("PENDING") // PENDING | IN_TRANSIT | ARRIVED | CLEARED
+  weightKg         Decimal?  @db.Decimal(10, 3)
+  volumeCbm        Decimal?  @db.Decimal(10, 4)
+  cost             Decimal?  @db.Decimal(14, 4)
+  currency         String    @default("USD")
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+
+  @@index([tenantId, status])
+  @@map("first_leg_shipments")
 }

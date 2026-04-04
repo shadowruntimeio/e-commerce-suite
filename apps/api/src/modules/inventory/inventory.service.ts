@@ -11,7 +11,7 @@ export async function getCurrentStock(warehouseSkuId: string) {
   if (!snapshot) {
     // No snapshot yet — compute from all events
     const events = await prisma.inventoryEvent.findMany({ where: { warehouseSkuId } })
-    const onHand = events.reduce((sum, e) => sum + e.quantityDelta, 0)
+    const onHand = events.reduce((sum: number, e: { quantityDelta: number }) => sum + e.quantityDelta, 0)
     return { quantityOnHand: onHand, quantityReserved: 0, quantityAvailable: onHand }
   }
 
@@ -20,11 +20,12 @@ export async function getCurrentStock(warehouseSkuId: string) {
     where: { warehouseSkuId, createdAt: { gt: snapshot.snapshotAt } },
   })
 
-  const deltaOnHand = eventsSince
+  type EventRow = { eventType: string; quantityDelta: number }
+  const deltaOnHand = (eventsSince as EventRow[])
     .filter((e) => ['INBOUND', 'OUTBOUND', 'TRANSFER_IN', 'TRANSFER_OUT', 'ADJUSTMENT', 'RETURN'].includes(e.eventType))
     .reduce((sum, e) => sum + e.quantityDelta, 0)
 
-  const deltaReserved = eventsSince
+  const deltaReserved = (eventsSince as EventRow[])
     .filter((e) => ['RESERVED', 'UNRESERVED'].includes(e.eventType))
     .reduce((sum, e) => sum + e.quantityDelta, 0)
 

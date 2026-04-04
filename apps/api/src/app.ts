@@ -5,10 +5,16 @@ import { authRoutes } from './modules/auth/auth.routes'
 import { shopRoutes } from './modules/shops/shop.routes'
 import { productRoutes } from './modules/products/product.routes'
 import { orderRoutes } from './modules/orders/order.routes'
+import { rulesRoutes } from './modules/orders/rules.routes'
 import { inventoryRoutes } from './modules/inventory/inventory.routes'
 import { warehouseRoutes } from './modules/warehouses/warehouse.routes'
 import { purchaseRoutes } from './modules/purchase/purchase.routes'
+import { restockingRoutes } from './modules/purchase/restocking.routes'
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes'
+import { reportsRoutes } from './modules/reports/reports.routes'
+import { adsRoutes } from './modules/ads/ads.routes'
+import { csRoutes } from './modules/cs/cs.routes'
+import { logisticsRoutes } from './modules/logistics/logistics.routes'
 import { authenticate } from './middleware/authenticate'
 
 export async function buildApp() {
@@ -30,10 +36,16 @@ export async function buildApp() {
   await app.register(shopRoutes, { prefix: '/api/v1/shops' })
   await app.register(productRoutes, { prefix: '/api/v1/products' })
   await app.register(orderRoutes, { prefix: '/api/v1/orders' })
+  await app.register(rulesRoutes, { prefix: '/api/v1/orders/rules' })
   await app.register(inventoryRoutes, { prefix: '/api/v1/inventory' })
   await app.register(warehouseRoutes, { prefix: '/api/v1/warehouses' })
   await app.register(purchaseRoutes, { prefix: '/api/v1/purchase' })
+  await app.register(restockingRoutes, { prefix: '/api/v1/purchase/suggestions' })
   await app.register(dashboardRoutes, { prefix: '/api/v1/dashboard' })
+  await app.register(reportsRoutes, { prefix: '/api/v1/reports' })
+  await app.register(adsRoutes, { prefix: '/api/v1/ads' })
+  await app.register(csRoutes, { prefix: '/api/v1/cs' })
+  await app.register(logisticsRoutes, { prefix: '/api/v1/logistics' })
 
   app.get('/health', async () => ({ status: 'ok' }))
 

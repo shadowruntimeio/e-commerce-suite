@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@ems/db'
 import { authenticate } from '../../middleware/authenticate'
+import { runRulesForOrder } from './rules-engine'
 
 export async function orderRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -49,6 +50,16 @@ export async function orderRoutes(app: FastifyInstance) {
     const order = await prisma.order.findFirst({ where: { id, tenantId: request.user.tenantId } })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
     const updated = await prisma.order.update({ where: { id }, data: { status: status as any } })
+    return { success: true, data: updated }
+  })
+
+  // POST /:id/run-rules — manually run all rules against a specific order
+  app.post('/:id/run-rules', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const order = await prisma.order.findFirst({ where: { id, tenantId: request.user.tenantId } })
+    if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
+    await runRulesForOrder(id, request.user.tenantId)
+    const updated = await prisma.order.findUnique({ where: { id } })
     return { success: true, data: updated }
   })
 }

@@ -17,6 +17,7 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   },
+  "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts"
   }

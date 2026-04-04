@@ -2,7 +2,8 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Menu, Avatar, Dropdown, Typography } from 'antd'
 import {
   DashboardOutlined, ShoppingCartOutlined, AppstoreOutlined,
-  InboxOutlined, ShoppingOutlined, BankOutlined, ShopOutlined, UserOutlined, LogoutOutlined
+  InboxOutlined, ShoppingOutlined, BankOutlined, ShopOutlined, UserOutlined, LogoutOutlined,
+  FilterOutlined, AlertOutlined, BarChartOutlined, LineChartOutlined, MessageOutlined, TruckOutlined,
 } from '@ant-design/icons'
 import { useAuthStore } from '../../store/auth.store'
 
@@ -10,12 +11,40 @@ const { Sider, Content, Header } = Layout
 
 const menuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
-  { key: '/orders', icon: <ShoppingCartOutlined />, label: 'Orders' },
+  {
+    key: 'orders-group',
+    icon: <ShoppingCartOutlined />,
+    label: 'Orders',
+    children: [
+      { key: '/orders', label: 'All Orders' },
+      { key: '/orders/rules', icon: <FilterOutlined />, label: 'Rules' },
+    ],
+  },
   { key: '/products', icon: <AppstoreOutlined />, label: 'Products' },
   { key: '/inventory', icon: <InboxOutlined />, label: 'Inventory' },
-  { key: '/purchase', icon: <ShoppingOutlined />, label: 'Purchase' },
+  {
+    key: 'purchase-group',
+    icon: <ShoppingOutlined />,
+    label: 'Purchase',
+    children: [
+      { key: '/purchase', label: 'Purchase Orders' },
+      { key: '/purchase/restocking', icon: <AlertOutlined />, label: 'Restocking' },
+    ],
+  },
   { key: '/warehouses', icon: <BankOutlined />, label: 'Warehouses' },
   { key: '/shops', icon: <ShopOutlined />, label: 'Shops' },
+  {
+    key: 'reports-group',
+    icon: <BarChartOutlined />,
+    label: 'Reports',
+    children: [
+      { key: '/reports/sales', label: 'Sales Report' },
+      { key: '/reports/profit', label: 'Profit Report' },
+    ],
+  },
+  { key: '/ads', icon: <LineChartOutlined />, label: 'Ads' },
+  { key: '/cs', icon: <MessageOutlined />, label: 'Inbox' },
+  { key: '/logistics', icon: <TruckOutlined />, label: 'Logistics' },
 ]
 
 export function AppLayout() {
@@ -33,8 +62,9 @@ export function AppLayout() {
           theme="dark"
           mode="inline"
           selectedKeys={[location.pathname]}
+          defaultOpenKeys={['orders-group', 'purchase-group', 'reports-group']}
           items={menuItems}
-          onClick={({ key }) => navigate(key)}
+          onClick={({ key }) => { if (!key.endsWith('-group')) navigate(key) }}
           style={{ borderRight: 0, marginTop: 8 }}
         />
       </Sider>
