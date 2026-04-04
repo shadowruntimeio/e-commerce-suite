@@ -9,10 +9,55 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
       * { box-sizing: border-box; }
-      body { margin: 0; font-family: 'Inter', -apple-system, sans-serif; background: #F1F5F9; }
+      body { margin: 0; font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-page); }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+
+      /* ── Light theme (default) ── */
+      :root {
+        --bg-page:        #F1F5F9;
+        --bg-card:        #ffffff;
+        --bg-surface:     #F8FAFC;
+        --bg-surface-alt: rgba(241,245,249,0.4);
+        --bg-header:      #ffffff;
+        --bg-filter:      #F1F5F9;
+        --border:         #E2E8F0;
+        --border-light:   #F1F5F9;
+        --text-primary:   #0F172A;
+        --text-secondary: #64748B;
+        --text-muted:     #94A3B8;
+        --header-shadow:  0 1px 3px rgba(0,0,0,0.04);
+        --card-shadow:    0 1px 3px rgba(0,0,0,0.06);
+        --card-shadow-lg: 0 2px 12px rgba(99,102,241,0.06);
+        --row-hover:      #F8FAFC;
+        --transition:     background 0.2s, color 0.2s, border-color 0.2s;
+      }
+
+      /* ── Dark theme ── */
+      .dark {
+        --bg-page:        #0B1120;
+        --bg-card:        #1E293B;
+        --bg-surface:     #162032;
+        --bg-surface-alt: rgba(30,41,59,0.6);
+        --bg-header:      #1E293B;
+        --bg-filter:      #162032;
+        --border:         #334155;
+        --border-light:   #334155;
+        --text-primary:   #F1F5F9;
+        --text-secondary: #94A3B8;
+        --text-muted:     #64748B;
+        --header-shadow:  0 1px 3px rgba(0,0,0,0.3);
+        --card-shadow:    0 1px 3px rgba(0,0,0,0.3);
+        --card-shadow-lg: 0 2px 12px rgba(0,0,0,0.4);
+        --row-hover:      #243044;
+        --transition:     background 0.2s, color 0.2s, border-color 0.2s;
+      }
+
+      /* Smooth theme transitions */
+      *, *::before, *::after {
+        transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+      }
     </style>
   </head>
   <body>
