@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import { Alert, Button, Card, Col, Row, Spin, Statistic, Table, Tag } from 'antd'
-import { LineChartOutlined, SyncOutlined } from '@ant-design/icons'
+import { Table, Button, Spin } from 'antd'
+import { SyncOutlined, FundOutlined, DollarOutlined, LineChartOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type { ColumnsType } from 'antd/es/table'
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface Campaign {
   campaignId: string
@@ -17,6 +19,51 @@ interface Campaign {
   roas: number
   CTR: number
 }
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function PlatformBadge({ platform }: { platform: string }) {
+  const map: Record<string, { bg: string; color: string }> = {
+    SHOPEE: { bg: '#FF6633', color: '#fff' },
+    TIKTOK: { bg: '#0F172A', color: '#fff' },
+    LAZADA: { bg: '#0F146D', color: '#fff' },
+    MANUAL: { bg: '#E2E8F0', color: '#475569' },
+  }
+  const s = map[platform] ?? { bg: '#E2E8F0', color: '#475569' }
+  return (
+    <span style={{ background: s.bg, color: s.color, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, letterSpacing: '0.03em' }}>
+      {platform}
+    </span>
+  )
+}
+
+function RoasCell({ value }: { value: number }) {
+  const color = value < 1.0 ? '#EF4444' : value >= 3.0 ? '#10B981' : '#F59E0B'
+  const bg = value < 1.0 ? '#FEE2E2' : value >= 3.0 ? '#D1FAE5' : '#FEF3C7'
+  return (
+    <span style={{ background: bg, color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>
+      {value.toFixed(2)}x
+    </span>
+  )
+}
+
+// ─── KPI Card ────────────────────────────────────────────────────────────────
+
+function KpiCard({ title, value, accent, icon }: { title: string; value: string; accent: string; icon: React.ReactNode }) {
+  return (
+    <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', padding: '20px 24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <span style={{ fontSize: 13, color: '#64748B', fontWeight: 500 }}>{title}</span>
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: `${accent}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ color: accent, fontSize: 18 }}>{icon}</span>
+        </div>
+      </div>
+      <div style={{ fontSize: 28, fontWeight: 700, color: '#0F172A', lineHeight: 1 }}>{value}</div>
+    </div>
+  )
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function AdsPage() {
   const [syncing, setSyncing] = useState(false)
@@ -54,135 +101,135 @@ export default function AdsPage() {
 
   const noData = !isLoading && campaigns.length === 0
 
-  const roasColor = (roas: number) => {
-    if (roas < 1.0) return '#ff4d4f'
-    if (roas > 5.0) return '#52c41a'
-    return undefined
-  }
-
   const columns: ColumnsType<Campaign> = [
-    { title: 'Campaign', dataIndex: 'campaignName', render: (v, r) => v ?? r.campaignId, ellipsis: true },
-    { title: 'Shop', dataIndex: 'shopId', width: 120, ellipsis: true },
-    { title: 'Platform', dataIndex: 'platform', width: 100, render: (v) => <Tag>{v}</Tag> },
+    {
+      title: 'Campaign',
+      dataIndex: 'campaignName',
+      ellipsis: true,
+      render: (v, r) => (
+        <span style={{ fontWeight: 500, color: '#0F172A' }}>{v ?? r.campaignId}</span>
+      ),
+    },
+    {
+      title: 'Shop',
+      dataIndex: 'shopId',
+      width: 140,
+      ellipsis: true,
+      render: (v) => <span style={{ color: '#64748B', fontSize: 13 }}>{v}</span>,
+    },
+    {
+      title: 'Platform',
+      dataIndex: 'platform',
+      width: 100,
+      render: (v) => <PlatformBadge platform={v} />,
+    },
     {
       title: 'Impressions',
       dataIndex: 'impressions',
       width: 120,
       align: 'right',
-      render: (v: number) => v.toLocaleString(),
+      render: (v: number) => <span style={{ color: '#374151' }}>{v.toLocaleString()}</span>,
     },
     {
       title: 'Clicks',
       dataIndex: 'clicks',
       width: 90,
       align: 'right',
-      render: (v: number) => v.toLocaleString(),
+      render: (v: number) => <span style={{ color: '#374151' }}>{v.toLocaleString()}</span>,
     },
     {
-      title: 'CTR %',
+      title: 'CTR',
       dataIndex: 'CTR',
       width: 90,
       align: 'right',
-      render: (v: number) => `${v.toFixed(2)}%`,
+      render: (v: number) => <span style={{ color: '#374151' }}>{v.toFixed(2)}%</span>,
     },
     {
       title: 'Spend',
       dataIndex: 'spend',
       width: 110,
       align: 'right',
-      render: (v: number) => `$${v.toFixed(2)}`,
+      render: (v: number) => <span style={{ fontWeight: 600, color: '#EF4444' }}>${v.toFixed(2)}</span>,
     },
     {
       title: 'Revenue',
       dataIndex: 'revenueAttributed',
       width: 110,
       align: 'right',
-      render: (v: number) => `$${v.toFixed(2)}`,
+      render: (v: number) => <span style={{ fontWeight: 600, color: '#10B981' }}>${v.toFixed(2)}</span>,
     },
     {
       title: 'ROAS',
       dataIndex: 'roas',
-      width: 90,
+      width: 100,
       align: 'right',
-      render: (v: number) => (
-        <span style={{ color: roasColor(v), fontWeight: 600 }}>{v.toFixed(2)}x</span>
-      ),
       sorter: (a, b) => a.roas - b.roas,
+      render: (v: number) => <RoasCell value={v} />,
     },
   ]
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <LineChartOutlined /> Ads Performance
-        </h2>
-        <Button
-          type="primary"
-          icon={<SyncOutlined spin={syncing} />}
-          onClick={() => syncMutation.mutate()}
-          loading={syncing}
-        >
-          Sync Ads
-        </Button>
+      {/* Page Header */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Ads Performance</h1>
+            <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Campaign metrics across all connected platforms</p>
+          </div>
+          <Button
+            icon={<SyncOutlined spin={syncing} />}
+            loading={syncing}
+            onClick={() => syncMutation.mutate()}
+            style={{ background: '#fff', color: '#374151', border: '1px solid #E2E8F0', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+          >
+            Sync Ads
+          </Button>
+        </div>
       </div>
 
+      {/* No data alert */}
       {noData && (
-        <Alert
-          type="info"
-          showIcon
-          message="No ad data available"
-          description="Connect Shopee/TikTok ad accounts to see data here"
-          style={{ marginBottom: 16 }}
-        />
+        <div style={{ background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 12, padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <FundOutlined style={{ color: '#6366F1', fontSize: 18, flexShrink: 0 }} />
+          <div style={{ color: '#3730A3', fontSize: 14 }}>
+            <span style={{ fontWeight: 600 }}>Connect ad accounts to see performance data.</span>
+            {' '}Link your Shopee or TikTok ad accounts and sync to view campaign metrics here.
+          </div>
+        </div>
       )}
 
       {isLoading ? (
-        <Spin size="large" style={{ display: 'block', margin: '80px auto' }} />
+        <div style={{ textAlign: 'center', padding: '80px 0' }}><Spin size="large" /></div>
       ) : (
         <>
-          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            <Col xs={24} sm={8}>
-              <Card>
-                <Statistic
-                  title="Total Spend"
-                  value={(summary?.totalSpend ?? 0).toFixed(2)}
-                  prefix="$"
-                  valueStyle={{ color: '#faad14' }}
-                />
-              </Card>
-            </Col>
-            <Col xs={24} sm={8}>
-              <Card>
-                <Statistic
-                  title="Attributed Revenue"
-                  value={(summary?.totalRevenue ?? 0).toFixed(2)}
-                  prefix="$"
-                  valueStyle={{ color: '#1677ff' }}
-                />
-              </Card>
-            </Col>
-            <Col xs={24} sm={8}>
-              <Card>
-                <Statistic
-                  title="Overall ROAS"
-                  value={(summary?.overallROAS ?? 0).toFixed(2)}
-                  suffix="x"
-                  valueStyle={{ color: (summary?.overallROAS ?? 0) >= 1 ? '#52c41a' : '#ff4d4f' }}
-                />
-              </Card>
-            </Col>
-          </Row>
+          {/* KPI Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 20 }}>
+            <KpiCard title="Total Spend" value={`$${(summary?.totalSpend ?? 0).toFixed(2)}`} accent="#EF4444" icon={<DollarOutlined />} />
+            <KpiCard title="Revenue Attributed" value={`$${(summary?.totalRevenue ?? 0).toFixed(2)}`} accent="#10B981" icon={<DollarOutlined />} />
+            <KpiCard title="Overall ROAS" value={`${(summary?.overallROAS ?? 0).toFixed(2)}x`} accent="#6366F1" icon={<LineChartOutlined />} />
+          </div>
 
-          <Card title="Campaigns">
+          {/* Table */}
+          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #F1F5F9' }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: '#0F172A' }}>Campaigns</span>
+            </div>
             <Table
               rowKey="campaignId"
               columns={columns}
               dataSource={campaigns}
-              size="small"
-              pagination={{ pageSize: 20 }}
+              size="middle"
+              style={{ borderRadius: 0 }}
+              pagination={{
+                pageSize: 20,
+                showSizeChanger: false,
+                showTotal: (total) => `${total.toLocaleString()} records`,
+                style: { padding: '12px 20px' },
+              }}
+              scroll={{ x: 'max-content' }}
             />
-          </Card>
+          </div>
         </>
       )}
     </div>

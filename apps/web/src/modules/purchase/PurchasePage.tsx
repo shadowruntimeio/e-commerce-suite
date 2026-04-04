@@ -1,34 +1,217 @@
-import { Card, Table, Tag, Button } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Table, Input, Button, Space } from 'antd'
+import { PlusOutlined, EyeOutlined, CheckOutlined, ShoppingOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { api } from '../../lib/api'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 
-const STATUS_COLOR: Record<string, string> = {
-  DRAFT: 'default', PENDING_APPROVAL: 'orange', APPROVED: 'blue',
-  ORDERED: 'cyan', PARTIALLY_RECEIVED: 'purple', RECEIVED: 'green', CANCELLED: 'red',
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { bg: string; color: string; label: string }> = {
+    DRAFT:             { bg: '#F1F5F9', color: '#475569', label: 'Draft' },
+    PENDING_APPROVAL:  { bg: '#FEF3C7', color: '#92400E', label: 'Pending Approval' },
+    APPROVED:          { bg: '#D1FAE5', color: '#065F46', label: 'Approved' },
+    ORDERED:           { bg: '#EEF2FF', color: '#4338CA', label: 'Ordered' },
+    PARTIALLY_RECEIVED:{ bg: '#F5F3FF', color: '#5B21B6', label: 'Partial' },
+    RECEIVED:          { bg: '#ECFDF5', color: '#065F46', label: 'Received' },
+    CANCELLED:         { bg: '#F1F5F9', color: '#475569', label: 'Cancelled' },
+  }
+  const s = map[status] ?? { bg: '#F1F5F9', color: '#475569', label: status }
+  return (
+    <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
+      {s.label}
+    </span>
+  )
 }
 
+// ─── Status tabs ─────────────────────────────────────────────────────────────
+
+const STATUS_TABS = [
+  { key: '', label: 'All' },
+  { key: 'DRAFT', label: 'Draft' },
+  { key: 'PENDING_APPROVAL', label: 'Pending Approval' },
+  { key: 'APPROVED', label: 'Approved' },
+  { key: 'ORDERED', label: 'Ordered' },
+  { key: 'RECEIVED', label: 'Received' },
+]
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function PurchasePage() {
+  const [statusFilter, setStatusFilter] = useState('')
+  const [search, setSearch] = useState('')
+
   const { data, isLoading } = useQuery({
-    queryKey: ['purchase-orders'],
-    queryFn: () => api.get('/purchase/orders').then(r => r.data.data),
+    queryKey: ['purchase-orders', { statusFilter, search }],
+    queryFn: () =>
+      api.get('/purchase/orders', {
+        params: { status: statusFilter || undefined, search: search || undefined },
+      }).then((r) => r.data.data),
   })
 
   const columns: ColumnsType<any> = [
-    { title: 'Supplier', dataIndex: ['supplier', 'name'], width: 180 },
-    { title: 'Warehouse', dataIndex: ['warehouse', 'name'], width: 160 },
-    { title: 'Status', dataIndex: 'status', width: 160, render: (s) => <Tag color={STATUS_COLOR[s] ?? 'default'}>{s.replace(/_/g, ' ')}</Tag> },
-    { title: 'Total', dataIndex: 'totalAmount', width: 120, align: 'right', render: (v, r) => `${r.currency} ${Number(v).toFixed(2)}` },
-    { title: 'ETA', dataIndex: 'eta', width: 120, render: (v) => v ? dayjs(v).format('MM/DD/YYYY') : '-' },
-    { title: 'Created', dataIndex: 'createdAt', width: 160, render: (v) => dayjs(v).format('MM/DD HH:mm') },
+    {
+      title: 'PO #',
+      dataIndex: 'id',
+      width: 160,
+      render: (v) => (
+        <span style={{ fontFamily: "'Courier New', monospace", color: '#6366F1', fontSize: 13 }}>
+          {String(v).slice(0, 8).toUpperCase()}
+        </span>
+      ),
+    },
+    {
+      title: 'Supplier',
+      dataIndex: ['supplier', 'name'],
+      width: 160,
+      ellipsis: true,
+      render: (v) => v ?? <span style={{ color: '#CBD5E1' }}>—</span>,
+    },
+    {
+      title: 'Warehouse',
+      dataIndex: ['warehouse', 'name'],
+      width: 140,
+      ellipsis: true,
+      render: (v) => v ?? <span style={{ color: '#CBD5E1' }}>—</span>,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      width: 160,
+      render: (s) => <StatusBadge status={s} />,
+    },
+    {
+      title: 'Items',
+      dataIndex: 'items',
+      width: 70,
+      align: 'center',
+      render: (v) => (
+        <span style={{ background: '#F1F5F9', color: '#475569', borderRadius: 20, padding: '2px 8px', fontSize: 12, fontWeight: 500 }}>
+          {Array.isArray(v) ? v.length : (v ?? 0)}
+        </span>
+      ),
+    },
+    {
+      title: 'Total',
+      dataIndex: 'totalAmount',
+      width: 130,
+      align: 'right',
+      render: (v, r) => (
+        <span style={{ fontWeight: 600, color: '#0F172A' }}>
+          {r.currency ?? 'USD'} {Number(v ?? 0).toFixed(2)}
+        </span>
+      ),
+    },
+    {
+      title: 'ETA',
+      dataIndex: 'eta',
+      width: 120,
+      render: (v) => v ? dayjs(v).format('MMM D, YYYY') : <span style={{ color: '#CBD5E1' }}>—</span>,
+    },
+    {
+      title: 'Created',
+      dataIndex: 'createdAt',
+      width: 140,
+      render: (v) => <span style={{ color: '#64748B', fontSize: 13 }}>{dayjs(v).format('MMM D, HH:mm')}</span>,
+    },
+    {
+      title: '',
+      key: 'actions',
+      width: 72,
+      render: () => (
+        <Space size={4}>
+          <Button type="text" size="small" icon={<EyeOutlined />} style={{ color: '#64748B' }} />
+          <Button type="text" size="small" icon={<CheckOutlined />} style={{ color: '#10B981' }} />
+        </Space>
+      ),
+    },
   ]
 
   return (
-    <Card title="Purchase Orders" extra={<Button type="primary" icon={<PlusOutlined />}>New PO</Button>}>
-      <Table rowKey="id" columns={columns} dataSource={data?.items ?? []} loading={isLoading} size="small"
-        pagination={{ pageSize: 20, total: data?.total, showTotal: (t) => `${t} orders` }} />
-    </Card>
+    <div>
+      {/* Page Header */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Purchase Orders</h1>
+            <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Track and manage supplier purchase orders</p>
+          </div>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            style={{ background: '#6366F1', border: 'none', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+          >
+            New PO
+          </Button>
+        </div>
+      </div>
+
+      {/* Status Tabs */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+        {STATUS_TABS.map((tab) => {
+          const isActive = statusFilter === tab.key
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setStatusFilter(tab.key)}
+              style={{
+                background: isActive ? '#6366F1' : '#fff',
+                color: isActive ? '#fff' : '#64748B',
+                border: isActive ? '1px solid #6366F1' : '1px solid #E2E8F0',
+                borderRadius: 20,
+                padding: '5px 14px',
+                fontSize: 13,
+                fontWeight: isActive ? 600 : 400,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Filter Bar */}
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', padding: '16px 20px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
+        <Input.Search
+          placeholder="Search supplier..."
+          allowClear
+          onSearch={setSearch}
+          style={{ width: 260 }}
+        />
+      </div>
+
+      {/* Table */}
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={data?.items ?? []}
+          loading={isLoading}
+          size="middle"
+          style={{ borderRadius: 0 }}
+          pagination={{
+            pageSize: 20,
+            total: data?.total ?? 0,
+            showSizeChanger: false,
+            showTotal: (total) => `${total.toLocaleString()} records`,
+            style: { padding: '12px 20px' },
+          }}
+          scroll={{ x: 'max-content' }}
+          locale={{
+            emptyText: (
+              <div style={{ padding: '48px 0', textAlign: 'center' }}>
+                <ShoppingOutlined style={{ fontSize: 40, color: '#CBD5E1', display: 'block', margin: '0 auto 12px' }} />
+                <div style={{ fontSize: 15, fontWeight: 500, color: '#64748B' }}>No purchase orders</div>
+                <div style={{ fontSize: 13, color: '#94A3B8', marginTop: 4 }}>Create your first PO to start tracking purchases</div>
+              </div>
+            ),
+          }}
+        />
+      </div>
+    </div>
   )
 }

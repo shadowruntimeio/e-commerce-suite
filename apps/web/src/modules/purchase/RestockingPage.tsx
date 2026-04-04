@@ -1,9 +1,10 @@
-import { Card, Table, Button, Tag, Space, Popconfirm, message, Typography } from 'antd'
+import { Table, Button, Popconfirm, message, Space } from 'antd'
+import { AlertOutlined, ShoppingOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import type { ColumnsType } from 'antd/es/table'
 
-const { Text } = Typography
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface RestockingSuggestion {
   id: string
@@ -37,6 +38,23 @@ interface RestockingSuggestion {
   }
 }
 
+// ─── Stock indicator ─────────────────────────────────────────────────────────
+
+function StockIndicator({ days, units }: { days: number; units: number }) {
+  const color = days < 7 ? '#EF4444' : days < 14 ? '#F59E0B' : '#10B981'
+  const bg = days < 7 ? '#FEE2E2' : days < 14 ? '#FEF3C7' : '#D1FAE5'
+  return (
+    <div>
+      <span style={{ background: bg, color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600 }}>
+        {days.toFixed(1)} days
+      </span>
+      <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>{units} units on hand</div>
+    </div>
+  )
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function RestockingPage() {
   const queryClient = useQueryClient()
 
@@ -69,53 +87,59 @@ export default function RestockingPage() {
 
   const columns: ColumnsType<RestockingSuggestion> = [
     {
-      title: 'SKU',
-      width: 180,
+      title: 'SKU Code',
+      width: 160,
       render: (_: unknown, record: RestockingSuggestion) => (
-        <Space direction="vertical" size={0}>
-          <Text strong style={{ fontSize: 13 }}>{record.systemSku.skuCode}</Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>{record.systemSku.systemProduct.name}</Text>
-        </Space>
+        <div>
+          <div style={{ fontFamily: "'Courier New', monospace", color: '#6366F1', fontSize: 13, fontWeight: 600 }}>
+            {record.systemSku.skuCode}
+          </div>
+          <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
+            {record.systemSku.systemProduct.name}
+          </div>
+        </div>
       ),
     },
     {
       title: 'Warehouse',
       dataIndex: ['warehouseSku', 'warehouse', 'name'],
       width: 150,
+      render: (v) => (
+        <span style={{ background: '#F1F5F9', color: '#475569', padding: '2px 8px', borderRadius: 6, fontSize: 12 }}>
+          {v}
+        </span>
+      ),
     },
     {
       title: 'Current Stock',
-      width: 140,
-      render: (_: unknown, record: RestockingSuggestion) => {
-        const { currentStock, daysOfStock } = record.reason
-        const color = daysOfStock < 7 ? 'red' : daysOfStock < 14 ? 'orange' : 'green'
-        return (
-          <Space direction="vertical" size={0}>
-            <Tag color={color}>{daysOfStock.toFixed(1)} days</Tag>
-            <Text type="secondary" style={{ fontSize: 12 }}>{currentStock} units on hand</Text>
-          </Space>
-        )
-      },
+      width: 150,
+      render: (_: unknown, record: RestockingSuggestion) => (
+        <StockIndicator days={record.reason.daysOfStock} units={record.reason.currentStock} />
+      ),
     },
     {
       title: 'Avg Daily Sales',
-      width: 120,
+      width: 130,
       render: (_: unknown, record: RestockingSuggestion) => (
-        <Text>{record.reason.avgDailySales.toFixed(2)} / day</Text>
+        <span style={{ color: '#374151', fontSize: 14 }}>
+          {record.reason.avgDailySales.toFixed(2)}<span style={{ color: '#94A3B8', fontSize: 12 }}> / day</span>
+        </span>
       ),
     },
     {
       title: 'Suggested Qty',
       dataIndex: 'suggestedQty',
-      width: 110,
-      align: 'right' as const,
-      render: (v: number) => <Text strong>{v}</Text>,
+      width: 120,
+      align: 'right',
+      render: (v: number) => (
+        <span style={{ color: '#6366F1', fontWeight: 700, fontSize: 16 }}>{v}</span>
+      ),
     },
     {
       title: 'Safety Stock',
-      width: 100,
+      width: 110,
       render: (_: unknown, record: RestockingSuggestion) => (
-        <Text type="secondary">{record.warehouseSku.safetyStockDays} days</Text>
+        <span style={{ color: '#64748B', fontSize: 13 }}>{record.warehouseSku.safetyStockDays} days</span>
       ),
     },
     {
@@ -130,7 +154,9 @@ export default function RestockingPage() {
             <Button
               type="primary"
               size="small"
+              icon={<ShoppingOutlined />}
               loading={acceptMutation.isPending}
+              style={{ background: '#6366F1', border: 'none', borderRadius: 6, fontWeight: 500 }}
             >
               Create PO
             </Button>
@@ -139,7 +165,12 @@ export default function RestockingPage() {
             title="Dismiss this suggestion?"
             onConfirm={() => dismissMutation.mutate(record.id)}
           >
-            <Button size="small" danger loading={dismissMutation.isPending}>
+            <Button
+              type="link"
+              size="small"
+              loading={dismissMutation.isPending}
+              style={{ color: '#94A3B8', padding: 0, height: 'auto', fontWeight: 500 }}
+            >
               Dismiss
             </Button>
           </Popconfirm>
@@ -149,24 +180,58 @@ export default function RestockingPage() {
   ]
 
   return (
-    <Card
-      title="Restocking Suggestions"
-      extra={
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          Suggestions are generated nightly based on sales velocity and safety stock levels.
-        </Text>
-      }
-    >
-      <Table
-        rowKey="id"
-        columns={columns}
-        dataSource={data ?? []}
-        loading={isLoading}
-        size="small"
-        pagination={{ pageSize: 20, showSizeChanger: false, showTotal: (t) => `${t} suggestions` }}
-        scroll={{ x: 1000 }}
-        locale={{ emptyText: 'No pending restocking suggestions' }}
-      />
-    </Card>
+    <div>
+      {/* Page Header */}
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Restocking Suggestions</h1>
+        <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Auto-generated based on 30-day sales velocity</p>
+      </div>
+
+      {/* Info Banner */}
+      <div style={{
+        background: '#FFFBEB',
+        border: '1px solid #FCD34D',
+        borderRadius: 12,
+        padding: '14px 20px',
+        marginBottom: 20,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+      }}>
+        <AlertOutlined style={{ color: '#F59E0B', fontSize: 18, flexShrink: 0 }} />
+        <div>
+          <span style={{ color: '#92400E', fontWeight: 600, fontSize: 14 }}>Run the restocking job manually</span>
+          <span style={{ color: '#92400E', fontSize: 14 }}> to generate or refresh suggestions based on current sales data.</span>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={data ?? []}
+          loading={isLoading}
+          size="middle"
+          style={{ borderRadius: 0 }}
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: false,
+            showTotal: (total) => `${total.toLocaleString()} records`,
+            style: { padding: '12px 20px' },
+          }}
+          scroll={{ x: 'max-content' }}
+          locale={{
+            emptyText: (
+              <div style={{ padding: '48px 0', textAlign: 'center' }}>
+                <AlertOutlined style={{ fontSize: 40, color: '#CBD5E1', display: 'block', margin: '0 auto 12px' }} />
+                <div style={{ fontSize: 15, fontWeight: 500, color: '#64748B' }}>No restocking suggestions</div>
+                <div style={{ fontSize: 13, color: '#94A3B8', marginTop: 4 }}>Run the restocking job to generate suggestions</div>
+              </div>
+            ),
+          }}
+        />
+      </div>
+    </div>
   )
 }

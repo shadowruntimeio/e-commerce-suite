@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Button, Card, Form, Input, InputNumber, Modal, Select, Table, Tag } from 'antd'
-import { PlusOutlined, EditOutlined } from '@ant-design/icons'
+import { Table, Button, Form, Input, InputNumber, Modal, Select, Space } from 'antd'
+import { PlusOutlined, EditOutlined, TruckOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import dayjs from 'dayjs'
 import type { ColumnsType } from 'antd/es/table'
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface Shipment {
   id: string
@@ -29,17 +31,55 @@ interface Warehouse {
   name: string
 }
 
-const STATUS_COLOR: Record<string, string> = {
-  PENDING: 'orange',
-  IN_TRANSIT: 'blue',
-  ARRIVED: 'green',
-  CLEARED: 'cyan',
-  CANCELLED: 'default',
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { bg: string; color: string; label: string }> = {
+    PENDING:    { bg: '#FEF3C7', color: '#92400E', label: 'Pending' },
+    IN_TRANSIT: { bg: '#EEF2FF', color: '#4338CA', label: 'In Transit' },
+    ARRIVED:    { bg: '#D1FAE5', color: '#065F46', label: 'Arrived' },
+    CLEARED:    { bg: '#ECFDF5', color: '#065F46', label: 'Cleared' },
+    CANCELLED:  { bg: '#F1F5F9', color: '#475569', label: 'Cancelled' },
+  }
+  const s = map[status] ?? { bg: '#F1F5F9', color: '#475569', label: status }
+  return (
+    <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
+      {s.label}
+    </span>
+  )
 }
+
+function TypeBadge({ type }: { type: string }) {
+  const map: Record<string, { bg: string; color: string }> = {
+    SEA:  { bg: '#EEF2FF', color: '#4338CA' },
+    AIR:  { bg: '#ECFDF5', color: '#065F46' },
+    RAIL: { bg: '#FEF3C7', color: '#92400E' },
+  }
+  const s = map[type] ?? { bg: '#F1F5F9', color: '#475569' }
+  return (
+    <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
+      {type}
+    </span>
+  )
+}
+
+// ─── Status tabs ─────────────────────────────────────────────────────────────
+
+const STATUS_TABS = [
+  { key: '', label: 'All' },
+  { key: 'PENDING', label: 'Pending' },
+  { key: 'IN_TRANSIT', label: 'In Transit' },
+  { key: 'ARRIVED', label: 'Arrived' },
+  { key: 'CLEARED', label: 'Cleared' },
+  { key: 'CANCELLED', label: 'Cancelled' },
+]
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function LogisticsPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingShipment, setEditingShipment] = useState<Shipment | null>(null)
+  const [statusFilter, setStatusFilter] = useState('')
   const [form] = Form.useForm()
   const queryClient = useQueryClient()
 
@@ -111,93 +151,178 @@ export default function LogisticsPage() {
         createMutation.mutate(values)
       }
     } catch {
-      // validation error, do nothing
+      // validation error
     }
   }
 
-  const shipments: Shipment[] = data?.items ?? []
+  const allShipments: Shipment[] = data?.items ?? []
+  const shipments = statusFilter ? allShipments.filter((s) => s.status === statusFilter) : allShipments
 
   const columns: ColumnsType<Shipment> = [
     {
       title: 'Tracking #',
       dataIndex: 'trackingNumber',
-      width: 150,
-      render: (v) => v ?? <span style={{ color: '#bfbfbf' }}>—</span>,
+      width: 160,
+      render: (v) => v
+        ? <span style={{ fontFamily: "'Courier New', monospace", color: '#6366F1', fontSize: 13 }}>{v}</span>
+        : <span style={{ color: '#CBD5E1' }}>—</span>,
     },
-    { title: 'Carrier', dataIndex: 'carrier', width: 100, render: (v) => v ?? '—' },
+    {
+      title: 'Carrier',
+      dataIndex: 'carrier',
+      width: 110,
+      render: (v) => v ?? <span style={{ color: '#CBD5E1' }}>—</span>,
+    },
     {
       title: 'Type',
       dataIndex: 'shipmentType',
-      width: 80,
-      render: (v) => <Tag>{v}</Tag>,
+      width: 90,
+      render: (v) => <TypeBadge type={v} />,
     },
-    { title: 'Destination', dataIndex: 'destination', width: 140, render: (v) => v ?? '—' },
+    {
+      title: 'Destination',
+      dataIndex: 'destination',
+      width: 140,
+      render: (v) => v ?? <span style={{ color: '#CBD5E1' }}>—</span>,
+    },
     {
       title: 'Status',
       dataIndex: 'status',
-      width: 110,
-      render: (v: string) => <Tag color={STATUS_COLOR[v] ?? 'default'}>{v}</Tag>,
+      width: 120,
+      render: (v: string) => <StatusBadge status={v} />,
     },
     {
       title: 'Weight (kg)',
       dataIndex: 'weightKg',
       width: 110,
       align: 'right',
-      render: (v) => (v != null ? Number(v).toFixed(2) : '—'),
+      render: (v) => v != null ? Number(v).toFixed(2) : <span style={{ color: '#CBD5E1' }}>—</span>,
     },
     {
       title: 'Cost',
       dataIndex: 'cost',
-      width: 100,
+      width: 110,
       align: 'right',
-      render: (v, r) => (v != null ? `${r.currency} ${Number(v).toFixed(2)}` : '—'),
+      render: (v, r) => v != null
+        ? <span style={{ fontWeight: 600 }}>{r.currency} {Number(v).toFixed(2)}</span>
+        : <span style={{ color: '#CBD5E1' }}>—</span>,
     },
     {
       title: 'ETA',
       dataIndex: 'estimatedArrival',
       width: 120,
-      render: (v) => (v ? dayjs(v).format('YYYY-MM-DD') : '—'),
+      render: (v) => v ? dayjs(v).format('MMM D, YYYY') : <span style={{ color: '#CBD5E1' }}>—</span>,
     },
-    { title: 'Warehouse', dataIndex: ['warehouse', 'name'], width: 140, render: (v, r) => v ?? r.warehouseId },
     {
-      title: 'Actions',
+      title: 'Warehouse',
+      dataIndex: ['warehouse', 'name'],
+      width: 130,
+      render: (v, r) => (
+        <span style={{ background: '#F1F5F9', color: '#475569', padding: '2px 8px', borderRadius: 6, fontSize: 12 }}>
+          {v ?? r.warehouseId}
+        </span>
+      ),
+    },
+    {
+      title: '',
       key: 'actions',
-      width: 100,
+      width: 60,
       render: (_, record) => (
         <Button
+          type="text"
           size="small"
           icon={<EditOutlined />}
+          style={{ color: '#64748B' }}
           onClick={() => openEdit(record)}
-        >
-          Edit
-        </Button>
+        />
       ),
     },
   ]
 
+  // suppress "unused" warning for cancelMutation
+  void cancelMutation
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ margin: 0 }}>First-Leg Logistics</h2>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          New Shipment
-        </Button>
+      {/* Page Header */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>First-Leg Shipments</h1>
+            <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Track inbound logistics from suppliers</p>
+          </div>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={openCreate}
+            style={{ background: '#6366F1', border: 'none', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+          >
+            New Shipment
+          </Button>
+        </div>
       </div>
 
-      <Card>
+      {/* Status Tabs */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+        {STATUS_TABS.map((tab) => {
+          const isActive = statusFilter === tab.key
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setStatusFilter(tab.key)}
+              style={{
+                background: isActive ? '#6366F1' : '#fff',
+                color: isActive ? '#fff' : '#64748B',
+                border: isActive ? '1px solid #6366F1' : '1px solid #E2E8F0',
+                borderRadius: 20,
+                padding: '5px 14px',
+                fontSize: 13,
+                fontWeight: isActive ? 600 : 400,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Table */}
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
         <Table
           rowKey="id"
           columns={columns}
           dataSource={shipments}
           loading={isLoading}
-          size="small"
-          pagination={{ pageSize: 20 }}
-          scroll={{ x: 1100 }}
+          size="middle"
+          style={{ borderRadius: 0 }}
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: false,
+            showTotal: (total) => `${total.toLocaleString()} records`,
+            style: { padding: '12px 20px' },
+          }}
+          scroll={{ x: 'max-content' }}
+          locale={{
+            emptyText: (
+              <div style={{ padding: '48px 0', textAlign: 'center' }}>
+                <TruckOutlined style={{ fontSize: 40, color: '#CBD5E1', display: 'block', margin: '0 auto 12px' }} />
+                <div style={{ fontSize: 15, fontWeight: 500, color: '#64748B' }}>No shipments</div>
+                <div style={{ fontSize: 13, color: '#94A3B8', marginTop: 4 }}>Create your first shipment to track inbound logistics</div>
+              </div>
+            ),
+          }}
         />
-      </Card>
+      </div>
 
+      {/* Create / Edit Modal */}
       <Modal
-        title={editingShipment ? 'Edit Shipment' : 'New Shipment'}
+        title={
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#0F172A' }}>
+            {editingShipment ? 'Edit Shipment' : 'New Shipment'}
+          </span>
+        }
         open={modalOpen}
         onCancel={() => {
           setModalOpen(false)
@@ -206,6 +331,7 @@ export default function LogisticsPage() {
         }}
         onOk={handleSubmit}
         confirmLoading={createMutation.isPending || updateMutation.isPending}
+        okButtonProps={{ style: { background: '#6366F1', border: 'none', borderRadius: 8 } }}
         width={600}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
@@ -217,55 +343,57 @@ export default function LogisticsPage() {
               />
             </Form.Item>
           )}
-          <Form.Item name="trackingNumber" label="Tracking Number">
-            <Input />
-          </Form.Item>
-          <Form.Item name="carrier" label="Carrier">
-            <Input />
-          </Form.Item>
-          <Form.Item name="shipmentType" label="Shipment Type">
-            <Select
-              options={[
+          <Space style={{ width: '100%' }} size={12}>
+            <Form.Item name="trackingNumber" label="Tracking Number" style={{ flex: 1 }}>
+              <Input style={{ fontFamily: 'monospace' }} />
+            </Form.Item>
+            <Form.Item name="carrier" label="Carrier" style={{ flex: 1 }}>
+              <Input />
+            </Form.Item>
+          </Space>
+          <Space style={{ width: '100%' }} size={12}>
+            <Form.Item name="shipmentType" label="Type" style={{ flex: 1 }}>
+              <Select options={[
                 { value: 'SEA', label: 'Sea' },
                 { value: 'AIR', label: 'Air' },
                 { value: 'RAIL', label: 'Rail' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item name="destination" label="Destination">
-            <Input />
-          </Form.Item>
+              ]} />
+            </Form.Item>
+            <Form.Item name="destination" label="Destination" style={{ flex: 1 }}>
+              <Input />
+            </Form.Item>
+          </Space>
           {editingShipment && (
             <Form.Item name="status" label="Status">
-              <Select
-                options={[
-                  { value: 'PENDING', label: 'Pending' },
-                  { value: 'IN_TRANSIT', label: 'In Transit' },
-                  { value: 'ARRIVED', label: 'Arrived' },
-                  { value: 'CLEARED', label: 'Cleared' },
-                  { value: 'CANCELLED', label: 'Cancelled' },
-                ]}
-              />
+              <Select options={[
+                { value: 'PENDING', label: 'Pending' },
+                { value: 'IN_TRANSIT', label: 'In Transit' },
+                { value: 'ARRIVED', label: 'Arrived' },
+                { value: 'CLEARED', label: 'Cleared' },
+                { value: 'CANCELLED', label: 'Cancelled' },
+              ]} />
             </Form.Item>
           )}
-          <Form.Item name="weightKg" label="Weight (kg)">
-            <InputNumber min={0} precision={3} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="volumeCbm" label="Volume (CBM)">
-            <InputNumber min={0} precision={4} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="cost" label="Cost">
-            <InputNumber min={0} precision={2} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="currency" label="Currency" initialValue="USD">
-            <Select
-              options={[
+          <Space style={{ width: '100%' }} size={12}>
+            <Form.Item name="weightKg" label="Weight (kg)" style={{ flex: 1 }}>
+              <InputNumber min={0} precision={3} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="volumeCbm" label="Volume (CBM)" style={{ flex: 1 }}>
+              <InputNumber min={0} precision={4} style={{ width: '100%' }} />
+            </Form.Item>
+          </Space>
+          <Space style={{ width: '100%' }} size={12}>
+            <Form.Item name="cost" label="Cost" style={{ flex: 1 }}>
+              <InputNumber min={0} precision={2} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="currency" label="Currency" initialValue="USD" style={{ flex: 1 }}>
+              <Select options={[
                 { value: 'USD', label: 'USD' },
                 { value: 'CNY', label: 'CNY' },
                 { value: 'EUR', label: 'EUR' },
-              ]}
-            />
-          </Form.Item>
+              ]} />
+            </Form.Item>
+          </Space>
           <Form.Item name="notes" label="Notes">
             <Input.TextArea rows={3} />
           </Form.Item>

@@ -1,11 +1,14 @@
 import { useState } from 'react'
-import { Alert, Badge, Button, Select, Switch, Typography } from 'antd'
+import { Select, Switch } from 'antd'
+import { MessageOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 dayjs.extend(relativeTime)
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface Thread {
   id: string
@@ -32,6 +35,46 @@ interface Shop {
   name: string
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const AVATAR_COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899']
+
+function getAvatarColor(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+}
+
+function Avatar({ name, size = 36 }: { name: string; size?: number }) {
+  const initials = name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2)
+  const color = getAvatarColor(name)
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%', background: color,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      color: '#fff', fontWeight: 700, fontSize: size * 0.36, flexShrink: 0,
+    }}>
+      {initials}
+    </div>
+  )
+}
+
+function PlatformBadge({ platform }: { platform: string }) {
+  const map: Record<string, { bg: string; color: string }> = {
+    SHOPEE: { bg: '#FF6633', color: '#fff' },
+    TIKTOK: { bg: '#0F172A', color: '#fff' },
+    LAZADA: { bg: '#0F146D', color: '#fff' },
+  }
+  const s = map[platform] ?? { bg: '#E2E8F0', color: '#475569' }
+  return (
+    <span style={{ background: s.bg, color: s.color, padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em' }}>
+      {platform}
+    </span>
+  )
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function InboxPage() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [filterShopId, setFilterShopId] = useState<string | undefined>(undefined)
@@ -46,15 +89,13 @@ export default function InboxPage() {
   const threadsQuery = useQuery<{ items: Thread[]; total: number }>({
     queryKey: ['cs-threads', filterShopId, unreadOnly],
     queryFn: () =>
-      api
-        .get('/cs/threads', {
-          params: {
-            ...(filterShopId ? { shopId: filterShopId } : {}),
-            ...(unreadOnly ? { isRead: 'false' } : {}),
-            pageSize: 50,
-          },
-        })
-        .then((r) => r.data.data),
+      api.get('/cs/threads', {
+        params: {
+          ...(filterShopId ? { shopId: filterShopId } : {}),
+          ...(unreadOnly ? { isRead: 'false' } : {}),
+          pageSize: 50,
+        },
+      }).then((r) => r.data.data),
   })
 
   const threads: Thread[] = threadsQuery.data?.items ?? []
@@ -76,9 +117,7 @@ export default function InboxPage() {
 
   const handleSelectThread = (thread: Thread) => {
     setSelectedThreadId(thread.id)
-    if (!thread.isRead) {
-      readMutation.mutate(thread.id)
-    }
+    if (!thread.isRead) readMutation.mutate(thread.id)
   }
 
   const selectedThread = threads.find((t) => t.id === selectedThreadId)
@@ -86,144 +125,164 @@ export default function InboxPage() {
   const noThreads = !threadsQuery.isLoading && threads.length === 0
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 112px)', gap: 0, border: '1px solid #f0f0f0', borderRadius: 8, overflow: 'hidden' }}>
-      {/* Left Panel */}
-      <div style={{ width: 300, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
-        {/* Filter Bar */}
-        <div style={{ padding: '12px', borderBottom: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <Select
-            placeholder="All shops"
-            allowClear
-            style={{ width: '100%' }}
-            value={filterShopId}
-            onChange={setFilterShopId}
-            options={(shopsData ?? []).map((s) => ({ value: s.id, label: s.name }))}
-          />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Switch size="small" checked={unreadOnly} onChange={setUnreadOnly} />
-            <span style={{ fontSize: 13 }}>Unread only</span>
-          </div>
-        </div>
-
-        {/* Thread List */}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {noThreads ? (
-            <div style={{ padding: 24, textAlign: 'center', color: '#8c8c8c', fontSize: 13 }}>
-              No messages yet. Connect a shop to start syncing messages.
-            </div>
-          ) : (
-            threads.map((thread) => (
-              <div
-                key={thread.id}
-                onClick={() => handleSelectThread(thread)}
-                style={{
-                  padding: '10px 14px',
-                  cursor: 'pointer',
-                  borderBottom: '1px solid #f5f5f5',
-                  background: selectedThreadId === thread.id ? '#e6f4ff' : '#fff',
-                  transition: 'background 0.15s',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography.Text strong style={{ fontSize: 13 }}>
-                    {!thread.isRead && (
-                      <Badge dot style={{ marginRight: 6 }} />
-                    )}
-                    {thread.buyerName ?? 'Unknown Buyer'}
-                  </Typography.Text>
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                    {dayjs(thread.lastMessageAt).fromNow()}
-                  </Typography.Text>
-                </div>
-                <div style={{ fontSize: 12, color: '#595959', marginTop: 2 }}>
-                  {thread.shop?.name ?? thread.shopId}
-                </div>
-                {thread.lastMessagePreview && (
-                  <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {thread.lastMessagePreview}
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
+    <div>
+      {/* Page Header */}
+      <div style={{ marginBottom: 16 }}>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Customer Inbox</h1>
+        <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Manage buyer conversations across all shops</p>
       </div>
 
-      {/* Right Panel */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#fafafa' }}>
-        {selectedThread ? (
-          <>
-            {/* Thread Header */}
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', background: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Typography.Text strong>{selectedThread.buyerName ?? 'Unknown Buyer'}</Typography.Text>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                — {selectedThread.shop?.name}
-              </Typography.Text>
-              {!selectedThread.isRead && (
-                <Button size="small" onClick={() => readMutation.mutate(selectedThread.id)}>
-                  Mark as Read
-                </Button>
-              )}
+      {/* Two-panel layout */}
+      <div style={{
+        display: 'flex',
+        height: 'calc(100vh - 210px)',
+        gap: 0,
+        borderRadius: 12,
+        overflow: 'hidden',
+        border: '1px solid #E2E8F0',
+      }}>
+        {/* ── Left panel ── */}
+        <div style={{ width: 320, borderRight: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', background: '#fff', flexShrink: 0 }}>
+          {/* Filter bar */}
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid #F1F5F9', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Select
+              placeholder="All shops"
+              allowClear
+              style={{ width: '100%' }}
+              value={filterShopId}
+              onChange={setFilterShopId}
+              options={(shopsData ?? []).map((s) => ({ value: s.id, label: s.name }))}
+              size="small"
+            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Switch size="small" checked={unreadOnly} onChange={setUnreadOnly} style={{ background: unreadOnly ? '#6366F1' : undefined }} />
+              <span style={{ fontSize: 13, color: '#64748B' }}>Unread only</span>
             </div>
+          </div>
 
-            {/* Messages */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {messagesQuery.isLoading ? (
-                <div style={{ textAlign: 'center', color: '#8c8c8c' }}>Loading messages...</div>
-              ) : messages.length === 0 ? (
-                <div style={{ textAlign: 'center', color: '#8c8c8c' }}>No messages in this thread</div>
-              ) : (
-                messages.map((msg) => {
-                  const isSeller = msg.senderType === 'seller'
-                  return (
-                    <div
-                      key={msg.id}
-                      style={{
-                        display: 'flex',
-                        justifyContent: isSeller ? 'flex-end' : 'flex-start',
-                      }}
-                    >
-                      <div
-                        style={{
-                          maxWidth: '70%',
-                          padding: '8px 12px',
-                          borderRadius: isSeller ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-                          background: isSeller ? '#1677ff' : '#fff',
-                          color: isSeller ? '#fff' : '#000',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                          fontSize: 13,
-                        }}
-                      >
-                        {!isSeller && msg.senderName && (
-                          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2, color: '#595959' }}>
-                            {msg.senderName}
+          {/* Thread list */}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {noThreads ? (
+              <div style={{ padding: 32, textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
+                <MessageOutlined style={{ fontSize: 28, display: 'block', margin: '0 auto 8px', color: '#CBD5E1' }} />
+                No messages yet. Connect a shop to start syncing.
+              </div>
+            ) : (
+              threads.map((thread) => {
+                const isSelected = selectedThreadId === thread.id
+                const name = thread.buyerName ?? 'Unknown Buyer'
+                return (
+                  <div
+                    key={thread.id}
+                    onClick={() => handleSelectThread(thread)}
+                    style={{
+                      padding: '12px 14px',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid #F8FAFC',
+                      background: isSelected ? '#EEF2FF' : '#fff',
+                      borderLeft: isSelected ? '3px solid #6366F1' : '3px solid transparent',
+                      transition: 'background 0.1s',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                      <Avatar name={name} size={36} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                          <span style={{ fontWeight: thread.isRead ? 500 : 700, fontSize: 14, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {name}
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                            {!thread.isRead && (
+                              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366F1' }} />
+                            )}
+                            <span style={{ fontSize: 11, color: '#94A3B8', whiteSpace: 'nowrap' }}>
+                              {dayjs(thread.lastMessageAt).fromNow()}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                          {thread.shop?.platform && <PlatformBadge platform={thread.shop.platform} />}
+                          <span style={{ fontSize: 12, color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {thread.shop?.name ?? thread.shopId}
+                          </span>
+                        </div>
+                        {thread.lastMessagePreview && (
+                          <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {thread.lastMessagePreview}
                           </div>
                         )}
-                        <div>{msg.content}</div>
-                        <div style={{ fontSize: 10, marginTop: 4, opacity: 0.7, textAlign: 'right' }}>
-                          {dayjs(msg.platformCreatedAt).format('HH:mm')}
-                        </div>
                       </div>
                     </div>
-                  )
-                })
-              )}
-            </div>
-          </>
-        ) : (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8c8c8c' }}>
-            {noThreads ? (
-              <Alert
-                type="info"
-                showIcon
-                message="No messages yet"
-                description="Connect a shop to start syncing messages."
-              />
-            ) : (
-              <span>Select a conversation to view messages</span>
+                  </div>
+                )
+              })
             )}
           </div>
-        )}
+        </div>
+
+        {/* ── Right panel ── */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#F8FAFC', minWidth: 0 }}>
+          {selectedThread ? (
+            <>
+              {/* Thread header */}
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid #E2E8F0', background: '#fff', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Avatar name={selectedThread.buyerName ?? 'Unknown'} size={36} />
+                <div>
+                  <div style={{ fontWeight: 600, color: '#0F172A', fontSize: 15 }}>
+                    {selectedThread.buyerName ?? 'Unknown Buyer'}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                    {selectedThread.shop?.platform && <PlatformBadge platform={selectedThread.shop.platform} />}
+                    <span style={{ fontSize: 12, color: '#64748B' }}>{selectedThread.shop?.name}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Messages */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {messagesQuery.isLoading ? (
+                  <div style={{ textAlign: 'center', color: '#94A3B8', marginTop: 40 }}>Loading messages...</div>
+                ) : messages.length === 0 ? (
+                  <div style={{ textAlign: 'center', color: '#94A3B8', marginTop: 40 }}>No messages in this thread</div>
+                ) : (
+                  messages.map((msg) => {
+                    const isSeller = msg.senderType === 'seller'
+                    return (
+                      <div key={msg.id} style={{ display: 'flex', justifyContent: isSeller ? 'flex-end' : 'flex-start' }}>
+                        <div style={{
+                          maxWidth: '68%',
+                          padding: '10px 14px',
+                          borderRadius: isSeller ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+                          background: isSeller ? '#6366F1' : '#fff',
+                          color: isSeller ? '#fff' : '#0F172A',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                          fontSize: 14,
+                          lineHeight: 1.5,
+                        }}>
+                          {!isSeller && msg.senderName && (
+                            <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: '#6366F1' }}>
+                              {msg.senderName}
+                            </div>
+                          )}
+                          <div>{msg.content}</div>
+                          <div style={{ fontSize: 10, marginTop: 5, opacity: 0.6, textAlign: 'right' }}>
+                            {dayjs(msg.platformCreatedAt).format('HH:mm')}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </>
+          ) : (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94A3B8' }}>
+              <MessageOutlined style={{ fontSize: 48, color: '#CBD5E1', marginBottom: 16 }} />
+              <div style={{ fontSize: 15, fontWeight: 500, color: '#64748B' }}>Select a conversation</div>
+              <div style={{ fontSize: 13, color: '#94A3B8', marginTop: 4 }}>Choose a thread from the left to view messages</div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
