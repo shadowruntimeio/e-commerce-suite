@@ -7,9 +7,13 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: process.env.VITE_API_URL ?? 'http://localhost:3001',
         changeOrigin: true,
       },
     },
+  },
+  define: {
+    // Make API base URL available at build time for production
+    __API_URL__: JSON.stringify(process.env.VITE_API_URL ?? ''),
   },
 })

@@ -1,0 +1,14 @@
+[phases.setup]
+nixPkgs = ["nodejs_20", "nodePackages.pnpm"]
+
+[phases.install]
+cmds = ["pnpm install --frozen-lockfile"]
+
+[phases.build]
+cmds = [
+  "pnpm --filter @ems/db generate",
+  "pnpm --filter @ems/api build"
+]
+
+[start]
+cmd = "pnpm --filter @ems/db migrate:deploy && node apps/api/dist/index.js"
