@@ -254,7 +254,7 @@ export function AppLayout() {
                   width: 36, height: 36, borderRadius: 8,
                   border: '1px solid var(--border)', display: 'flex',
                   alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer', background: 'var(--bg-card)',
+                  cursor: 'pointer', background: 'var(--bg-btn)',
                   color: 'var(--text-secondary)',
                 }}>
                   <TranslationOutlined style={{ fontSize: 16 }} />
@@ -270,7 +270,7 @@ export function AppLayout() {
                   width: 36, height: 36, borderRadius: 8,
                   border: '1px solid var(--border)', display: 'flex',
                   alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer', background: 'var(--bg-card)',
+                  cursor: 'pointer', background: 'var(--bg-btn)',
                   color: 'var(--text-secondary)',
                 }}
               >
@@ -284,7 +284,7 @@ export function AppLayout() {
                 width: 36, height: 36, borderRadius: 8,
                 border: '1px solid var(--border)', display: 'flex',
                 alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', background: 'var(--bg-card)',
+                cursor: 'pointer', background: 'var(--bg-btn)',
                 color: 'var(--text-secondary)',
               }}>
                 <BellOutlined style={{ fontSize: 16 }} />
@@ -308,7 +308,7 @@ export function AppLayout() {
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 8,
                 padding: '4px 10px 4px 4px', borderRadius: 8, cursor: 'pointer',
-                border: '1px solid var(--border)', background: 'var(--bg-card)',
+                border: '1px solid var(--border)', background: 'var(--bg-btn)',
               }}>
                 <Avatar
                   size={28}

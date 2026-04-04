@@ -98,7 +98,7 @@ const styles = {
   },
   right: {
     width: '45%',
-    background: '#fff',
+    background: 'var(--bg-card)',
     display: 'flex',
     flexDirection: 'column' as const,
     alignItems: 'center',
@@ -112,14 +112,14 @@ const styles = {
   rightHeading: {
     fontSize: 26,
     fontWeight: 700,
-    color: '#0F172A',
+    color: 'var(--text-primary)',
     letterSpacing: '-0.4px',
     marginBottom: 6,
     marginTop: 0,
   },
   rightSub: {
     fontSize: 14,
-    color: '#64748B',
+    color: 'var(--text-secondary)',
     marginBottom: 32,
   },
   submitBtn: {
@@ -133,7 +133,7 @@ const styles = {
   footerText: {
     textAlign: 'center' as const,
     fontSize: 13,
-    color: '#94A3B8',
+    color: 'var(--text-muted)',
   },
   link: {
     color: '#6366F1',

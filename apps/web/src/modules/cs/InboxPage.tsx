@@ -179,7 +179,7 @@ export default function InboxPage() {
                       padding: '12px 14px',
                       cursor: 'pointer',
                       borderBottom: '1px solid var(--bg-surface)',
-                      background: isSelected ? '#EEF2FF' : 'var(--bg-card)',
+                      background: isSelected ? 'rgba(99,102,241,0.12)' : 'var(--bg-card)',
                       borderLeft: isSelected ? '3px solid #6366F1' : '3px solid transparent',
                       transition: 'background 0.1s',
                     }}

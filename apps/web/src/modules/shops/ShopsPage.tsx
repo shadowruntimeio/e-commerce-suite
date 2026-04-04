@@ -96,7 +96,7 @@ function ShopCard({ shop, onSync, syncing }: { shop: any; onSync: () => void; sy
       </div>
 
       {/* Card footer */}
-      <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#FAFAFA' }}>
+      <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-surface)' }}>
         <Button
           size="small"
           icon={<SyncOutlined spin={syncing} />}
