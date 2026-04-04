@@ -30,10 +30,10 @@ function WarehouseCard({ warehouse, index }: { warehouse: any; index: number }) 
 
   return (
     <div style={{
-      background: '#fff',
+      background: 'var(--bg-card)',
       borderRadius: 12,
-      border: '1px solid #E2E8F0',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+      border: '1px solid var(--border)',
+      boxShadow: 'var(--card-shadow)',
       padding: '20px',
       display: 'flex',
       flexDirection: 'column',
@@ -55,7 +55,7 @@ function WarehouseCard({ warehouse, index }: { warehouse: any; index: number }) 
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 16, fontWeight: 700, color: '#0F172A' }}>{warehouse.name}</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{warehouse.name}</span>
             {warehouse.isDefault && (
               <span style={{ background: '#D1FAE5', color: '#065F46', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600 }}>
                 Default
@@ -69,15 +69,15 @@ function WarehouseCard({ warehouse, index }: { warehouse: any; index: number }) 
       </div>
 
       {/* Details */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid #F1F5F9', paddingTop: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--border-light)', paddingTop: 14 }}>
         {warehouse.address && (
           <div style={{ display: 'flex', gap: 8 }}>
-            <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 500, width: 60, flexShrink: 0 }}>Address</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, width: 60, flexShrink: 0 }}>Address</span>
             <span style={{ fontSize: 13, color: '#374151' }}>{warehouse.address}</span>
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 500, width: 60, flexShrink: 0 }}>SKUs</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, width: 60, flexShrink: 0 }}>SKUs</span>
           <span style={{ background: '#F1F5F9', color: '#475569', padding: '2px 8px', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
             0
           </span>
@@ -103,8 +103,8 @@ export default function WarehousesPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Warehouses</h1>
-            <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Manage your storage locations and stock</p>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Warehouses</h1>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Manage your storage locations and stock</p>
           </div>
           <Button
             type="primary"
@@ -122,12 +122,12 @@ export default function WarehousesPage() {
           <Spin size="large" />
         </div>
       ) : warehouses.length === 0 ? (
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', padding: '64px 40px', textAlign: 'center' }}>
+        <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '64px 40px', textAlign: 'center' }}>
           <div style={{ width: 56, height: 56, borderRadius: 14, background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
             <BankOutlined style={{ fontSize: 26, color: '#6366F1' }} />
           </div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: '#0F172A', marginBottom: 6 }}>No warehouses yet</div>
-          <div style={{ fontSize: 14, color: '#64748B' }}>Add your first warehouse to start tracking inventory</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>No warehouses yet</div>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Add your first warehouse to start tracking inventory</div>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 20 }}>

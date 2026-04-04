@@ -1,4 +1,4 @@
-import { Table, DatePicker, Space, Spin, Empty } from 'antd'
+import { Table, DatePicker, Space, Spin } from 'antd'
 import { BarChartOutlined, DollarOutlined, ShoppingCartOutlined, RiseOutlined, TrophyOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -19,15 +19,15 @@ function KpiCard({
   title: string; value: string; prefix?: React.ReactNode; suffix?: string; accent: string
 }) {
   return (
-    <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', padding: '20px 24px' }}>
+    <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: 'var(--card-shadow)', padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <span style={{ fontSize: 13, color: '#64748B', fontWeight: 500 }}>{title}</span>
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>{title}</span>
         <div style={{ width: 36, height: 36, borderRadius: 10, background: `${accent}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {prefix && <span style={{ color: accent, fontSize: 18 }}>{prefix}</span>}
         </div>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: '#0F172A', lineHeight: 1 }}>
-        {value}{suffix && <span style={{ fontSize: 16, color: '#64748B', marginLeft: 2 }}>{suffix}</span>}
+      <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+        {value}{suffix && <span style={{ fontSize: 16, color: 'var(--text-secondary)', marginLeft: 2 }}>{suffix}</span>}
       </div>
     </div>
   )
@@ -103,8 +103,8 @@ export default function SalesReportPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Sales Report</h1>
-            <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Revenue and profit overview by date</p>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Sales Report</h1>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Revenue and profit overview by date</p>
           </div>
           <Space>
             <RangePicker
@@ -121,10 +121,10 @@ export default function SalesReportPage() {
       {isLoading ? (
         <div style={{ textAlign: 'center', padding: '80px 0' }}><Spin size="large" /></div>
       ) : !hasData ? (
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', padding: '64px 40px', textAlign: 'center' }}>
-          <BarChartOutlined style={{ fontSize: 48, color: '#CBD5E1', marginBottom: 16 }} />
-          <div style={{ fontSize: 16, fontWeight: 600, color: '#0F172A', marginBottom: 6 }}>No data for this period</div>
-          <div style={{ fontSize: 14, color: '#64748B' }}>Run the ETL job to populate sales reports</div>
+        <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '64px 40px', textAlign: 'center' }}>
+          <BarChartOutlined style={{ fontSize: 48, color: 'var(--text-muted)', marginBottom: 16 }} />
+          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>No data for this period</div>
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Run the ETL job to populate sales reports</div>
         </div>
       ) : (
         <>
@@ -137,8 +137,8 @@ export default function SalesReportPage() {
           </div>
 
           {/* Chart */}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', padding: '20px 20px 8px', marginBottom: 20 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#0F172A', marginBottom: 16 }}>Revenue & Profit Trend</div>
+          <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '20px 20px 8px', marginBottom: 20 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>Revenue & Profit Trend</div>
             <ResponsiveContainer width="100%" height={280}>
               <AreaChart data={rows} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
                 <defs>
@@ -165,9 +165,9 @@ export default function SalesReportPage() {
           </div>
 
           {/* Table */}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #F1F5F9' }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: '#0F172A' }}>Daily Breakdown</span>
+          <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-light)' }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Daily Breakdown</span>
             </div>
             <Table
               rowKey="date"

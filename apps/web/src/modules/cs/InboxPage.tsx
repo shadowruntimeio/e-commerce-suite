@@ -128,8 +128,8 @@ export default function InboxPage() {
     <div>
       {/* Page Header */}
       <div style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Customer Inbox</h1>
-        <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Manage buyer conversations across all shops</p>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Customer Inbox</h1>
+        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Manage buyer conversations across all shops</p>
       </div>
 
       {/* Two-panel layout */}
@@ -139,12 +139,12 @@ export default function InboxPage() {
         gap: 0,
         borderRadius: 12,
         overflow: 'hidden',
-        border: '1px solid #E2E8F0',
+        border: '1px solid var(--border)',
       }}>
         {/* ── Left panel ── */}
-        <div style={{ width: 320, borderRight: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', background: '#fff', flexShrink: 0 }}>
+        <div style={{ width: 320, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', background: 'var(--bg-card)', flexShrink: 0 }}>
           {/* Filter bar */}
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid #F1F5F9', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <Select
               placeholder="All shops"
               allowClear
@@ -156,15 +156,15 @@ export default function InboxPage() {
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Switch size="small" checked={unreadOnly} onChange={setUnreadOnly} style={{ background: unreadOnly ? '#6366F1' : undefined }} />
-              <span style={{ fontSize: 13, color: '#64748B' }}>Unread only</span>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Unread only</span>
             </div>
           </div>
 
           {/* Thread list */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {noThreads ? (
-              <div style={{ padding: 32, textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
-                <MessageOutlined style={{ fontSize: 28, display: 'block', margin: '0 auto 8px', color: '#CBD5E1' }} />
+              <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                <MessageOutlined style={{ fontSize: 28, display: 'block', margin: '0 auto 8px', color: 'var(--text-muted)' }} />
                 No messages yet. Connect a shop to start syncing.
               </div>
             ) : (
@@ -178,8 +178,8 @@ export default function InboxPage() {
                     style={{
                       padding: '12px 14px',
                       cursor: 'pointer',
-                      borderBottom: '1px solid #F8FAFC',
-                      background: isSelected ? '#EEF2FF' : '#fff',
+                      borderBottom: '1px solid var(--bg-surface)',
+                      background: isSelected ? '#EEF2FF' : 'var(--bg-card)',
                       borderLeft: isSelected ? '3px solid #6366F1' : '3px solid transparent',
                       transition: 'background 0.1s',
                     }}
@@ -188,26 +188,26 @@ export default function InboxPage() {
                       <Avatar name={name} size={36} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-                          <span style={{ fontWeight: thread.isRead ? 500 : 700, fontSize: 14, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontWeight: thread.isRead ? 500 : 700, fontSize: 14, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {name}
                           </span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                             {!thread.isRead && (
                               <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366F1' }} />
                             )}
-                            <span style={{ fontSize: 11, color: '#94A3B8', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                               {dayjs(thread.lastMessageAt).fromNow()}
                             </span>
                           </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                           {thread.shop?.platform && <PlatformBadge platform={thread.shop.platform} />}
-                          <span style={{ fontSize: 12, color: '#64748B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {thread.shop?.name ?? thread.shopId}
                           </span>
                         </div>
                         {thread.lastMessagePreview && (
-                          <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {thread.lastMessagePreview}
                           </div>
                         )}
@@ -221,19 +221,19 @@ export default function InboxPage() {
         </div>
 
         {/* ── Right panel ── */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#F8FAFC', minWidth: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-surface)', minWidth: 0 }}>
           {selectedThread ? (
             <>
               {/* Thread header */}
-              <div style={{ padding: '14px 20px', borderBottom: '1px solid #E2E8F0', background: '#fff', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', gap: 12 }}>
                 <Avatar name={selectedThread.buyerName ?? 'Unknown'} size={36} />
                 <div>
-                  <div style={{ fontWeight: 600, color: '#0F172A', fontSize: 15 }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 15 }}>
                     {selectedThread.buyerName ?? 'Unknown Buyer'}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                     {selectedThread.shop?.platform && <PlatformBadge platform={selectedThread.shop.platform} />}
-                    <span style={{ fontSize: 12, color: '#64748B' }}>{selectedThread.shop?.name}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{selectedThread.shop?.name}</span>
                   </div>
                 </div>
               </div>
@@ -241,9 +241,9 @@ export default function InboxPage() {
               {/* Messages */}
               <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {messagesQuery.isLoading ? (
-                  <div style={{ textAlign: 'center', color: '#94A3B8', marginTop: 40 }}>Loading messages...</div>
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 40 }}>Loading messages...</div>
                 ) : messages.length === 0 ? (
-                  <div style={{ textAlign: 'center', color: '#94A3B8', marginTop: 40 }}>No messages in this thread</div>
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 40 }}>No messages in this thread</div>
                 ) : (
                   messages.map((msg) => {
                     const isSeller = msg.senderType === 'seller'
@@ -253,9 +253,9 @@ export default function InboxPage() {
                           maxWidth: '68%',
                           padding: '10px 14px',
                           borderRadius: isSeller ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-                          background: isSeller ? '#6366F1' : '#fff',
-                          color: isSeller ? '#fff' : '#0F172A',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                          background: isSeller ? '#6366F1' : 'var(--bg-card)',
+                          color: isSeller ? '#fff' : 'var(--text-primary)',
+                          boxShadow: 'var(--card-shadow)',
                           fontSize: 14,
                           lineHeight: 1.5,
                         }}>
@@ -276,10 +276,10 @@ export default function InboxPage() {
               </div>
             </>
           ) : (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94A3B8' }}>
-              <MessageOutlined style={{ fontSize: 48, color: '#CBD5E1', marginBottom: 16 }} />
-              <div style={{ fontSize: 15, fontWeight: 500, color: '#64748B' }}>Select a conversation</div>
-              <div style={{ fontSize: 13, color: '#94A3B8', marginTop: 4 }}>Choose a thread from the left to view messages</div>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+              <MessageOutlined style={{ fontSize: 48, color: 'var(--text-muted)', marginBottom: 16 }} />
+              <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>Select a conversation</div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Choose a thread from the left to view messages</div>
             </div>
           )}
         </div>

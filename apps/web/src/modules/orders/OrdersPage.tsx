@@ -110,7 +110,7 @@ export default function OrdersPage() {
       width: 120,
       align: 'right',
       render: (v) => (
-        <span style={{ fontWeight: 600, color: '#0F172A' }}>${Number(v).toFixed(2)}</span>
+        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>${Number(v).toFixed(2)}</span>
       ),
     },
     {
@@ -124,7 +124,7 @@ export default function OrdersPage() {
       key: 'actions',
       width: 48,
       render: () => (
-        <Button type="text" size="small" icon={<EyeOutlined />} style={{ color: '#64748B' }} />
+        <Button type="text" size="small" icon={<EyeOutlined />} style={{ color: 'var(--text-secondary)' }} />
       ),
     },
   ]
@@ -135,13 +135,13 @@ export default function OrdersPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Orders</h1>
-            <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Manage and track all platform orders</p>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Orders</h1>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Manage and track all platform orders</p>
           </div>
           <Space>
             <Button
               icon={<SyncOutlined />}
-              style={{ background: '#fff', color: '#374151', border: '1px solid #E2E8F0', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+              style={{ background: 'var(--bg-card)', color: '#374151', border: '1px solid var(--border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
             >
               Sync Now
             </Button>
@@ -158,9 +158,9 @@ export default function OrdersPage() {
               key={tab.key}
               onClick={() => { setStatus(tab.key); setPage(1) }}
               style={{
-                background: isActive ? '#6366F1' : '#fff',
-                color: isActive ? '#fff' : '#64748B',
-                border: isActive ? '1px solid #6366F1' : '1px solid #E2E8F0',
+                background: isActive ? '#6366F1' : 'var(--bg-card)',
+                color: isActive ? '#fff' : 'var(--text-secondary)',
+                border: isActive ? '1px solid #6366F1' : '1px solid var(--border)',
                 borderRadius: 20,
                 padding: '5px 14px',
                 fontSize: 13,
@@ -176,7 +176,7 @@ export default function OrdersPage() {
       </div>
 
       {/* Filter Bar */}
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', padding: '16px 20px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '16px 20px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <Input.Search
           placeholder="Order ID / Buyer name"
           allowClear
@@ -192,7 +192,7 @@ export default function OrdersPage() {
         <div style={{ marginLeft: 'auto' }}>
           <Button
             icon={<DownloadOutlined />}
-            style={{ background: '#fff', color: '#374151', border: '1px solid #E2E8F0', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+            style={{ background: 'var(--bg-card)', color: '#374151', border: '1px solid var(--border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
           >
             Export
           </Button>
@@ -200,7 +200,7 @@ export default function OrdersPage() {
       </div>
 
       {/* Table */}
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
         <Table
           rowKey="id"
           columns={columns}
@@ -222,10 +222,10 @@ export default function OrdersPage() {
           scroll={{ x: 'max-content' }}
           locale={{
             emptyText: (
-              <div style={{ padding: '48px 0', color: '#94A3B8', textAlign: 'center' }}>
+              <div style={{ padding: '48px 0', color: 'var(--text-muted)', textAlign: 'center' }}>
                 <ShoppingCartOutlined style={{ fontSize: 40, marginBottom: 12, display: 'block', margin: '0 auto 12px' }} />
-                <div style={{ fontSize: 15, fontWeight: 500, color: '#64748B' }}>No orders yet</div>
-                <div style={{ fontSize: 13, color: '#94A3B8', marginTop: 4 }}>Sync your shops to import orders</div>
+                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>No orders yet</div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Sync your shops to import orders</div>
               </div>
             ),
           }}

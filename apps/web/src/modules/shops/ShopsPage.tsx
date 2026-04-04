@@ -49,11 +49,11 @@ function ShopCard({ shop, onSync, syncing }: { shop: any; onSync: () => void; sy
 
   return (
     <div style={{
-      background: '#fff',
+      background: 'var(--bg-card)',
       borderRadius: 12,
-      border: '1px solid #E2E8F0',
+      border: '1px solid var(--border)',
       overflow: 'hidden',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+      boxShadow: 'var(--card-shadow)',
       display: 'flex',
       flexDirection: 'column',
     }}>
@@ -75,28 +75,28 @@ function ShopCard({ shop, onSync, syncing }: { shop: any; onSync: () => void; sy
       <div style={{ padding: '16px 20px', flex: 1 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 500 }}>Shop ID</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>Shop ID</span>
             <span style={{ fontSize: 13, color: '#374151', fontFamily: "'Courier New', monospace" }}>
-              {shop.externalShopId ?? <span style={{ color: '#CBD5E1' }}>—</span>}
+              {shop.externalShopId ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}
             </span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 500 }}>Last Sync</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>Last Sync</span>
             <span style={{ fontSize: 13, color: '#374151' }}>
-              {shop.lastSyncAt ? dayjs(shop.lastSyncAt).fromNow() : <span style={{ color: '#CBD5E1' }}>Never</span>}
+              {shop.lastSyncAt ? dayjs(shop.lastSyncAt).fromNow() : <span style={{ color: 'var(--text-muted)' }}>Never</span>}
             </span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 500 }}>Token Expires</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>Token Expires</span>
             <span style={{ fontSize: 13, color: shop.tokenExpiresAt && dayjs(shop.tokenExpiresAt).isBefore(dayjs().add(7, 'day')) ? '#F59E0B' : '#374151' }}>
-              {shop.tokenExpiresAt ? dayjs(shop.tokenExpiresAt).format('MMM D, YYYY') : <span style={{ color: '#CBD5E1' }}>—</span>}
+              {shop.tokenExpiresAt ? dayjs(shop.tokenExpiresAt).format('MMM D, YYYY') : <span style={{ color: 'var(--text-muted)' }}>—</span>}
             </span>
           </div>
         </div>
       </div>
 
       {/* Card footer */}
-      <div style={{ padding: '12px 20px', borderTop: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#FAFAFA' }}>
+      <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#FAFAFA' }}>
         <Button
           size="small"
           icon={<SyncOutlined spin={syncing} />}
@@ -107,7 +107,7 @@ function ShopCard({ shop, onSync, syncing }: { shop: any; onSync: () => void; sy
           Sync Now
         </Button>
         <Dropdown menu={{ items: menuItems }} placement="bottomRight" trigger={['click']}>
-          <Button type="text" size="small" icon={<MoreOutlined />} style={{ color: '#64748B' }} />
+          <Button type="text" size="small" icon={<MoreOutlined />} style={{ color: 'var(--text-secondary)' }} />
         </Dropdown>
       </div>
     </div>
@@ -118,12 +118,12 @@ function ShopCard({ shop, onSync, syncing }: { shop: any; onSync: () => void; sy
 
 function EmptyState({ onConnect }: { onConnect: () => void }) {
   return (
-    <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', padding: '64px 40px', textAlign: 'center' }}>
+    <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '64px 40px', textAlign: 'center' }}>
       <div style={{ width: 64, height: 64, borderRadius: 16, background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
         <ShopOutlined style={{ fontSize: 28, color: '#6366F1' }} />
       </div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: '#0F172A', marginBottom: 8 }}>No shops connected</div>
-      <div style={{ fontSize: 14, color: '#64748B', marginBottom: 24, maxWidth: 340, margin: '0 auto 24px' }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>No shops connected</div>
+      <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 24, maxWidth: 340, margin: '0 auto 24px' }}>
         Connect your Shopee or TikTok shop to start syncing orders and products.
       </div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -205,8 +205,8 @@ export default function ShopsPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Connected Shops</h1>
-            <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Manage your platform store connections</p>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Connected Shops</h1>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Manage your platform store connections</p>
           </div>
           <Space>
             <Dropdown menu={connectMenu} placement="bottomRight" trigger={['click']}>

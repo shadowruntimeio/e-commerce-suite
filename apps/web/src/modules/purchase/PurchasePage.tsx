@@ -67,14 +67,14 @@ export default function PurchasePage() {
       dataIndex: ['supplier', 'name'],
       width: 160,
       ellipsis: true,
-      render: (v) => v ?? <span style={{ color: '#CBD5E1' }}>—</span>,
+      render: (v) => v ?? <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
       title: 'Warehouse',
       dataIndex: ['warehouse', 'name'],
       width: 140,
       ellipsis: true,
-      render: (v) => v ?? <span style={{ color: '#CBD5E1' }}>—</span>,
+      render: (v) => v ?? <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
       title: 'Status',
@@ -99,7 +99,7 @@ export default function PurchasePage() {
       width: 130,
       align: 'right',
       render: (v, r) => (
-        <span style={{ fontWeight: 600, color: '#0F172A' }}>
+        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
           {r.currency ?? 'USD'} {Number(v ?? 0).toFixed(2)}
         </span>
       ),
@@ -108,13 +108,13 @@ export default function PurchasePage() {
       title: 'ETA',
       dataIndex: 'eta',
       width: 120,
-      render: (v) => v ? dayjs(v).format('MMM D, YYYY') : <span style={{ color: '#CBD5E1' }}>—</span>,
+      render: (v) => v ? dayjs(v).format('MMM D, YYYY') : <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
       title: 'Created',
       dataIndex: 'createdAt',
       width: 140,
-      render: (v) => <span style={{ color: '#64748B', fontSize: 13 }}>{dayjs(v).format('MMM D, HH:mm')}</span>,
+      render: (v) => <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{dayjs(v).format('MMM D, HH:mm')}</span>,
     },
     {
       title: '',
@@ -122,7 +122,7 @@ export default function PurchasePage() {
       width: 72,
       render: () => (
         <Space size={4}>
-          <Button type="text" size="small" icon={<EyeOutlined />} style={{ color: '#64748B' }} />
+          <Button type="text" size="small" icon={<EyeOutlined />} style={{ color: 'var(--text-secondary)' }} />
           <Button type="text" size="small" icon={<CheckOutlined />} style={{ color: '#10B981' }} />
         </Space>
       ),
@@ -135,8 +135,8 @@ export default function PurchasePage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Purchase Orders</h1>
-            <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Track and manage supplier purchase orders</p>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Purchase Orders</h1>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Track and manage supplier purchase orders</p>
           </div>
           <Button
             type="primary"
@@ -157,9 +157,9 @@ export default function PurchasePage() {
               key={tab.key}
               onClick={() => setStatusFilter(tab.key)}
               style={{
-                background: isActive ? '#6366F1' : '#fff',
-                color: isActive ? '#fff' : '#64748B',
-                border: isActive ? '1px solid #6366F1' : '1px solid #E2E8F0',
+                background: isActive ? '#6366F1' : 'var(--bg-card)',
+                color: isActive ? '#fff' : 'var(--text-secondary)',
+                border: isActive ? '1px solid #6366F1' : '1px solid var(--border)',
                 borderRadius: 20,
                 padding: '5px 14px',
                 fontSize: 13,
@@ -175,7 +175,7 @@ export default function PurchasePage() {
       </div>
 
       {/* Filter Bar */}
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', padding: '16px 20px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
+      <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '16px 20px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
         <Input.Search
           placeholder="Search supplier..."
           allowClear
@@ -185,7 +185,7 @@ export default function PurchasePage() {
       </div>
 
       {/* Table */}
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
         <Table
           rowKey="id"
           columns={columns}
@@ -204,9 +204,9 @@ export default function PurchasePage() {
           locale={{
             emptyText: (
               <div style={{ padding: '48px 0', textAlign: 'center' }}>
-                <ShoppingOutlined style={{ fontSize: 40, color: '#CBD5E1', display: 'block', margin: '0 auto 12px' }} />
-                <div style={{ fontSize: 15, fontWeight: 500, color: '#64748B' }}>No purchase orders</div>
-                <div style={{ fontSize: 13, color: '#94A3B8', marginTop: 4 }}>Create your first PO to start tracking purchases</div>
+                <ShoppingOutlined style={{ fontSize: 40, color: 'var(--text-muted)', display: 'block', margin: '0 auto 12px' }} />
+                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>No purchase orders</div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Create your first PO to start tracking purchases</div>
               </div>
             ),
           }}

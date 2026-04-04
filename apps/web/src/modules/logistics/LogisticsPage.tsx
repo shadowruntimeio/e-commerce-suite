@@ -165,13 +165,13 @@ export default function LogisticsPage() {
       width: 160,
       render: (v) => v
         ? <span style={{ fontFamily: "'Courier New', monospace", color: '#6366F1', fontSize: 13 }}>{v}</span>
-        : <span style={{ color: '#CBD5E1' }}>—</span>,
+        : <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
       title: 'Carrier',
       dataIndex: 'carrier',
       width: 110,
-      render: (v) => v ?? <span style={{ color: '#CBD5E1' }}>—</span>,
+      render: (v) => v ?? <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
       title: 'Type',
@@ -183,7 +183,7 @@ export default function LogisticsPage() {
       title: 'Destination',
       dataIndex: 'destination',
       width: 140,
-      render: (v) => v ?? <span style={{ color: '#CBD5E1' }}>—</span>,
+      render: (v) => v ?? <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
       title: 'Status',
@@ -196,7 +196,7 @@ export default function LogisticsPage() {
       dataIndex: 'weightKg',
       width: 110,
       align: 'right',
-      render: (v) => v != null ? Number(v).toFixed(2) : <span style={{ color: '#CBD5E1' }}>—</span>,
+      render: (v) => v != null ? Number(v).toFixed(2) : <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
       title: 'Cost',
@@ -205,13 +205,13 @@ export default function LogisticsPage() {
       align: 'right',
       render: (v, r) => v != null
         ? <span style={{ fontWeight: 600 }}>{r.currency} {Number(v).toFixed(2)}</span>
-        : <span style={{ color: '#CBD5E1' }}>—</span>,
+        : <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
       title: 'ETA',
       dataIndex: 'estimatedArrival',
       width: 120,
-      render: (v) => v ? dayjs(v).format('MMM D, YYYY') : <span style={{ color: '#CBD5E1' }}>—</span>,
+      render: (v) => v ? dayjs(v).format('MMM D, YYYY') : <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
       title: 'Warehouse',
@@ -232,7 +232,7 @@ export default function LogisticsPage() {
           type="text"
           size="small"
           icon={<EditOutlined />}
-          style={{ color: '#64748B' }}
+          style={{ color: 'var(--text-secondary)' }}
           onClick={() => openEdit(record)}
         />
       ),
@@ -248,8 +248,8 @@ export default function LogisticsPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>First-Leg Shipments</h1>
-            <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Track inbound logistics from suppliers</p>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>First-Leg Shipments</h1>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Track inbound logistics from suppliers</p>
           </div>
           <Button
             type="primary"
@@ -271,9 +271,9 @@ export default function LogisticsPage() {
               key={tab.key}
               onClick={() => setStatusFilter(tab.key)}
               style={{
-                background: isActive ? '#6366F1' : '#fff',
-                color: isActive ? '#fff' : '#64748B',
-                border: isActive ? '1px solid #6366F1' : '1px solid #E2E8F0',
+                background: isActive ? '#6366F1' : 'var(--bg-card)',
+                color: isActive ? '#fff' : 'var(--text-secondary)',
+                border: isActive ? '1px solid #6366F1' : '1px solid var(--border)',
                 borderRadius: 20,
                 padding: '5px 14px',
                 fontSize: 13,
@@ -289,7 +289,7 @@ export default function LogisticsPage() {
       </div>
 
       {/* Table */}
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
         <Table
           rowKey="id"
           columns={columns}
@@ -307,9 +307,9 @@ export default function LogisticsPage() {
           locale={{
             emptyText: (
               <div style={{ padding: '48px 0', textAlign: 'center' }}>
-                <TruckOutlined style={{ fontSize: 40, color: '#CBD5E1', display: 'block', margin: '0 auto 12px' }} />
-                <div style={{ fontSize: 15, fontWeight: 500, color: '#64748B' }}>No shipments</div>
-                <div style={{ fontSize: 13, color: '#94A3B8', marginTop: 4 }}>Create your first shipment to track inbound logistics</div>
+                <TruckOutlined style={{ fontSize: 40, color: 'var(--text-muted)', display: 'block', margin: '0 auto 12px' }} />
+                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>No shipments</div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Create your first shipment to track inbound logistics</div>
               </div>
             ),
           }}
@@ -319,7 +319,7 @@ export default function LogisticsPage() {
       {/* Create / Edit Modal */}
       <Modal
         title={
-          <span style={{ fontSize: 16, fontWeight: 700, color: '#0F172A' }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
             {editingShipment ? 'Edit Shipment' : 'New Shipment'}
           </span>
         }

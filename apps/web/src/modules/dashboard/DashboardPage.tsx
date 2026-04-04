@@ -16,10 +16,10 @@ import { api } from '../../lib/api'
 
 // ─── Design tokens ──────────────────────────────────────────────────────────
 const CARD_STYLE: React.CSSProperties = {
-  background: '#FFFFFF',
+  background: 'var(--bg-card)',
   borderRadius: 12,
-  border: '1px solid #E2E8F0',
-  boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+  border: '1px solid var(--border)',
+  boxShadow: 'var(--card-shadow)',
 }
 
 // ─── Sample revenue data (30 days) ──────────────────────────────────────────
@@ -90,10 +90,10 @@ function KpiCard({ title, value, subtitle, trend, trendUp, icon, color, borderCo
     }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 500, color: '#64748B', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             {title}
           </div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: '#0F172A', lineHeight: 1, letterSpacing: '-0.5px' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1, letterSpacing: '-0.5px' }}>
             {value}
           </div>
         </div>
@@ -119,7 +119,7 @@ function KpiCard({ title, value, subtitle, trend, trendUp, icon, color, borderCo
             {trend}
           </span>
         )}
-        <span style={{ fontSize: 12, color: '#94A3B8' }}>{subtitle}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{subtitle}</span>
       </div>
     </div>
   )
@@ -269,12 +269,12 @@ export default function DashboardPage() {
         <div style={{ ...CARD_STYLE, padding: '20px 20px 12px' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: '#0F172A', marginBottom: 2 }}>Revenue & Profit</div>
-              <div style={{ fontSize: 12, color: '#94A3B8' }}>Last 30 days</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>Revenue & Profit</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Last 30 days</div>
             </div>
             <div style={{
-              fontSize: 12, color: '#64748B', background: '#F8FAFC',
-              border: '1px solid #E2E8F0', borderRadius: 6,
+              fontSize: 12, color: 'var(--text-secondary)', background: 'var(--bg-surface)',
+              border: '1px solid var(--border)', borderRadius: 6,
               padding: '4px 10px', fontWeight: 500,
             }}>
               {dayjs().subtract(29, 'day').format('MMM D')} – {dayjs().format('MMM D, YYYY')}
@@ -283,11 +283,11 @@ export default function DashboardPage() {
 
           {/* Legend */}
           <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748B' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
               <div style={{ width: 12, height: 3, borderRadius: 2, background: '#6366F1' }} />
               Revenue
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748B' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
               <div style={{ width: 12, height: 3, borderRadius: 2, background: '#10B981' }} />
               Profit
             </div>
@@ -345,7 +345,7 @@ export default function DashboardPage() {
         {/* Action required */}
         <div style={{ ...CARD_STYLE, padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#0F172A' }}>Action Required</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Action Required</div>
             {totalActions > 0 && (
               <span style={{
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -367,8 +367,8 @@ export default function DashboardPage() {
                   gap: 12,
                   padding: '12px',
                   borderRadius: 10,
-                  border: '1px solid #E2E8F0',
-                  background: '#FAFAFA',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-surface)',
                   cursor: 'pointer',
                   transition: 'background 0.15s',
                 }}>
@@ -381,12 +381,12 @@ export default function DashboardPage() {
                     {item.icon}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: '#0F172A' }}>{item.text}</div>
-                    <div style={{ fontSize: 12, color: '#94A3B8' }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{item.text}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                       {item.count > 0 ? `${item.count} items` : 'All clear'}
                     </div>
                   </div>
-                  <RightOutlined style={{ color: '#CBD5E1', fontSize: 11 }} />
+                  <RightOutlined style={{ color: 'var(--text-muted)', fontSize: 11 }} />
                 </div>
               </Link>
             ))}
@@ -399,14 +399,14 @@ export default function DashboardPage() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#0F172A' }}>{data?.todayOrdersCount ?? 0}</div>
-                <div style={{ fontSize: 11, color: '#94A3B8' }}>Total Orders</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{data?.todayOrdersCount ?? 0}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Total Orders</div>
               </div>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: '#10B981' }}>
                   ${Number(data?.todayRevenue ?? 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
-                <div style={{ fontSize: 11, color: '#94A3B8' }}>Revenue</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Revenue</div>
               </div>
             </div>
           </div>
@@ -416,7 +416,7 @@ export default function DashboardPage() {
       {/* ── Recent Orders ── */}
       <div style={{ ...CARD_STYLE, padding: '20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#0F172A' }}>Recent Orders</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Recent Orders</div>
           <Link to="/orders" style={{ fontSize: 13, color: '#6366F1', fontWeight: 500, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
             View all <RightOutlined style={{ fontSize: 10 }} />
           </Link>
@@ -430,9 +430,9 @@ export default function DashboardPage() {
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
                   {['Order ID', 'Platform', 'Buyer', 'Status', 'Revenue', 'Time'].map((h) => (
-                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em', background: '#F8FAFC', whiteSpace: 'nowrap' }}>
+                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', background: 'var(--bg-surface)', whiteSpace: 'nowrap' }}>
                       {h}
                     </th>
                   ))}
@@ -440,30 +440,30 @@ export default function DashboardPage() {
               </thead>
               <tbody>
                 {(recentOrders?.items ?? []).slice(0, 5).map((order: any) => (
-                  <tr key={order.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                  <tr key={order.id} style={{ borderBottom: '1px solid var(--border-light)' }}>
                     <td style={{ padding: '12px', fontFamily: 'monospace', fontSize: 12, color: '#6366F1', fontWeight: 500 }}>
                       {order.platformOrderId}
                     </td>
                     <td style={{ padding: '12px' }}>
                       <PlatformBadge platform={order.shop?.platform ?? ''} />
                     </td>
-                    <td style={{ padding: '12px', color: '#0F172A', fontWeight: 400 }}>
+                    <td style={{ padding: '12px', color: 'var(--text-primary)', fontWeight: 400 }}>
                       {order.buyerName}
                     </td>
                     <td style={{ padding: '12px' }}>
                       <StatusPill status={order.status} />
                     </td>
-                    <td style={{ padding: '12px', color: '#0F172A', fontWeight: 500 }}>
+                    <td style={{ padding: '12px', color: 'var(--text-primary)', fontWeight: 500 }}>
                       ${Number(order.totalRevenue).toFixed(2)}
                     </td>
-                    <td style={{ padding: '12px', color: '#94A3B8', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                       {dayjs(order.createdAt).format('MM/DD HH:mm')}
                     </td>
                   </tr>
                 ))}
                 {(recentOrders?.items ?? []).length === 0 && (
                   <tr>
-                    <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#94A3B8' }}>
+                    <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
                       No recent orders
                     </td>
                   </tr>

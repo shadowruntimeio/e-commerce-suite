@@ -198,7 +198,7 @@ export default function RulesPage() {
     {
       title: 'Rule Name',
       dataIndex: 'name',
-      render: (v) => <span style={{ fontWeight: 600, color: '#0F172A', fontSize: 14 }}>{v}</span>,
+      render: (v) => <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{v}</span>,
     },
     {
       title: 'Actions',
@@ -235,7 +235,7 @@ export default function RulesPage() {
             type="text"
             size="small"
             icon={<EditOutlined />}
-            style={{ color: '#64748B' }}
+            style={{ color: 'var(--text-secondary)' }}
             onClick={() => openEdit(record)}
           />
           <Popconfirm title="Delete this rule?" onConfirm={() => deleteMutation.mutate(record.id)}>
@@ -252,8 +252,8 @@ export default function RulesPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Order Rules</h1>
-            <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Auto-process orders when conditions are met</p>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Order Rules</h1>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Auto-process orders when conditions are met</p>
           </div>
           <Button
             type="primary"
@@ -267,7 +267,7 @@ export default function RulesPage() {
       </div>
 
       {/* Table */}
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
         <Table
           rowKey="id"
           columns={columns}
@@ -285,9 +285,9 @@ export default function RulesPage() {
           locale={{
             emptyText: (
               <div style={{ padding: '48px 0', textAlign: 'center' }}>
-                <FilterOutlined style={{ fontSize: 40, color: '#CBD5E1', display: 'block', margin: '0 auto 12px' }} />
-                <div style={{ fontSize: 15, fontWeight: 500, color: '#64748B' }}>No rules yet</div>
-                <div style={{ fontSize: 13, color: '#94A3B8', marginTop: 4 }}>Create rules to auto-process orders</div>
+                <FilterOutlined style={{ fontSize: 40, color: 'var(--text-muted)', display: 'block', margin: '0 auto 12px' }} />
+                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>No rules yet</div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Create rules to auto-process orders</div>
               </div>
             ),
           }}
@@ -297,7 +297,7 @@ export default function RulesPage() {
       {/* Create / Edit Modal */}
       <Modal
         title={
-          <span style={{ fontSize: 16, fontWeight: 700, color: '#0F172A' }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
             {editingRule ? 'Edit Rule' : 'New Rule'}
           </span>
         }
@@ -331,12 +331,12 @@ export default function RulesPage() {
             label={
               <span>
                 Conditions{' '}
-                <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400 }}>JSON format</span>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 400 }}>JSON format</span>
               </span>
             }
             rules={[{ required: true, message: 'Conditions are required' }]}
             extra={
-              <span style={{ fontSize: 11, color: '#94A3B8' }}>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                 Fields: status, platform, shopId, totalRevenue, itemCount, buyerName, currency, tags
                 &nbsp;•&nbsp; Ops: eq, neq, gt, gte, lt, lte, contains, in
               </span>
@@ -353,14 +353,14 @@ export default function RulesPage() {
             {(fields, { add, remove }) => (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <span style={{ fontWeight: 600, color: '#0F172A', fontSize: 14 }}>Actions</span>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>Actions</span>
                   <Button size="small" icon={<PlusOutlined />} onClick={() => add({ type: 'add_tag' })}
                     style={{ borderRadius: 6 }}>
                     Add Action
                   </Button>
                 </div>
                 {fields.map(({ key, name }) => (
-                  <div key={key} style={{ background: '#F8FAFC', borderRadius: 8, border: '1px solid #E2E8F0', padding: '10px 12px', marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div key={key} style={{ background: 'var(--bg-surface)', borderRadius: 8, border: '1px solid var(--border)', padding: '10px 12px', marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
                     <Form.Item name={[name, 'type']} noStyle rules={[{ required: true }]}>
                       <Select style={{ width: 180 }} options={ACTION_TYPE_OPTIONS} />
                     </Form.Item>
@@ -373,7 +373,7 @@ export default function RulesPage() {
                   </div>
                 ))}
                 {fields.length === 0 && (
-                  <div style={{ color: '#94A3B8', fontSize: 13 }}>No actions yet. Add at least one action.</div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No actions yet. Add at least one action.</div>
                 )}
               </div>
             )}
@@ -383,7 +383,7 @@ export default function RulesPage() {
 
       {/* Test Rule Modal */}
       <Modal
-        title={<span style={{ fontSize: 16, fontWeight: 700, color: '#0F172A' }}>Test Rule (Dry Run)</span>}
+        title={<span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Test Rule (Dry Run)</span>}
         open={testModalOpen}
         onCancel={() => { setTestModalOpen(false); setTestResult(null) }}
         footer={[
@@ -418,8 +418,8 @@ export default function RulesPage() {
 
           {testResult?.context && (
             <div>
-              <div style={{ fontSize: 12, color: '#94A3B8', marginBottom: 6 }}>Order context:</div>
-              <pre style={{ fontSize: 11, background: '#F8FAFC', border: '1px solid #E2E8F0', padding: '10px 12px', borderRadius: 8, maxHeight: 200, overflow: 'auto', color: '#374151' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Order context:</div>
+              <pre style={{ fontSize: 11, background: 'var(--bg-surface)', border: '1px solid var(--border)', padding: '10px 12px', borderRadius: 8, maxHeight: 200, overflow: 'auto', color: '#374151' }}>
                 {JSON.stringify(testResult.context, null, 2)}
               </pre>
             </div>

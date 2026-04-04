@@ -51,14 +51,14 @@ function RoasCell({ value }: { value: number }) {
 
 function KpiCard({ title, value, accent, icon }: { title: string; value: string; accent: string; icon: React.ReactNode }) {
   return (
-    <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)', padding: '20px 24px' }}>
+    <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: 'var(--card-shadow)', padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <span style={{ fontSize: 13, color: '#64748B', fontWeight: 500 }}>{title}</span>
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>{title}</span>
         <div style={{ width: 36, height: 36, borderRadius: 10, background: `${accent}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span style={{ color: accent, fontSize: 18 }}>{icon}</span>
         </div>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: '#0F172A', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>{value}</div>
     </div>
   )
 }
@@ -107,7 +107,7 @@ export default function AdsPage() {
       dataIndex: 'campaignName',
       ellipsis: true,
       render: (v, r) => (
-        <span style={{ fontWeight: 500, color: '#0F172A' }}>{v ?? r.campaignId}</span>
+        <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{v ?? r.campaignId}</span>
       ),
     },
     {
@@ -115,7 +115,7 @@ export default function AdsPage() {
       dataIndex: 'shopId',
       width: 140,
       ellipsis: true,
-      render: (v) => <span style={{ color: '#64748B', fontSize: 13 }}>{v}</span>,
+      render: (v) => <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{v}</span>,
     },
     {
       title: 'Platform',
@@ -174,14 +174,14 @@ export default function AdsPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Ads Performance</h1>
-            <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Campaign metrics across all connected platforms</p>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Ads Performance</h1>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Campaign metrics across all connected platforms</p>
           </div>
           <Button
             icon={<SyncOutlined spin={syncing} />}
             loading={syncing}
             onClick={() => syncMutation.mutate()}
-            style={{ background: '#fff', color: '#374151', border: '1px solid #E2E8F0', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+            style={{ background: 'var(--bg-card)', color: '#374151', border: '1px solid var(--border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
           >
             Sync Ads
           </Button>
@@ -211,9 +211,9 @@ export default function AdsPage() {
           </div>
 
           {/* Table */}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #F1F5F9' }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: '#0F172A' }}>Campaigns</span>
+          <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-light)' }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Campaigns</span>
             </div>
             <Table
               rowKey="campaignId"

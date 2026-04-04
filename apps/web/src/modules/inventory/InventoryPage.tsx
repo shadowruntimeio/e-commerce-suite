@@ -72,7 +72,7 @@ export default function InventoryPage() {
         <span style={{ background: '#F1F5F9', color: '#475569', padding: '2px 8px', borderRadius: 6, fontSize: 12 }}>
           {v}
         </span>
-      ) : <span style={{ color: '#CBD5E1' }}>—</span>,
+      ) : <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
       title: 'Delta',
@@ -89,20 +89,20 @@ export default function InventoryPage() {
       title: 'Reference',
       dataIndex: 'referenceType',
       width: 120,
-      render: (v) => v ?? <span style={{ color: '#CBD5E1' }}>—</span>,
+      render: (v) => v ?? <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
       title: 'Notes',
       dataIndex: 'notes',
       ellipsis: true,
-      render: (v) => v ?? <span style={{ color: '#CBD5E1' }}>—</span>,
+      render: (v) => v ?? <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
       title: 'Date',
       dataIndex: 'createdAt',
       width: 150,
       render: (v) => (
-        <span style={{ color: '#64748B', fontSize: 13 }}>{dayjs(v).format('MMM D, HH:mm')}</span>
+        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{dayjs(v).format('MMM D, HH:mm')}</span>
       ),
     },
   ]
@@ -111,12 +111,12 @@ export default function InventoryPage() {
     <div>
       {/* Page Header */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Inventory Log</h1>
-        <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>All stock movements across warehouses</p>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Inventory Log</h1>
+        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>All stock movements across warehouses</p>
       </div>
 
       {/* Filter Bar */}
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', padding: '16px 20px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '16px 20px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <Input.Search
           placeholder="Search SKU, reference, notes..."
           allowClear
@@ -133,7 +133,7 @@ export default function InventoryPage() {
       </div>
 
       {/* Table */}
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
         <Table
           rowKey="id"
           columns={columns}
@@ -151,9 +151,9 @@ export default function InventoryPage() {
           locale={{
             emptyText: (
               <div style={{ padding: '48px 0', textAlign: 'center' }}>
-                <InboxOutlined style={{ fontSize: 40, color: '#CBD5E1', display: 'block', margin: '0 auto 12px' }} />
-                <div style={{ fontSize: 15, fontWeight: 500, color: '#64748B' }}>No inventory events</div>
-                <div style={{ fontSize: 13, color: '#94A3B8', marginTop: 4 }}>Stock movements will appear here</div>
+                <InboxOutlined style={{ fontSize: 40, color: 'var(--text-muted)', display: 'block', margin: '0 auto 12px' }} />
+                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>No inventory events</div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Stock movements will appear here</div>
               </div>
             ),
           }}

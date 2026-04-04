@@ -48,7 +48,7 @@ function StockIndicator({ days, units }: { days: number; units: number }) {
       <span style={{ background: bg, color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600 }}>
         {days.toFixed(1)} days
       </span>
-      <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>{units} units on hand</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{units} units on hand</div>
     </div>
   )
 }
@@ -94,7 +94,7 @@ export default function RestockingPage() {
           <div style={{ fontFamily: "'Courier New', monospace", color: '#6366F1', fontSize: 13, fontWeight: 600 }}>
             {record.systemSku.skuCode}
           </div>
-          <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
             {record.systemSku.systemProduct.name}
           </div>
         </div>
@@ -122,7 +122,7 @@ export default function RestockingPage() {
       width: 130,
       render: (_: unknown, record: RestockingSuggestion) => (
         <span style={{ color: '#374151', fontSize: 14 }}>
-          {record.reason.avgDailySales.toFixed(2)}<span style={{ color: '#94A3B8', fontSize: 12 }}> / day</span>
+          {record.reason.avgDailySales.toFixed(2)}<span style={{ color: 'var(--text-muted)', fontSize: 12 }}> / day</span>
         </span>
       ),
     },
@@ -139,7 +139,7 @@ export default function RestockingPage() {
       title: 'Safety Stock',
       width: 110,
       render: (_: unknown, record: RestockingSuggestion) => (
-        <span style={{ color: '#64748B', fontSize: 13 }}>{record.warehouseSku.safetyStockDays} days</span>
+        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{record.warehouseSku.safetyStockDays} days</span>
       ),
     },
     {
@@ -169,7 +169,7 @@ export default function RestockingPage() {
               type="link"
               size="small"
               loading={dismissMutation.isPending}
-              style={{ color: '#94A3B8', padding: 0, height: 'auto', fontWeight: 500 }}
+              style={{ color: 'var(--text-muted)', padding: 0, height: 'auto', fontWeight: 500 }}
             >
               Dismiss
             </Button>
@@ -183,8 +183,8 @@ export default function RestockingPage() {
     <div>
       {/* Page Header */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#0F172A' }}>Restocking Suggestions</h1>
-        <p style={{ margin: '4px 0 0', color: '#64748B', fontSize: 14 }}>Auto-generated based on 30-day sales velocity</p>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Restocking Suggestions</h1>
+        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Auto-generated based on 30-day sales velocity</p>
       </div>
 
       {/* Info Banner */}
@@ -206,7 +206,7 @@ export default function RestockingPage() {
       </div>
 
       {/* Table */}
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
         <Table
           rowKey="id"
           columns={columns}
@@ -224,9 +224,9 @@ export default function RestockingPage() {
           locale={{
             emptyText: (
               <div style={{ padding: '48px 0', textAlign: 'center' }}>
-                <AlertOutlined style={{ fontSize: 40, color: '#CBD5E1', display: 'block', margin: '0 auto 12px' }} />
-                <div style={{ fontSize: 15, fontWeight: 500, color: '#64748B' }}>No restocking suggestions</div>
-                <div style={{ fontSize: 13, color: '#94A3B8', marginTop: 4 }}>Run the restocking job to generate suggestions</div>
+                <AlertOutlined style={{ fontSize: 40, color: 'var(--text-muted)', display: 'block', margin: '0 auto 12px' }} />
+                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>No restocking suggestions</div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Run the restocking job to generate suggestions</div>
               </div>
             ),
           }}
