@@ -112,31 +112,31 @@ const styles = {
   rightHeading: {
     fontSize: 26,
     fontWeight: 700,
-    color: '#0F172A',
+    color: 'var(--text-primary)',
     letterSpacing: '-0.4px',
     marginBottom: 6,
     marginTop: 0,
   },
   rightSub: {
     fontSize: 14,
-    color: '#64748B',
+    color: 'var(--text-secondary)',
     marginBottom: 28,
   },
   submitBtn: {
     height: 44,
     fontWeight: 600,
     fontSize: 14,
-    background: '#6366F1',
-    borderColor: '#6366F1',
-    boxShadow: '0 4px 12px rgba(99,102,241,0.3)',
+    background: 'linear-gradient(135deg,#9c48ea,#cc97ff)',
+    borderColor: 'transparent',
+    boxShadow: '0 4px 20px rgba(204,151,255,0.35)',
   },
   footerText: {
     textAlign: 'center' as const,
     fontSize: 13,
-    color: '#94A3B8',
+    color: 'var(--text-muted)',
   },
   link: {
-    color: '#6366F1',
+    color: '#cc97ff',
     fontWeight: 500,
     textDecoration: 'none',
   },
@@ -217,7 +217,7 @@ export default function RegisterPage() {
 
           <Form layout="vertical" onFinish={mutation.mutate} size="large">
             <Form.Item
-              label={<span style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Company Name</span>}
+              label={<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Company Name</span>}
               name="tenantName"
               rules={[{ required: true, message: 'Please enter your company name' }]}
             >
@@ -225,7 +225,7 @@ export default function RegisterPage() {
             </Form.Item>
 
             <Form.Item
-              label={<span style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Your Name</span>}
+              label={<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Your Name</span>}
               name="name"
               rules={[{ required: true, message: 'Please enter your name' }]}
             >
@@ -233,7 +233,7 @@ export default function RegisterPage() {
             </Form.Item>
 
             <Form.Item
-              label={<span style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Work Email</span>}
+              label={<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Work Email</span>}
               name="email"
               rules={[{ required: true, type: 'email', message: 'Please enter a valid email' }]}
             >
@@ -241,7 +241,7 @@ export default function RegisterPage() {
             </Form.Item>
 
             <Form.Item
-              label={<span style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Password</span>}
+              label={<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Password</span>}
               name="password"
               rules={[{ required: true, min: 8, message: 'Minimum 8 characters' }]}
               style={{ marginBottom: 20 }}

@@ -35,13 +35,13 @@ interface Warehouse {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; color: string; label: string }> = {
-    PENDING:    { bg: '#FEF3C7', color: '#92400E', label: 'Pending' },
-    IN_TRANSIT: { bg: '#EEF2FF', color: '#4338CA', label: 'In Transit' },
-    ARRIVED:    { bg: '#D1FAE5', color: '#065F46', label: 'Arrived' },
-    CLEARED:    { bg: '#ECFDF5', color: '#065F46', label: 'Cleared' },
-    CANCELLED:  { bg: '#F1F5F9', color: '#475569', label: 'Cancelled' },
+    PENDING:    { bg: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)', label: 'Pending' },
+    IN_TRANSIT: { bg: 'var(--badge-info-bg)',    color: 'var(--badge-info-fg)',    label: 'In Transit' },
+    ARRIVED:    { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', label: 'Arrived' },
+    CLEARED:    { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', label: 'Cleared' },
+    CANCELLED:  { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: 'Cancelled' },
   }
-  const s = map[status] ?? { bg: '#F1F5F9', color: '#475569', label: status }
+  const s = map[status] ?? { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: status }
   return (
     <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
       {s.label}
@@ -51,11 +51,11 @@ function StatusBadge({ status }: { status: string }) {
 
 function TypeBadge({ type }: { type: string }) {
   const map: Record<string, { bg: string; color: string }> = {
-    SEA:  { bg: '#EEF2FF', color: '#4338CA' },
-    AIR:  { bg: '#ECFDF5', color: '#065F46' },
-    RAIL: { bg: '#FEF3C7', color: '#92400E' },
+    SEA:  { bg: 'var(--badge-info-bg)',    color: 'var(--badge-info-fg)' },
+    AIR:  { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)' },
+    RAIL: { bg: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)' },
   }
-  const s = map[type] ?? { bg: '#F1F5F9', color: '#475569' }
+  const s = map[type] ?? { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)' }
   return (
     <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
       {type}
@@ -164,7 +164,7 @@ export default function LogisticsPage() {
       dataIndex: 'trackingNumber',
       width: 160,
       render: (v) => v
-        ? <span style={{ fontFamily: "'Courier New', monospace", color: '#6366F1', fontSize: 13 }}>{v}</span>
+        ? <span style={{ fontFamily: "'Courier New', monospace", color: 'var(--mono-color)', fontSize: 13 }}>{v}</span>
         : <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
@@ -218,7 +218,7 @@ export default function LogisticsPage() {
       dataIndex: ['warehouse', 'name'],
       width: 130,
       render: (v, r) => (
-        <span style={{ background: '#F1F5F9', color: '#475569', padding: '2px 8px', borderRadius: 6, fontSize: 12 }}>
+        <span style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', padding: '2px 8px', borderRadius: 6, fontSize: 12, border: '1px solid var(--border-light)' }}>
           {v ?? r.warehouseId}
         </span>
       ),
@@ -255,7 +255,7 @@ export default function LogisticsPage() {
             type="primary"
             icon={<PlusOutlined />}
             onClick={openCreate}
-            style={{ background: '#6366F1', border: 'none', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+            style={{ background: 'var(--accent-gradient)', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
           >
             New Shipment
           </Button>
@@ -271,9 +271,9 @@ export default function LogisticsPage() {
               key={tab.key}
               onClick={() => setStatusFilter(tab.key)}
               style={{
-                background: isActive ? '#6366F1' : 'var(--bg-card)',
-                color: isActive ? '#fff' : 'var(--text-secondary)',
-                border: isActive ? '1px solid #6366F1' : '1px solid var(--border)',
+                background: isActive ? 'var(--tab-active-bg)' : 'var(--bg-surface)',
+                color: isActive ? 'var(--tab-active-fg)' : 'var(--text-secondary)',
+                border: isActive ? 'var(--tab-active-border)' : '1px solid var(--border)',
                 borderRadius: 20,
                 padding: '5px 14px',
                 fontSize: 13,
@@ -331,7 +331,7 @@ export default function LogisticsPage() {
         }}
         onOk={handleSubmit}
         confirmLoading={createMutation.isPending || updateMutation.isPending}
-        okButtonProps={{ style: { background: '#6366F1', border: 'none', borderRadius: 8 } }}
+        okButtonProps={{ style: { background: 'var(--accent-gradient)', border: 'none', borderRadius: 8 } }}
         width={600}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>

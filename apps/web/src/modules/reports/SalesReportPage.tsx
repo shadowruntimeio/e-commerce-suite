@@ -14,21 +14,70 @@ const { RangePicker } = DatePicker
 // ─── KPI Card ────────────────────────────────────────────────────────────────
 
 function KpiCard({
-  title, value, prefix, suffix, accent,
+  title, value, prefix, accentColor,
 }: {
-  title: string; value: string; prefix?: React.ReactNode; suffix?: string; accent: string
+  title: string; value: string; prefix?: React.ReactNode; accentColor: string
 }) {
   return (
-    <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: 'var(--card-shadow)', padding: '20px 24px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>{title}</span>
-        <div style={{ width: 36, height: 36, borderRadius: 10, background: `${accent}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {prefix && <span style={{ color: accent, fontSize: 18 }}>{prefix}</span>}
+    <div style={{
+      background: 'var(--kpi-bg)',
+      backdropFilter: 'var(--kpi-backdrop)',
+      WebkitBackdropFilter: 'var(--kpi-backdrop)',
+      border: 'var(--kpi-border)',
+      borderRadius: 16,
+      boxShadow: 'var(--kpi-shadow)',
+      padding: '24px',
+      position: 'relative',
+      overflow: 'hidden',
+    }}>
+      {/* Ambient blob */}
+      <div style={{
+        position: 'absolute', top: 0, right: 0,
+        width: 100, height: 100,
+        background: `${accentColor}1a`,
+        filter: 'blur(50px)', borderRadius: '50%',
+        pointerEvents: 'none',
+      }} />
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16, position: 'relative' }}>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 500 }}>{title}</span>
+        <div style={{
+          width: 36, height: 36, borderRadius: 10,
+          background: `${accentColor}1a`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {prefix && <span style={{ color: accentColor, fontSize: 18 }}>{prefix}</span>}
         </div>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
-        {value}{suffix && <span style={{ fontSize: 16, color: 'var(--text-secondary)', marginLeft: 2 }}>{suffix}</span>}
+      <div style={{
+        fontSize: 28, fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1,
+        fontFamily: "'Manrope', sans-serif", letterSpacing: '-0.02em',
+        position: 'relative',
+      }}>
+        {value}
       </div>
+    </div>
+  )
+}
+
+// ─── Chart Tooltip ────────────────────────────────────────────────────────────
+
+function ChartTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={{
+      background: 'var(--bg-surface)',
+      borderRadius: 10,
+      padding: '10px 14px',
+      border: '1px solid var(--border)',
+      boxShadow: 'var(--card-shadow)',
+      fontSize: 12,
+    }}>
+      <div style={{ color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 500 }}>{label}</div>
+      {payload.map((p: any, i: number) => (
+        <div key={i} style={{ color: p.color, marginBottom: 2 }}>
+          {p.name}: <strong>${Number(p.value).toFixed(2)}</strong>
+        </div>
+      ))}
     </div>
   )
 }
@@ -59,40 +108,38 @@ export default function SalesReportPage() {
   const avgOrderValue = totals.ordersCount > 0 ? (totals.grossRevenue / totals.ordersCount) : 0
 
   const columns: ColumnsType<any> = [
-    { title: 'Date', dataIndex: 'date', width: 120 },
-    { title: 'Orders', dataIndex: 'ordersCount', width: 100, align: 'right' },
-    { title: 'Units', dataIndex: 'unitsSold', width: 100, align: 'right' },
     {
-      title: 'Revenue',
-      dataIndex: 'grossRevenue',
-      width: 130,
-      align: 'right',
-      render: (v: number) => <span style={{ fontWeight: 600 }}>${v.toFixed(2)}</span>,
+      title: 'Date', dataIndex: 'date', width: 120,
+      render: (v: string) => <span style={{ color: 'var(--mono-color)', fontFamily: 'monospace', fontSize: 12 }}>{v}</span>,
     },
     {
-      title: 'Platform Fee',
-      dataIndex: 'platformCommission',
-      width: 130,
-      align: 'right',
-      render: (v: number) => `$${(v ?? 0).toFixed(2)}`,
+      title: 'Orders', dataIndex: 'ordersCount', width: 100, align: 'right',
+      render: (v: number) => <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{v}</span>,
     },
     {
-      title: 'Profit',
-      dataIndex: 'profit',
-      width: 130,
-      align: 'right',
+      title: 'Units', dataIndex: 'unitsSold', width: 100, align: 'right',
+      render: (v: number) => <span style={{ color: 'var(--text-primary)' }}>{v}</span>,
+    },
+    {
+      title: 'Revenue', dataIndex: 'grossRevenue', width: 130, align: 'right',
+      render: (v: number) => <span style={{ fontWeight: 700, color: 'var(--accent-primary)' }}>${v.toFixed(2)}</span>,
+    },
+    {
+      title: 'Platform Fee', dataIndex: 'platformCommission', width: 130, align: 'right',
+      render: (v: number) => <span style={{ color: 'var(--text-secondary)' }}>${(v ?? 0).toFixed(2)}</span>,
+    },
+    {
+      title: 'Profit', dataIndex: 'profit', width: 130, align: 'right',
       render: (v: number) => (
-        <span style={{ color: v >= 0 ? '#10B981' : '#EF4444', fontWeight: 600 }}>${v.toFixed(2)}</span>
+        <span style={{ color: v >= 0 ? 'var(--badge-success-fg)' : 'var(--badge-error-fg)', fontWeight: 700 }}>${v.toFixed(2)}</span>
       ),
     },
     {
-      title: 'Margin %',
-      width: 100,
-      align: 'right',
+      title: 'Margin %', width: 100, align: 'right',
       render: (_: unknown, r: any) => {
         const margin = r.grossRevenue > 0 ? (r.profit / r.grossRevenue) * 100 : 0
-        const color = margin >= 20 ? '#10B981' : margin >= 10 ? '#F59E0B' : '#EF4444'
-        return <span style={{ color, fontWeight: 500 }}>{margin.toFixed(1)}%</span>
+        const color = margin >= 20 ? 'var(--badge-success-fg)' : margin >= 10 ? 'var(--badge-warning-fg)' : 'var(--badge-error-fg)'
+        return <span style={{ color, fontWeight: 600 }}>{margin.toFixed(1)}%</span>
       },
     },
   ]
@@ -100,7 +147,7 @@ export default function SalesReportPage() {
   return (
     <div>
       {/* Page Header */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Sales Report</h1>
@@ -121,7 +168,14 @@ export default function SalesReportPage() {
       {isLoading ? (
         <div style={{ textAlign: 'center', padding: '80px 0' }}><Spin size="large" /></div>
       ) : !hasData ? (
-        <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '64px 40px', textAlign: 'center' }}>
+        <div style={{
+          background: 'var(--kpi-bg)',
+          backdropFilter: 'var(--kpi-backdrop)',
+          WebkitBackdropFilter: 'var(--kpi-backdrop)',
+          border: 'var(--kpi-border)',
+          borderRadius: 16,
+          padding: '64px 40px', textAlign: 'center',
+        }}>
           <BarChartOutlined style={{ fontSize: 48, color: 'var(--text-muted)', marginBottom: 16 }} />
           <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>No data for this period</div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Run the ETL job to populate sales reports</div>
@@ -130,36 +184,49 @@ export default function SalesReportPage() {
         <>
           {/* KPI Cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 20 }}>
-            <KpiCard title="Total Revenue" value={`$${(totals.grossRevenue ?? 0).toFixed(2)}`} prefix={<DollarOutlined />} accent="#6366F1" />
-            <KpiCard title="Total Profit" value={`$${(totals.profit ?? 0).toFixed(2)}`} prefix={<RiseOutlined />} accent="#10B981" />
-            <KpiCard title="Total Orders" value={(totals.ordersCount ?? 0).toLocaleString()} prefix={<ShoppingCartOutlined />} accent="#F59E0B" />
-            <KpiCard title="Avg Order Value" value={`$${avgOrderValue.toFixed(2)}`} prefix={<TrophyOutlined />} accent="#8B5CF6" />
+            <KpiCard title="Total Revenue" value={`$${(totals.grossRevenue ?? 0).toFixed(2)}`} prefix={<DollarOutlined />} accentColor="#cc97ff" />
+            <KpiCard title="Total Profit" value={`$${(totals.profit ?? 0).toFixed(2)}`} prefix={<RiseOutlined />} accentColor="#10b981" />
+            <KpiCard title="Total Orders" value={(totals.ordersCount ?? 0).toLocaleString()} prefix={<ShoppingCartOutlined />} accentColor="#53ddfc" />
+            <KpiCard title="Avg Order Value" value={`$${avgOrderValue.toFixed(2)}`} prefix={<TrophyOutlined />} accentColor="#f59e0b" />
           </div>
 
           {/* Chart */}
-          <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '20px 20px 8px', marginBottom: 20 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 16 }}>Revenue & Profit Trend</div>
+          <div style={{
+            background: 'var(--kpi-bg)',
+            backdropFilter: 'var(--kpi-backdrop)',
+            WebkitBackdropFilter: 'var(--kpi-backdrop)',
+            border: 'var(--kpi-border)',
+            borderRadius: 16,
+            boxShadow: 'var(--kpi-shadow)',
+            padding: '24px 24px 8px',
+            marginBottom: 20,
+          }}>
+            <div style={{
+              fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 16,
+              fontFamily: "'Manrope', sans-serif",
+            }}>Revenue & Profit Trend</div>
             <ResponsiveContainer width="100%" height={280}>
               <AreaChart data={rows} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366F1" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="#6366F1" stopOpacity={0.01} />
+                    <stop offset="5%" stopColor="#cc97ff" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#cc97ff" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="profGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="#10B981" stopOpacity={0.01} />
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-                <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 12, fill: '#94A3B8' }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{ borderRadius: 10, border: '1px solid #E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,160,0.12)" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 12, fill: 'var(--text-muted)' } as any} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 12, fill: 'var(--text-muted)' } as any} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'rgba(128,128,160,0.15)', strokeWidth: 1 }} />
+                <Legend
+                  wrapperStyle={{ fontSize: 13, color: 'var(--text-secondary)' }}
+                  formatter={(value) => <span style={{ color: 'var(--text-secondary)' }}>{value}</span>}
                 />
-                <Legend wrapperStyle={{ fontSize: 13 }} />
-                <Area type="monotone" dataKey="grossRevenue" name="Revenue" stroke="#6366F1" fill="url(#revGrad)" strokeWidth={2} dot={false} />
-                <Area type="monotone" dataKey="profit" name="Profit" stroke="#10B981" fill="url(#profGrad)" strokeWidth={2} dot={false} />
+                <Area type="monotone" dataKey="grossRevenue" name="Revenue" stroke="#cc97ff" fill="url(#revGrad)" strokeWidth={2} dot={false} />
+                <Area type="monotone" dataKey="profit" name="Profit" stroke="#10b981" fill="url(#profGrad)" strokeWidth={2} dot={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>

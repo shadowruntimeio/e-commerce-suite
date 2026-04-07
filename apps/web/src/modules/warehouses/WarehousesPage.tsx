@@ -6,14 +6,14 @@ import { api } from '../../lib/api'
 // ─── Type badge ──────────────────────────────────────────────────────────────
 
 const TYPE_MAP: Record<string, { bg: string; color: string }> = {
-  OWNED:    { bg: '#EEF2FF', color: '#4338CA' },
-  RENTED:   { bg: '#F5F3FF', color: '#5B21B6' },
-  BONDED:   { bg: '#ECFDF5', color: '#065F46' },
-  VIRTUAL:  { bg: '#F1F5F9', color: '#475569' },
+  OWNED:    { bg: 'var(--badge-purple-bg)',  color: 'var(--badge-purple-fg)' },
+  RENTED:   { bg: 'var(--badge-info-bg)',    color: 'var(--badge-info-fg)' },
+  BONDED:   { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)' },
+  VIRTUAL:  { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)' },
 }
 
 function TypeBadge({ type }: { type: string }) {
-  const s = TYPE_MAP[type] ?? { bg: '#F1F5F9', color: '#475569' }
+  const s = TYPE_MAP[type] ?? { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)' }
   return (
     <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500 }}>
       {type}
@@ -23,7 +23,7 @@ function TypeBadge({ type }: { type: string }) {
 
 // ─── Warehouse Card ───────────────────────────────────────────────────────────
 
-const ICON_COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4']
+const ICON_COLORS = ['#cc97ff', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4']
 
 function WarehouseCard({ warehouse, index }: { warehouse: any; index: number }) {
   const color = ICON_COLORS[index % ICON_COLORS.length]
@@ -57,7 +57,7 @@ function WarehouseCard({ warehouse, index }: { warehouse: any; index: number }) 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>{warehouse.name}</span>
             {warehouse.isDefault && (
-              <span style={{ background: '#D1FAE5', color: '#065F46', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600 }}>
+              <span style={{ background: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600 }}>
                 Default
               </span>
             )}
@@ -73,12 +73,12 @@ function WarehouseCard({ warehouse, index }: { warehouse: any; index: number }) 
         {warehouse.address && (
           <div style={{ display: 'flex', gap: 8 }}>
             <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, width: 60, flexShrink: 0 }}>Address</span>
-            <span style={{ fontSize: 13, color: '#374151' }}>{warehouse.address}</span>
+            <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{warehouse.address}</span>
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, width: 60, flexShrink: 0 }}>SKUs</span>
-          <span style={{ background: '#F1F5F9', color: '#475569', padding: '2px 8px', borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
+          <span style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', padding: '2px 8px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: '1px solid var(--border-light)' }}>
             0
           </span>
         </div>
@@ -109,7 +109,7 @@ export default function WarehousesPage() {
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            style={{ background: '#6366F1', border: 'none', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+            style={{ background: 'var(--accent-gradient)', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
           >
             Add Warehouse
           </Button>
@@ -123,8 +123,8 @@ export default function WarehousesPage() {
         </div>
       ) : warehouses.length === 0 ? (
         <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '64px 40px', textAlign: 'center' }}>
-          <div style={{ width: 56, height: 56, borderRadius: 14, background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-            <BankOutlined style={{ fontSize: 26, color: '#6366F1' }} />
+          <div style={{ width: 56, height: 56, borderRadius: 14, background: 'rgba(204,151,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+            <BankOutlined style={{ fontSize: 26, color: '#cc97ff' }} />
           </div>
           <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>No warehouses yet</div>
           <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Add your first warehouse to start tracking inventory</div>

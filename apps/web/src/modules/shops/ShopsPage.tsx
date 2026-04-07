@@ -15,11 +15,11 @@ dayjs.extend(relativeTime)
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; color: string; label: string }> = {
-    ACTIVE:       { bg: '#D1FAE5', color: '#065F46', label: 'Active' },
-    INACTIVE:     { bg: '#F1F5F9', color: '#475569', label: 'Inactive' },
-    AUTH_EXPIRED: { bg: '#FEF3C7', color: '#92400E', label: 'Auth Expired' },
+    ACTIVE:       { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', label: 'Active' },
+    INACTIVE:     { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: 'Inactive' },
+    AUTH_EXPIRED: { bg: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)', label: 'Auth Expired' },
   }
-  const s = map[status] ?? { bg: '#F1F5F9', color: '#475569', label: status }
+  const s = map[status] ?? { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: status }
   return (
     <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
       {s.label}
@@ -34,7 +34,7 @@ const PLATFORM_COLORS: Record<string, { bg: string; accent: string; text: string
 }
 
 function getPlatformStyle(platform: string) {
-  return PLATFORM_COLORS[platform] ?? { bg: '#6366F1', accent: '#4F46E5', text: '#fff' }
+  return PLATFORM_COLORS[platform] ?? { bg: '#9c48ea', accent: '#cc97ff', text: '#fff' }
 }
 
 // ─── Shop Card ───────────────────────────────────────────────────────────────
@@ -76,13 +76,13 @@ function ShopCard({ shop, onSync, syncing }: { shop: any; onSync: () => void; sy
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>Shop ID</span>
-            <span style={{ fontSize: 13, color: '#374151', fontFamily: "'Courier New', monospace" }}>
+            <span style={{ fontSize: 13, color: 'var(--text-primary)', fontFamily: "'Courier New', monospace" }}>
               {shop.externalShopId ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}
             </span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>Last Sync</span>
-            <span style={{ fontSize: 13, color: '#374151' }}>
+            <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
               {shop.lastSyncAt ? dayjs(shop.lastSyncAt).fromNow() : <span style={{ color: 'var(--text-muted)' }}>Never</span>}
             </span>
           </div>
@@ -119,8 +119,8 @@ function ShopCard({ shop, onSync, syncing }: { shop: any; onSync: () => void; sy
 function EmptyState({ onConnect }: { onConnect: () => void }) {
   return (
     <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '64px 40px', textAlign: 'center' }}>
-      <div style={{ width: 64, height: 64, borderRadius: 16, background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
-        <ShopOutlined style={{ fontSize: 28, color: '#6366F1' }} />
+      <div style={{ width: 64, height: 64, borderRadius: 16, background: 'rgba(204,151,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+        <ShopOutlined style={{ fontSize: 28, color: '#cc97ff' }} />
       </div>
       <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>No shops connected</div>
       <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 24, maxWidth: 340, margin: '0 auto 24px' }}>
@@ -141,7 +141,7 @@ function EmptyState({ onConnect }: { onConnect: () => void }) {
         icon={<ThunderboltOutlined />}
         size="large"
         onClick={onConnect}
-        style={{ marginTop: 24, background: '#6366F1', border: 'none', borderRadius: 8, fontWeight: 500 }}
+        style={{ marginTop: 24, background: 'var(--accent-gradient)', border: 'none', borderRadius: 8, fontWeight: 500 }}
       >
         Connect a Shop
       </Button>
@@ -154,6 +154,7 @@ function EmptyState({ onConnect }: { onConnect: () => void }) {
 export default function ShopsPage() {
   const queryClient = useQueryClient()
   const [connectingShopee, setConnectingShopee] = useState(false)
+  const [connectingTikTok, setConnectingTikTok] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['shops'],
@@ -163,11 +164,11 @@ export default function ShopsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('connected') === 'true') {
-      void message.success('Shopee shop connected successfully!')
+      void message.success('Shop connected successfully!')
       queryClient.invalidateQueries({ queryKey: ['shops'] })
       window.history.replaceState({}, '', window.location.pathname)
     } else if (params.get('error') === 'oauth_failed') {
-      void message.error('Failed to connect Shopee shop. Please try again.')
+      void message.error('Failed to connect shop. Please try again.')
       window.history.replaceState({}, '', window.location.pathname)
     }
   }, [queryClient])
@@ -190,12 +191,24 @@ export default function ShopsPage() {
     }
   }
 
+  async function handleConnectTikTok() {
+    setConnectingTikTok(true)
+    try {
+      const res = await api.get('/shops/tiktok/connect')
+      const url: string = res.data.data.url
+      window.location.href = url
+    } catch {
+      void message.error('Failed to get TikTok connect URL')
+      setConnectingTikTok(false)
+    }
+  }
+
   const shops: any[] = Array.isArray(data) ? data : (data?.items ?? [])
 
   const connectMenu = {
     items: [
       { key: 'shopee', label: 'Connect Shopee', onClick: handleConnectShopee },
-      { key: 'tiktok', label: 'Connect TikTok', disabled: true },
+      { key: 'tiktok', label: 'Connect TikTok Shop', onClick: handleConnectTikTok },
     ],
   }
 
@@ -212,8 +225,8 @@ export default function ShopsPage() {
             <Dropdown menu={connectMenu} placement="bottomRight" trigger={['click']}>
               <Button
                 type="primary"
-                loading={connectingShopee}
-                style={{ background: '#6366F1', border: 'none', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+                loading={connectingShopee || connectingTikTok}
+                style={{ background: 'var(--accent-gradient)', border: 'none', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
               >
                 Connect Shop <DownOutlined style={{ fontSize: 11 }} />
               </Button>

@@ -126,9 +126,9 @@ const styles = {
     height: 44,
     fontWeight: 600,
     fontSize: 14,
-    background: '#6366F1',
-    borderColor: '#6366F1',
-    boxShadow: '0 4px 12px rgba(99,102,241,0.3)',
+    background: 'linear-gradient(135deg,#9c48ea,#cc97ff)',
+    borderColor: 'transparent',
+    boxShadow: '0 4px 20px rgba(204,151,255,0.35)',
   },
   footerText: {
     textAlign: 'center' as const,
@@ -136,7 +136,7 @@ const styles = {
     color: 'var(--text-muted)',
   },
   link: {
-    color: '#6366F1',
+    color: '#cc97ff',
     fontWeight: 500,
     textDecoration: 'none',
   },
@@ -218,7 +218,7 @@ export default function LoginPage() {
 
           <Form layout="vertical" onFinish={mutation.mutate} size="large">
             <Form.Item
-              label={<span style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Email</span>}
+              label={<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Email</span>}
               name="email"
               rules={[{ required: true, type: 'email', message: 'Please enter a valid email' }]}
             >
@@ -226,7 +226,7 @@ export default function LoginPage() {
             </Form.Item>
 
             <Form.Item
-              label={<span style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Password</span>}
+              label={<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Password</span>}
               name="password"
               rules={[{ required: true, message: 'Please enter your password' }]}
               style={{ marginBottom: 20 }}

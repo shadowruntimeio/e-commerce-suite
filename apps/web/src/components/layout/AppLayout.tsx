@@ -1,6 +1,6 @@
 import React from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Avatar, Dropdown, Badge, Button, Tooltip } from 'antd'
+import { Layout, Avatar, Dropdown, Badge, Tooltip } from 'antd'
 import {
   DashboardOutlined, ShoppingCartOutlined, AppstoreOutlined,
   InboxOutlined, ShoppingOutlined, ShopOutlined, LogoutOutlined,
@@ -12,16 +12,11 @@ import { useAuthStore } from '../../store/auth.store'
 import { useSettingsStore } from '../../store/settings.store'
 import { useTranslation } from 'react-i18next'
 
-const { Sider, Content, Header } = Layout
+const { Content, Header } = Layout
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
-const SIDEBAR_BG = '#0F172A'
-const ACTIVE_BG = 'rgba(99,102,241,0.15)'
-const ACTIVE_COLOR = '#818CF8'
-const MUTED_COLOR = '#94A3B8'
-const HOVER_COLOR = '#E2E8F0'
-const HOVER_BG = 'rgba(255,255,255,0.05)'
-const GROUP_LABEL_COLOR = '#475569'
+const SIDEBAR_COLLAPSED_W = 80
+const SIDEBAR_EXPANDED_W = 256
 
 interface NavItem { key: string; icon: React.ReactNode; labelKey: string }
 interface NavGroup { groupKey: string; items: NavItem[] }
@@ -93,28 +88,67 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
 }
 
 // ─── SideNavItem ──────────────────────────────────────────────────────────────
-function SideNavItem({ icon, label, isActive, onClick }: {
-  icon: React.ReactNode; label: string; isActive: boolean; onClick: () => void
+function SideNavItem({ icon, label, isActive, onClick, isExpanded }: {
+  icon: React.ReactNode; label: string; isActive: boolean; onClick: () => void; isExpanded: boolean
 }) {
   const [hovered, setHovered] = React.useState(false)
+
+  const color = isActive
+    ? 'var(--sidebar-active-color)'
+    : hovered
+    ? 'var(--sidebar-hover-color)'
+    : 'var(--sidebar-item-color)'
+
+  const bg = isActive
+    ? 'var(--sidebar-active-bg)'
+    : hovered
+    ? 'var(--sidebar-hover-bg)'
+    : 'transparent'
+
   return (
     <div
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '0 12px', height: 40, margin: '1px 8px', borderRadius: 6,
-        cursor: 'pointer', userSelect: 'none',
-        color: isActive ? ACTIVE_COLOR : hovered ? HOVER_COLOR : MUTED_COLOR,
-        background: isActive ? ACTIVE_BG : hovered ? HOVER_BG : 'transparent',
-        fontWeight: isActive ? 500 : 400, fontSize: 13.5,
-        transition: 'background 0.15s, color 0.15s',
+        display: 'flex',
+        alignItems: 'center',
+        gap: isExpanded ? 12 : 0,
+        padding: isExpanded ? '0 16px' : '0',
+        justifyContent: isExpanded ? 'flex-start' : 'center',
+        height: 42,
+        margin: '1px 8px',
+        borderRadius: 10,
+        cursor: 'pointer',
+        userSelect: 'none',
+        color,
+        background: bg,
+        boxShadow: isActive ? 'var(--sidebar-active-shadow)' : 'none',
+        fontWeight: isActive ? 600 : 400,
+        fontSize: 13.5,
+        transition: 'background 0.15s, color 0.15s, box-shadow 0.15s, padding 0.2s, justify-content 0.2s',
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
       }}
     >
-      <span style={{ fontSize: 16, display: 'flex', alignItems: 'center', flexShrink: 0 }}>{icon}</span>
-      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-      {isActive && <span style={{ width: 4, height: 16, borderRadius: 2, background: ACTIVE_COLOR, flexShrink: 0 }} />}
+      <span style={{
+        fontSize: 17,
+        display: 'flex',
+        alignItems: 'center',
+        flexShrink: 0,
+        transition: 'transform 0.2s',
+      }}>
+        {icon}
+      </span>
+      <span style={{
+        opacity: isExpanded ? 1 : 0,
+        maxWidth: isExpanded ? 160 : 0,
+        overflow: 'hidden',
+        transition: 'opacity 0.2s, max-width 0.2s',
+        whiteSpace: 'nowrap',
+      }}>
+        {label}
+      </span>
     </div>
   )
 }
@@ -126,6 +160,7 @@ export function AppLayout() {
   const { user, logout } = useAuthStore()
   const { isDark, lang, toggleDark, setLang } = useSettingsStore()
   const { t } = useTranslation()
+  const [isExpanded, setIsExpanded] = React.useState(false)
 
   const pageTitleKey = PAGE_TITLE_KEYS[location.pathname] ?? 'pageTitles.dashboard'
   const pageTitle = t(pageTitleKey)
@@ -133,45 +168,85 @@ export function AppLayout() {
   const initials = (user?.name ?? 'U')
     .split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)
 
+  const sidebarW = isExpanded ? SIDEBAR_EXPANDED_W : SIDEBAR_COLLAPSED_W
+
   return (
     <Layout style={{ minHeight: '100vh', background: 'var(--bg-page)' }}>
       {/* ── Sidebar ── */}
-      <Sider
-        width={220}
-        trigger={null}
+      <div
+        onMouseEnter={() => setIsExpanded(true)}
+        onMouseLeave={() => setIsExpanded(false)}
         style={{
-          position: 'fixed', height: '100vh', left: 0, top: 0, bottom: 0,
-          background: SIDEBAR_BG, display: 'flex', flexDirection: 'column',
-          zIndex: 100, overflowY: 'auto', overflowX: 'hidden',
+          position: 'fixed',
+          height: '100vh',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: sidebarW,
+          background: 'var(--sidebar-bg)',
+          borderRight: '1px solid var(--sidebar-border)',
+          display: 'flex',
+          flexDirection: 'column',
+          zIndex: 100,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          transition: 'width 0.22s cubic-bezier(0.4,0,0.2,1)',
         } as React.CSSProperties}
       >
         {/* Logo */}
         <div style={{
-          padding: '0 16px', height: 64, display: 'flex', alignItems: 'center', gap: 10,
-          borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0,
+          padding: '0 16px',
+          height: 64,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          borderBottom: '1px solid var(--sidebar-border)',
+          flexShrink: 0,
+          overflow: 'hidden',
         }}>
           <div style={{
-            width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-            background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 40,
+            height: 40,
+            borderRadius: 12,
+            flexShrink: 0,
+            background: 'linear-gradient(135deg, #9c48ea 0%, #cc97ff 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 0 16px rgba(204,151,255,0.4)',
           }}>
-            <span style={{ color: '#fff', fontWeight: 700, fontSize: 14, letterSpacing: '-0.5px' }}>EMS</span>
+            <span style={{ color: '#fff', fontWeight: 800, fontSize: 13, letterSpacing: '-0.5px', fontFamily: "'Manrope', sans-serif" }}>E</span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <div style={{ color: '#F1F5F9', fontWeight: 700, fontSize: 15, lineHeight: 1.2, letterSpacing: '-0.3px' }}>EMS</div>
-            <div style={{ color: MUTED_COLOR, fontSize: 10, lineHeight: 1.2 }}>E-commerce Suite</div>
+          <div style={{
+            opacity: isExpanded ? 1 : 0,
+            maxWidth: isExpanded ? 160 : 0,
+            overflow: 'hidden',
+            transition: 'opacity 0.2s, max-width 0.2s',
+            whiteSpace: 'nowrap',
+          }}>
+            <div style={{ color: 'var(--sidebar-title-color)', fontWeight: 800, fontSize: 15, lineHeight: 1.2, letterSpacing: '-0.3px', fontFamily: "'Manrope', sans-serif" }}>EMS</div>
+            <div style={{ color: 'var(--sidebar-muted-color)', fontSize: 10, lineHeight: 1.2 }}>E-commerce Suite</div>
           </div>
         </div>
 
         {/* Nav groups */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 0' }}>
           {navGroups.map((group) => (
             <div key={group.groupKey}>
               <div style={{
-                padding: '16px 16px 4px', fontSize: 10, fontWeight: 600,
-                letterSpacing: '0.08em', color: GROUP_LABEL_COLOR, userSelect: 'none',
+                padding: isExpanded ? '14px 20px 4px' : '14px 0 4px',
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: '0.1em',
+                color: 'var(--sidebar-group-label)',
+                userSelect: 'none',
+                textAlign: isExpanded ? 'left' : 'center',
+                textTransform: 'uppercase',
+                overflow: 'hidden',
+                whiteSpace: 'nowrap',
+                transition: 'padding 0.2s, text-align 0.2s',
               }}>
-                {t(`nav.${group.groupKey}`)}
+                {isExpanded ? t(`nav.${group.groupKey}`) : '·'}
               </div>
               {group.items.map((item) => (
                 <SideNavItem
@@ -180,6 +255,7 @@ export function AppLayout() {
                   label={t(item.labelKey)}
                   isActive={location.pathname === item.key}
                   onClick={() => navigate(item.key)}
+                  isExpanded={isExpanded}
                 />
               ))}
             </div>
@@ -187,45 +263,86 @@ export function AppLayout() {
         </div>
 
         {/* User section */}
-        <div style={{ flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.06)', padding: '12px 8px' }}>
+        <div style={{
+          flexShrink: 0,
+          borderTop: '1px solid var(--sidebar-border)',
+          padding: '12px 8px',
+          overflow: 'hidden',
+        }}>
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.04)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: isExpanded ? 10 : 0,
+            justifyContent: isExpanded ? 'flex-start' : 'center',
+            padding: isExpanded ? '8px 10px' : '8px 0',
+            borderRadius: 10,
+            background: 'var(--sidebar-user-hover-bg)',
+            cursor: 'pointer',
+            transition: 'padding 0.2s, gap 0.2s',
           }}>
             <Avatar
               size={32}
-              style={{ background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)', flexShrink: 0, fontSize: 12, fontWeight: 600 }}
+              style={{
+                background: 'linear-gradient(135deg, #9c48ea 0%, #cc97ff 100%)',
+                flexShrink: 0,
+                fontSize: 12,
+                fontWeight: 700,
+                boxShadow: '0 0 12px rgba(204,151,255,0.3)',
+              }}
             >
               {initials}
             </Avatar>
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              <div style={{ color: HOVER_COLOR, fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+            <div style={{
+              flex: 1,
+              overflow: 'hidden',
+              opacity: isExpanded ? 1 : 0,
+              maxWidth: isExpanded ? 120 : 0,
+              transition: 'opacity 0.2s, max-width 0.2s',
+              whiteSpace: 'nowrap',
+            }}>
+              <div style={{ color: 'var(--sidebar-title-color)', fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
                 {user?.name ?? 'User'}
               </div>
-              <div style={{ color: MUTED_COLOR, fontSize: 11, lineHeight: 1.3 }}>{t('nav.administrator')}</div>
+              <div style={{ color: 'var(--sidebar-muted-color)', fontSize: 11, lineHeight: 1.3 }}>{t('nav.administrator')}</div>
             </div>
-            <Button
-              type="text" size="small" icon={<LogoutOutlined />}
-              style={{ color: MUTED_COLOR, flexShrink: 0, padding: '0 4px' }}
-              title={t('nav.logout')}
-              onClick={() => { logout(); navigate('/auth/login') }}
-            />
+            {isExpanded && (
+              <span
+                title={t('nav.logout')}
+                onClick={() => { logout(); navigate('/auth/login') }}
+                style={{ color: 'var(--sidebar-muted-color)', flexShrink: 0, padding: '0 4px', cursor: 'pointer', fontSize: 14 }}
+              >
+                <LogoutOutlined />
+              </span>
+            )}
           </div>
         </div>
-      </Sider>
+      </div>
 
       {/* ── Main area ── */}
-      <Layout style={{ marginLeft: 220, background: 'var(--bg-page)' }}>
+      <Layout style={{ marginLeft: sidebarW, background: 'var(--bg-page)', transition: 'margin-left 0.22s cubic-bezier(0.4,0,0.2,1)' }}>
         {/* Header */}
         <Header style={{
-          position: 'sticky', top: 0, zIndex: 99,
+          position: 'sticky',
+          top: 0,
+          zIndex: 99,
           background: 'var(--bg-header)',
-          height: 64, padding: '0 24px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          borderBottom: '1px solid var(--border)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          height: 64,
+          padding: '0 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid var(--border-light)',
           boxShadow: 'var(--header-shadow)',
         }}>
-          <span style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '-0.3px' }}>
+          <span style={{
+            fontSize: 20,
+            fontWeight: 800,
+            color: 'var(--header-title)',
+            letterSpacing: '-0.3px',
+            fontFamily: "'Manrope', sans-serif",
+          }}>
             {pageTitle}
           </span>
 
@@ -235,16 +352,8 @@ export function AppLayout() {
               <Dropdown
                 menu={{
                   items: [
-                    {
-                      key: 'en',
-                      label: t('settings.english'),
-                      onClick: () => setLang('en'),
-                    },
-                    {
-                      key: 'zh',
-                      label: t('settings.chinese'),
-                      onClick: () => setLang('zh'),
-                    },
+                    { key: 'en', label: t('settings.english'), onClick: () => setLang('en') },
+                    { key: 'zh', label: t('settings.chinese'), onClick: () => setLang('zh') },
                   ],
                   selectedKeys: [lang],
                 }}
@@ -252,10 +361,10 @@ export function AppLayout() {
               >
                 <button style={{
                   width: 36, height: 36, borderRadius: 8,
-                  border: '1px solid var(--border)', display: 'flex',
+                  border: '1px solid var(--header-btn-border)', display: 'flex',
                   alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer', background: 'var(--bg-btn)',
-                  color: 'var(--text-secondary)',
+                  cursor: 'pointer', background: 'var(--header-btn-bg)',
+                  color: 'var(--header-btn-color)',
                 }}>
                   <TranslationOutlined style={{ fontSize: 16 }} />
                 </button>
@@ -268,10 +377,10 @@ export function AppLayout() {
                 onClick={toggleDark}
                 style={{
                   width: 36, height: 36, borderRadius: 8,
-                  border: '1px solid var(--border)', display: 'flex',
+                  border: '1px solid var(--header-btn-border)', display: 'flex',
                   alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer', background: 'var(--bg-btn)',
-                  color: 'var(--text-secondary)',
+                  cursor: 'pointer', background: 'var(--header-btn-bg)',
+                  color: 'var(--header-btn-color)',
                 }}
               >
                 {isDark ? <SunOutlined style={{ fontSize: 16 }} /> : <MoonOutlined style={{ fontSize: 16 }} />}
@@ -282,16 +391,16 @@ export function AppLayout() {
             <Badge count={3} size="small" offset={[-2, 2]}>
               <button style={{
                 width: 36, height: 36, borderRadius: 8,
-                border: '1px solid var(--border)', display: 'flex',
+                border: '1px solid var(--header-btn-border)', display: 'flex',
                 alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', background: 'var(--bg-btn)',
-                color: 'var(--text-secondary)',
+                cursor: 'pointer', background: 'var(--header-btn-bg)',
+                color: 'var(--header-btn-color)',
               }}>
                 <BellOutlined style={{ fontSize: 16 }} />
               </button>
             </Badge>
 
-            <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
+            <div style={{ width: 1, height: 24, background: 'var(--divider)', margin: '0 4px' }} />
 
             {/* User chip */}
             <Dropdown
@@ -308,15 +417,19 @@ export function AppLayout() {
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 8,
                 padding: '4px 10px 4px 4px', borderRadius: 8, cursor: 'pointer',
-                border: '1px solid var(--border)', background: 'var(--bg-btn)',
+                border: '1px solid var(--header-btn-border)', background: 'var(--header-btn-bg)',
               }}>
                 <Avatar
                   size={28}
-                  style={{ background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)', fontSize: 11, fontWeight: 600 }}
+                  style={{
+                    background: 'var(--accent-gradient)',
+                    fontSize: 11,
+                    fontWeight: 700,
+                  }}
                 >
                   {initials}
                 </Avatar>
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--header-text)' }}>
                   {user?.name}
                 </span>
               </div>

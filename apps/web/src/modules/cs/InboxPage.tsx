@@ -37,7 +37,7 @@ interface Shop {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const AVATAR_COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899']
+const AVATAR_COLORS = ['#cc97ff', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899']
 
 function getAvatarColor(name: string): string {
   let hash = 0
@@ -64,8 +64,9 @@ function PlatformBadge({ platform }: { platform: string }) {
     SHOPEE: { bg: '#FF6633', color: '#fff' },
     TIKTOK: { bg: '#0F172A', color: '#fff' },
     LAZADA: { bg: '#0F146D', color: '#fff' },
+    MANUAL: { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)' },
   }
-  const s = map[platform] ?? { bg: '#E2E8F0', color: '#475569' }
+  const s = map[platform] ?? { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)' }
   return (
     <span style={{ background: s.bg, color: s.color, padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em' }}>
       {platform}
@@ -155,7 +156,7 @@ export default function InboxPage() {
               size="small"
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Switch size="small" checked={unreadOnly} onChange={setUnreadOnly} style={{ background: unreadOnly ? '#6366F1' : undefined }} />
+              <Switch size="small" checked={unreadOnly} onChange={setUnreadOnly} style={{ background: unreadOnly ? 'var(--accent-primary)' : undefined }} />
               <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Unread only</span>
             </div>
           </div>
@@ -179,8 +180,8 @@ export default function InboxPage() {
                       padding: '12px 14px',
                       cursor: 'pointer',
                       borderBottom: '1px solid var(--bg-surface)',
-                      background: isSelected ? 'rgba(99,102,241,0.12)' : 'var(--bg-card)',
-                      borderLeft: isSelected ? '3px solid #6366F1' : '3px solid transparent',
+                      background: isSelected ? 'var(--tab-active-bg)' : 'var(--bg-card)',
+                      borderLeft: isSelected ? '3px solid var(--accent-primary)' : '3px solid transparent',
                       transition: 'background 0.1s',
                     }}
                   >
@@ -193,7 +194,7 @@ export default function InboxPage() {
                           </span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                             {!thread.isRead && (
-                              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366F1' }} />
+                              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent-primary)' }} />
                             )}
                             <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                               {dayjs(thread.lastMessageAt).fromNow()}
@@ -253,14 +254,14 @@ export default function InboxPage() {
                           maxWidth: '68%',
                           padding: '10px 14px',
                           borderRadius: isSeller ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-                          background: isSeller ? '#6366F1' : 'var(--bg-card)',
+                          background: isSeller ? '#cc97ff' : 'var(--bg-card)',
                           color: isSeller ? '#fff' : 'var(--text-primary)',
                           boxShadow: 'var(--card-shadow)',
                           fontSize: 14,
                           lineHeight: 1.5,
                         }}>
                           {!isSeller && msg.senderName && (
-                            <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: '#6366F1' }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, color: 'var(--accent-primary)' }}>
                               {msg.senderName}
                             </div>
                           )}

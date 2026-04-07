@@ -12,14 +12,15 @@ function KpiCard({
   title: string; value: string; prefix?: React.ReactNode; accent: string
 }) {
   return (
-    <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: 'var(--card-shadow)', padding: '20px 24px' }}>
+    <div style={{ position: 'relative', overflow: 'hidden', background: 'var(--kpi-bg)', borderRadius: 20, border: 'var(--kpi-border)', backdropFilter: 'var(--kpi-backdrop)', boxShadow: 'var(--kpi-shadow)', padding: '20px 24px' }}>
+      <div style={{ position: 'absolute', top: -24, right: -24, width: 96, height: 96, borderRadius: '50%', background: accent, filter: 'blur(48px)', opacity: 0.15, pointerEvents: 'none' }} />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>{title}</span>
-        <div style={{ width: 36, height: 36, borderRadius: 10, background: `${accent}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: `${accent}22`, border: `1px solid ${accent}33`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {prefix && <span style={{ color: accent, fontSize: 18 }}>{prefix}</span>}
         </div>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1, fontFamily: "'Manrope', sans-serif" }}>{value}</div>
     </div>
   )
 }
@@ -27,8 +28,8 @@ function KpiCard({
 // ─── Margin badge ────────────────────────────────────────────────────────────
 
 function MarginCell({ value }: { value: number }) {
-  const color = value >= 20 ? '#10B981' : value >= 10 ? '#F59E0B' : '#EF4444'
-  const bg = value >= 20 ? '#D1FAE5' : value >= 10 ? '#FEF3C7' : '#FEE2E2'
+  const color = value >= 20 ? 'var(--badge-success-fg)' : value >= 10 ? 'var(--badge-warning-fg)' : 'var(--badge-error-fg)'
+  const bg = value >= 20 ? 'var(--badge-success-bg)' : value >= 10 ? 'var(--badge-warning-bg)' : 'var(--badge-error-bg)'
   return (
     <span style={{ background: bg, color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
       {value.toFixed(1)}%
@@ -61,7 +62,7 @@ export default function ProfitReportPage() {
       dataIndex: 'skuCode',
       width: 140,
       render: (v) => (
-        <span style={{ fontFamily: "'Courier New', monospace", color: '#6366F1', fontSize: 13 }}>{v}</span>
+        <span style={{ fontFamily: "'Courier New', monospace", color: 'var(--mono-color)', fontSize: 13 }}>{v}</span>
       ),
     },
     {
@@ -75,7 +76,7 @@ export default function ProfitReportPage() {
       dataIndex: 'unitsSold',
       width: 100,
       align: 'right',
-      render: (v) => <span style={{ color: '#374151' }}>{(v ?? 0).toLocaleString()}</span>,
+      render: (v) => <span style={{ color: 'var(--text-primary)' }}>{(v ?? 0).toLocaleString()}</span>,
     },
     {
       title: 'Revenue',
@@ -107,7 +108,7 @@ export default function ProfitReportPage() {
       defaultSortOrder: 'descend' as const,
       sorter: (a: any, b: any) => a.profit - b.profit,
       render: (v: number) => (
-        <span style={{ color: v >= 0 ? '#10B981' : '#EF4444', fontWeight: 600 }}>
+        <span style={{ color: v >= 0 ? 'var(--badge-success-fg)' : 'var(--badge-error-fg)', fontWeight: 600 }}>
           ${v.toFixed(2)}
         </span>
       ),
@@ -140,7 +141,7 @@ export default function ProfitReportPage() {
 
       {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 20 }}>
-        <KpiCard title="Total Revenue" value={`$${totals.grossRevenue.toFixed(2)}`} prefix={<DollarOutlined />} accent="#6366F1" />
+        <KpiCard title="Total Revenue" value={`$${totals.grossRevenue.toFixed(2)}`} prefix={<DollarOutlined />} accent="var(--accent-primary)" />
         <KpiCard title="Total COGS" value={`$${totals.cogs.toFixed(2)}`} prefix={<DollarOutlined />} accent="#F59E0B" />
         <KpiCard title="Gross Profit" value={`$${totals.profit.toFixed(2)}`} prefix={<RiseOutlined />} accent="#10B981" />
         <KpiCard title="Overall Margin" value={`${overallMargin.toFixed(1)}%`} prefix={<PercentageOutlined />} accent={overallMargin >= 20 ? '#10B981' : overallMargin >= 10 ? '#F59E0B' : '#EF4444'} />

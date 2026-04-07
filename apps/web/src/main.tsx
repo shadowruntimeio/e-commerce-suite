@@ -4,8 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ConfigProvider, App as AntApp, theme as antTheme } from 'antd'
 import { RouterProvider } from 'react-router-dom'
 import { router } from './router'
-import './lib/i18n'
 import { useSettingsStore } from './store/settings.store'
+import './lib/i18n'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,52 +19,62 @@ const queryClient = new QueryClient({
 function ThemedApp() {
   const isDark = useSettingsStore((s) => s.isDark)
 
+  const darkTokens = {
+    algorithm: antTheme.darkAlgorithm,
+    token: {
+      colorPrimary: '#cc97ff',
+      colorSuccess: '#10b981',
+      colorWarning: '#f59e0b',
+      colorError: '#ff6e84',
+      borderRadius: 8,
+      fontFamily: "'Inter', -apple-system, sans-serif",
+      colorBgContainer: '#11192e',
+      colorBgLayout: '#070d1f',
+      colorBorder: 'rgba(223,228,254,0.12)',
+      colorTextBase: '#dfe4fe',
+      colorTextSecondary: '#a5aac2',
+      boxShadow: '0 0 40px rgba(223,228,254,0.03)',
+    },
+    components: {
+      Table: {
+        headerBg: '#0c1326',
+        rowHoverBg: 'rgba(28,37,62,0.6)',
+        borderColor: 'rgba(223,228,254,0.08)',
+      },
+      Card: { borderRadiusLG: 16 },
+      Modal: { contentBg: '#11192e', headerBg: '#11192e' },
+      Drawer: { colorBgElevated: '#11192e' },
+    },
+  }
+
+  const lightTokens = {
+    algorithm: antTheme.defaultAlgorithm,
+    token: {
+      colorPrimary: '#3525cd',
+      colorSuccess: '#059669',
+      colorWarning: '#d97706',
+      colorError: '#dc2626',
+      borderRadius: 8,
+      fontFamily: "'Inter', -apple-system, sans-serif",
+      colorBgContainer: '#ffffff',
+      colorBgLayout: '#f7f9fb',
+      colorBorder: 'rgba(100,100,120,0.2)',
+      colorTextBase: '#191c1e',
+      colorTextSecondary: '#464555',
+      boxShadow: '0 2px 12px rgba(25,28,30,0.06)',
+    },
+    components: {
+      Table: {
+        headerBg: '#f2f4f6',
+        rowHoverBg: 'rgba(53,37,205,0.04)',
+        borderColor: 'rgba(100,100,120,0.12)',
+      },
+      Card: { borderRadiusLG: 16 },
+    },
+  }
+
   return (
-    <ConfigProvider
-      theme={{
-        algorithm: isDark ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
-        token: {
-          colorPrimary: '#6366F1',
-          colorSuccess: '#10B981',
-          colorWarning: '#F59E0B',
-          colorError: '#EF4444',
-          borderRadius: 8,
-          fontFamily: "'Inter', -apple-system, sans-serif",
-          colorBgContainer: isDark ? '#1E293B' : '#FFFFFF',
-          colorBgLayout: isDark ? '#0B1120' : '#F1F5F9',
-          colorBorder: isDark ? '#334155' : '#E2E8F0',
-          colorTextBase: isDark ? '#F1F5F9' : '#0F172A',
-          colorTextSecondary: isDark ? '#94A3B8' : '#64748B',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-        },
-        components: {
-          Menu: {
-            darkItemBg: '#0F172A',
-            darkSubMenuItemBg: '#0F172A',
-            darkItemSelectedBg: 'rgba(99,102,241,0.15)',
-            darkItemSelectedColor: '#818CF8',
-            darkItemColor: '#94A3B8',
-            darkItemHoverColor: '#E2E8F0',
-            darkItemHoverBg: 'rgba(255,255,255,0.05)',
-          },
-          Table: {
-            headerBg: isDark ? '#162032' : '#F8FAFC',
-            rowHoverBg: isDark ? '#243044' : '#F8FAFC',
-            borderColor: isDark ? '#334155' : '#E2E8F0',
-          },
-          Card: {
-            borderRadiusLG: 12,
-          },
-          Modal: {
-            contentBg: isDark ? '#1E293B' : '#ffffff',
-            headerBg: isDark ? '#1E293B' : '#ffffff',
-          },
-          Drawer: {
-            colorBgElevated: isDark ? '#1E293B' : '#ffffff',
-          },
-        },
-      }}
-    >
+    <ConfigProvider theme={isDark ? darkTokens : lightTokens}>
       <AntApp>
         <RouterProvider router={router} />
       </AntApp>

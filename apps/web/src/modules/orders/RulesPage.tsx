@@ -46,8 +46,8 @@ interface TestResult {
 
 function PriorityBadge({ value }: { value: number }) {
   return (
-    <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
-      <span style={{ color: '#6366F1', fontWeight: 700, fontSize: 12 }}>{value}</span>
+    <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--badge-info-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+      <span style={{ color: 'var(--badge-info-fg)', fontWeight: 700, fontSize: 12 }}>{value}</span>
     </div>
   )
 }
@@ -55,8 +55,8 @@ function PriorityBadge({ value }: { value: number }) {
 function StatusToggle({ active }: { active: boolean }) {
   return (
     <span style={{
-      background: active ? '#D1FAE5' : '#F1F5F9',
-      color: active ? '#065F46' : '#475569',
+      background: active ? 'var(--badge-success-bg)' : 'var(--badge-neutral-bg)',
+      color: active ? 'var(--badge-success-fg)' : 'var(--badge-neutral-fg)',
       padding: '3px 10px',
       borderRadius: 20,
       fontSize: 12,
@@ -206,7 +206,7 @@ export default function RulesPage() {
       render: (actions: RuleAction[]) => (
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {actions.map((a, i) => (
-            <span key={i} style={{ background: '#EEF2FF', color: '#4338CA', padding: '2px 8px', borderRadius: 6, fontSize: 12, fontWeight: 500 }}>
+            <span key={i} style={{ background: 'var(--badge-info-bg)', color: 'var(--badge-info-fg)', padding: '2px 8px', borderRadius: 6, fontSize: 12, fontWeight: 500 }}>
               {a.type}{a.value ? `: ${a.value}` : ''}
             </span>
           ))}
@@ -259,7 +259,7 @@ export default function RulesPage() {
             type="primary"
             icon={<PlusOutlined />}
             onClick={openCreate}
-            style={{ background: '#6366F1', border: 'none', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+            style={{ background: 'var(--accent-gradient)', border: 'none', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
           >
             New Rule
           </Button>
@@ -305,7 +305,7 @@ export default function RulesPage() {
         onCancel={() => { setModalOpen(false); setEditingRule(null) }}
         onOk={handleSubmit}
         confirmLoading={createMutation.isPending || updateMutation.isPending}
-        okButtonProps={{ style: { background: '#6366F1', border: 'none', borderRadius: 8 } }}
+        okButtonProps={{ style: { background: 'var(--accent-gradient)', border: 'none', borderRadius: 8 } }}
         width={680}
         destroyOnClose
       >
@@ -389,7 +389,7 @@ export default function RulesPage() {
         footer={[
           <Button key="close" onClick={() => { setTestModalOpen(false); setTestResult(null) }}>Close</Button>,
           <Button key="test" type="primary" loading={testMutation.isPending} onClick={handleTest}
-            style={{ background: '#6366F1', border: 'none', borderRadius: 8 }}>
+            style={{ background: 'var(--accent-gradient)', border: 'none', borderRadius: 8 }}>
             Run Test
           </Button>,
         ]}
@@ -398,7 +398,7 @@ export default function RulesPage() {
       >
         <Space direction="vertical" style={{ width: '100%', marginTop: 8 }} size={14}>
           <div>
-            <div style={{ fontWeight: 500, color: '#374151', marginBottom: 6, fontSize: 14 }}>Order ID</div>
+            <div style={{ fontWeight: 500, color: 'var(--text-primary)', marginBottom: 6, fontSize: 14 }}>Order ID</div>
             <Input
               placeholder="Enter order ID to test against"
               value={testOrderId}
@@ -419,7 +419,7 @@ export default function RulesPage() {
           {testResult?.context && (
             <div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Order context:</div>
-              <pre style={{ fontSize: 11, background: 'var(--bg-surface)', border: '1px solid var(--border)', padding: '10px 12px', borderRadius: 8, maxHeight: 200, overflow: 'auto', color: '#374151' }}>
+              <pre style={{ fontSize: 11, background: 'var(--bg-surface)', border: '1px solid var(--border)', padding: '10px 12px', borderRadius: 8, maxHeight: 200, overflow: 'auto', color: 'var(--text-primary)' }}>
                 {JSON.stringify(testResult.context, null, 2)}
               </pre>
             </div>

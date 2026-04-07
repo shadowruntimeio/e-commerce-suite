@@ -7,53 +7,140 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
     <style>
       * { box-sizing: border-box; }
       body { margin: 0; font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-page); }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb { background: rgba(100,100,120,0.25); border-radius: 3px; }
+      .dark ::-webkit-scrollbar-thumb { background: #41475b; border-radius: 3px; }
 
-      /* ── Light theme (default) ── */
+      /* ── Light mode (default) — Architect Intelligence ── */
       :root {
-        --bg-page:        #F1F5F9;
+        --bg-page:        #f7f9fb;
         --bg-card:        #ffffff;
-        --bg-surface:     #F8FAFC;
-        --bg-surface-alt: rgba(241,245,249,0.4);
-        --bg-header:      #ffffff;
-        --bg-filter:      #F1F5F9;
-        --border:         #E2E8F0;
-        --border-light:   #F1F5F9;
-        --text-primary:   #0F172A;
-        --text-secondary: #64748B;
-        --text-muted:     #94A3B8;
-        --bg-btn:         #ffffff;
-        --header-shadow:  0 1px 3px rgba(0,0,0,0.04);
-        --card-shadow:    0 1px 3px rgba(0,0,0,0.06);
-        --card-shadow-lg: 0 2px 12px rgba(99,102,241,0.06);
-        --row-hover:      #F8FAFC;
+        --bg-surface:     #f2f4f6;
+        --bg-surface-alt: #eceef0;
+        --bg-header:      rgba(255,255,255,0.88);
+        --bg-filter:      #f2f4f6;
+        --bg-btn:         #eceef0;
+        --border:         rgba(100,100,120,0.15);
+        --border-light:   rgba(100,100,120,0.08);
+        --text-primary:   #191c1e;
+        --text-secondary: #464555;
+        --text-muted:     #777587;
+        --header-shadow:  0 1px 16px rgba(25,28,30,0.07);
+        --card-shadow:    0 2px 12px rgba(25,28,30,0.06);
+        --card-shadow-lg: 0 8px 32px rgba(53,37,205,0.1);
+        --row-hover:      rgba(53,37,205,0.04);
         --transition:     background 0.2s, color 0.2s, border-color 0.2s;
+
+        /* Semantic badge vars */
+        --badge-success-bg: #D1FAE5; --badge-success-fg: #065F46;
+        --badge-warning-bg: #FEF3C7; --badge-warning-fg: #92400E;
+        --badge-error-bg:   #FEE2E2; --badge-error-fg:   #991B1B;
+        --badge-info-bg:    #EEF2FF; --badge-info-fg:    #3323CC;
+        --badge-purple-bg:  #F5F3FF; --badge-purple-fg:  #5B21B6;
+        --badge-neutral-bg: #F1F5F9; --badge-neutral-fg: #475569;
+
+        /* Accent / component vars */
+        --accent-primary:    #3525cd;
+        --accent-gradient:   linear-gradient(135deg, #3525cd, #4f46e5);
+        --tab-active-bg:     rgba(53,37,205,0.1);
+        --tab-active-fg:     #3525cd;
+        --tab-active-border: 1px solid rgba(53,37,205,0.3);
+        --mono-color:        #3323cc;
+        --header-title:      #3525cd;
+        --header-btn-bg:     #eceef0;
+        --header-btn-border: rgba(100,100,120,0.2);
+        --header-btn-color:  #464555;
+        --header-text:       #191c1e;
+        --divider:           rgba(100,100,120,0.15);
+
+        /* KPI glass card */
+        --kpi-bg:       #ffffff;
+        --kpi-backdrop: none;
+        --kpi-border:   1px solid rgba(100,100,120,0.12);
+        --kpi-shadow:   0 2px 16px rgba(25,28,30,0.07);
+
+        /* Sidebar — stays dark in both modes (Stitch reference: slate-900) */
+        --sidebar-bg:               #0f172a;
+        --sidebar-border:           rgba(255,255,255,0.07);
+        --sidebar-title-color:      #f1f5f9;
+        --sidebar-muted-color:      #64748b;
+        --sidebar-group-label:      #334155;
+        --sidebar-item-color:       #94a3b8;
+        --sidebar-hover-bg:         rgba(30,41,59,0.9);
+        --sidebar-hover-color:      #f1f5f9;
+        --sidebar-active-bg:        rgba(53,37,205,0.18);
+        --sidebar-active-gradient:  rgba(53,37,205,0.18);
+        --sidebar-active-color:     #818cf8;
+        --sidebar-active-shadow:    none;
+        --sidebar-user-hover-bg:    rgba(255,255,255,0.04);
       }
 
-      /* ── Dark theme ── */
+      /* ── Dark mode — Prism Neon ── */
       .dark {
-        --bg-page:        #0B1120;
-        --bg-card:        #1E293B;
-        --bg-surface:     #162032;
-        --bg-surface-alt: rgba(30,41,59,0.6);
-        --bg-header:      #1E293B;
-        --bg-filter:      #162032;
-        --border:         #334155;
-        --border-light:   #334155;
-        --text-primary:   #F1F5F9;
-        --text-secondary: #94A3B8;
-        --text-muted:     #64748B;
-        --bg-btn:         #263348;
-        --header-shadow:  0 1px 3px rgba(0,0,0,0.3);
-        --card-shadow:    0 1px 3px rgba(0,0,0,0.3);
-        --card-shadow-lg: 0 2px 12px rgba(0,0,0,0.4);
-        --row-hover:      #243044;
+        --bg-page:        #070d1f;
+        --bg-card:        #11192e;
+        --bg-surface:     #0c1326;
+        --bg-surface-alt: rgba(28, 37, 62, 0.5);
+        --bg-header:      rgba(7,13,31,0.6);
+        --bg-filter:      #0c1326;
+        --bg-btn:         #1c253e;
+        --border:         rgba(223, 228, 254, 0.1);
+        --border-light:   rgba(223, 228, 254, 0.06);
+        --text-primary:   #dfe4fe;
+        --text-secondary: #a5aac2;
+        --text-muted:     #6f758b;
+        --header-shadow:  0 0 40px rgba(223,228,254,0.03);
+        --card-shadow:    0 0 40px rgba(223,228,254,0.03);
+        --card-shadow-lg: 0 0 60px rgba(204,151,255,0.08);
+        --row-hover:      rgba(28, 37, 62, 0.6);
         --transition:     background 0.2s, color 0.2s, border-color 0.2s;
+
+        /* Semantic badge vars */
+        --badge-success-bg: rgba(16,185,129,0.12); --badge-success-fg: #10b981;
+        --badge-warning-bg: rgba(245,158,11,0.12); --badge-warning-fg: #f59e0b;
+        --badge-error-bg:   rgba(255,110,132,0.12); --badge-error-fg:  #ff6e84;
+        --badge-info-bg:    rgba(83,221,252,0.12);  --badge-info-fg:   #53ddfc;
+        --badge-purple-bg:  rgba(204,151,255,0.12); --badge-purple-fg: #cc97ff;
+        --badge-neutral-bg: rgba(107,114,128,0.12); --badge-neutral-fg: #a5aac2;
+
+        /* Accent / component vars */
+        --accent-primary:    #cc97ff;
+        --accent-gradient:   linear-gradient(135deg, #9c48ea, #cc97ff);
+        --tab-active-bg:     rgba(204,151,255,0.15);
+        --tab-active-fg:     #cc97ff;
+        --tab-active-border: 1px solid rgba(204,151,255,0.4);
+        --mono-color:        #53ddfc;
+        --header-title:      #cc97ff;
+        --header-btn-bg:     #1c253e;
+        --header-btn-border: rgba(223,228,254,0.1);
+        --header-btn-color:  #a5aac2;
+        --header-text:       #dfe4fe;
+        --divider:           rgba(223,228,254,0.1);
+
+        /* KPI glass card */
+        --kpi-bg:       rgba(17,25,46,0.6);
+        --kpi-backdrop: blur(12px);
+        --kpi-border:   rgba(223,228,254,0.1);
+        --kpi-shadow:   0 0 40px rgba(223,228,254,0.03);
+
+        /* Sidebar — Prism Neon */
+        --sidebar-bg:               #070d1f;
+        --sidebar-border:           rgba(223,228,254,0.08);
+        --sidebar-title-color:      #dfe4fe;
+        --sidebar-muted-color:      #a5aac2;
+        --sidebar-group-label:      #41475b;
+        --sidebar-item-color:       #a5aac2;
+        --sidebar-hover-bg:         rgba(28,37,62,0.5);
+        --sidebar-hover-color:      #53ddfc;
+        --sidebar-active-bg:        linear-gradient(135deg, #9c48ea, #cc97ff);
+        --sidebar-active-color:     #ffffff;
+        --sidebar-active-shadow:    0 0 20px rgba(204,151,255,0.35);
+        --sidebar-user-hover-bg:    rgba(255,255,255,0.03);
       }
 
       /* Override browser autofill background */

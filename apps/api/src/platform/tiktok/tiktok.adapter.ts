@@ -11,9 +11,9 @@ import type {
   StockUpdate,
 } from '../adapter.interface'
 
-const APP_KEY = process.env.TIKTOK_APP_KEY ?? ''
-const APP_SECRET = process.env.TIKTOK_APP_SECRET ?? ''
-const REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI ?? ''
+function getAppKey() { return process.env.TIKTOK_APP_KEY ?? '' }
+function getAppSecret() { return process.env.TIKTOK_APP_SECRET ?? '' }
+function getRedirectUri() { return process.env.TIKTOK_REDIRECT_URI ?? '' }
 
 const AUTH_BASE = 'https://auth.tiktok-shops.com'
 const API_BASE = 'https://open-api.tiktokglobalshop.com'
@@ -41,8 +41,8 @@ function buildSign(
     .map(([k, v]) => `${k}${v}`)
     .join('')
 
-  const base = `${APP_SECRET}${path}${sorted}${timestamp}`
-  return createHmac('sha256', APP_SECRET).update(base).digest('hex')
+  const base = `${getAppSecret()}${path}${sorted}${timestamp}`
+  return createHmac('sha256', getAppSecret()).update(base).digest('hex')
 }
 
 async function tiktokGet<T>(
@@ -55,7 +55,7 @@ async function tiktokGet<T>(
   const sign = buildSign(path, allParams, timestamp)
 
   const qs = new URLSearchParams({
-    app_key: APP_KEY,
+    app_key: getAppKey(),
     access_token: accessToken,
     timestamp: String(timestamp),
     sign,
@@ -84,7 +84,7 @@ async function tiktokPost<T>(
   const sign = buildSign(path, allParams, timestamp)
 
   const qs = new URLSearchParams({
-    app_key: APP_KEY,
+    app_key: getAppKey(),
     access_token: accessToken,
     timestamp: String(timestamp),
     sign,
@@ -219,9 +219,9 @@ export class TikTokAdapter implements PlatformAdapter {
 
   getAuthUrl(_redirectUri: string, state: string): string {
     const qs = new URLSearchParams({
-      app_key: APP_KEY,
+      app_key: getAppKey(),
       state,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: getRedirectUri(),
     })
     return `${AUTH_BASE}/oauth/authorize?${qs.toString()}`
   }
@@ -230,7 +230,7 @@ export class TikTokAdapter implements PlatformAdapter {
     const res = await fetch(`${AUTH_BASE}/api/v2/token/get`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ app_key: APP_KEY, auth_code: code, app_secret: APP_SECRET }),
+      body: JSON.stringify({ app_key: getAppKey(), auth_code: code, app_secret: getAppSecret() }),
     })
     const body = await res.json() as TikTokTokenResponse
 
@@ -254,7 +254,7 @@ export class TikTokAdapter implements PlatformAdapter {
     const res = await fetch(`${AUTH_BASE}/api/v2/token/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ app_key: APP_KEY, refresh_token: refreshToken, app_secret: APP_SECRET }),
+      body: JSON.stringify({ app_key: getAppKey(), refresh_token: refreshToken, app_secret: getAppSecret() }),
     })
     const body = await res.json() as TikTokTokenResponse
 

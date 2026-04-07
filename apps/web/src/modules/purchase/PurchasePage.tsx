@@ -10,15 +10,15 @@ import dayjs from 'dayjs'
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; color: string; label: string }> = {
-    DRAFT:             { bg: '#F1F5F9', color: '#475569', label: 'Draft' },
-    PENDING_APPROVAL:  { bg: '#FEF3C7', color: '#92400E', label: 'Pending Approval' },
-    APPROVED:          { bg: '#D1FAE5', color: '#065F46', label: 'Approved' },
-    ORDERED:           { bg: '#EEF2FF', color: '#4338CA', label: 'Ordered' },
-    PARTIALLY_RECEIVED:{ bg: '#F5F3FF', color: '#5B21B6', label: 'Partial' },
-    RECEIVED:          { bg: '#ECFDF5', color: '#065F46', label: 'Received' },
-    CANCELLED:         { bg: '#F1F5F9', color: '#475569', label: 'Cancelled' },
+    DRAFT:             { bg: 'var(--badge-neutral-bg)',  color: 'var(--badge-neutral-fg)',  label: 'Draft' },
+    PENDING_APPROVAL:  { bg: 'var(--badge-warning-bg)',  color: 'var(--badge-warning-fg)',  label: 'Pending Approval' },
+    APPROVED:          { bg: 'var(--badge-success-bg)',  color: 'var(--badge-success-fg)',  label: 'Approved' },
+    ORDERED:           { bg: 'var(--badge-info-bg)',     color: 'var(--badge-info-fg)',     label: 'Ordered' },
+    PARTIALLY_RECEIVED:{ bg: 'var(--badge-purple-bg)',   color: 'var(--badge-purple-fg)',   label: 'Partial' },
+    RECEIVED:          { bg: 'var(--badge-success-bg)',  color: 'var(--badge-success-fg)',  label: 'Received' },
+    CANCELLED:         { bg: 'var(--badge-neutral-bg)',  color: 'var(--badge-neutral-fg)',  label: 'Cancelled' },
   }
-  const s = map[status] ?? { bg: '#F1F5F9', color: '#475569', label: status }
+  const s = map[status] ?? { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: status }
   return (
     <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
       {s.label}
@@ -57,7 +57,7 @@ export default function PurchasePage() {
       dataIndex: 'id',
       width: 160,
       render: (v) => (
-        <span style={{ fontFamily: "'Courier New', monospace", color: '#6366F1', fontSize: 13 }}>
+        <span style={{ fontFamily: "'Courier New', monospace", color: 'var(--mono-color)', fontSize: 13 }}>
           {String(v).slice(0, 8).toUpperCase()}
         </span>
       ),
@@ -88,7 +88,7 @@ export default function PurchasePage() {
       width: 70,
       align: 'center',
       render: (v) => (
-        <span style={{ background: '#F1F5F9', color: '#475569', borderRadius: 20, padding: '2px 8px', fontSize: 12, fontWeight: 500 }}>
+        <span style={{ background: 'rgba(28,37,62,0.8)', color: 'var(--text-secondary)', borderRadius: 20, padding: '2px 8px', fontSize: 12, fontWeight: 500 }}>
           {Array.isArray(v) ? v.length : (v ?? 0)}
         </span>
       ),
@@ -141,7 +141,7 @@ export default function PurchasePage() {
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            style={{ background: '#6366F1', border: 'none', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+            style={{ background: 'var(--accent-gradient)', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
           >
             New PO
           </Button>
@@ -157,9 +157,9 @@ export default function PurchasePage() {
               key={tab.key}
               onClick={() => setStatusFilter(tab.key)}
               style={{
-                background: isActive ? '#6366F1' : 'var(--bg-card)',
-                color: isActive ? '#fff' : 'var(--text-secondary)',
-                border: isActive ? '1px solid #6366F1' : '1px solid var(--border)',
+                background: isActive ? 'var(--tab-active-bg)' : 'var(--bg-surface)',
+                color: isActive ? 'var(--tab-active-fg)' : 'var(--text-secondary)',
+                border: isActive ? 'var(--tab-active-border)' : '1px solid var(--border)',
                 borderRadius: 20,
                 padding: '5px 14px',
                 fontSize: 13,

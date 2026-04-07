@@ -8,61 +8,157 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 
-// ─── KPI Card ────────────────────────────────────────────────────────────────
+// ─── KPI Card ─────────────────────────────────────────────────────────────────
 
 function KpiCard({
-  label, value, sub, accentColor, icon,
+  label, value, sub, accentColor, icon, trendLabel, trendUp,
 }: {
   label: string
   value: string
   sub: string
   accentColor: string
   icon: React.ReactNode
+  trendLabel?: string
+  trendUp?: boolean
 }) {
   return (
     <div style={{
-      background: 'var(--bg-card)',
-      borderRadius: 12,
-      padding: '20px 24px',
+      background: 'var(--kpi-bg)',
+      backdropFilter: 'var(--kpi-backdrop)',
+      WebkitBackdropFilter: 'var(--kpi-backdrop)',
+      border: 'var(--kpi-border)',
+      borderRadius: 24,
+      boxShadow: 'var(--kpi-shadow)',
+      padding: '24px',
       position: 'relative',
       overflow: 'hidden',
-      boxShadow: 'var(--card-shadow)',
       flex: 1,
     }}>
-      {/* Left accent bar */}
-      <div style={{ position: 'absolute', left: 0, top: 0, width: 4, height: '100%', background: accentColor, borderRadius: '12px 0 0 12px' }} />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: accentColor, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>{label}</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.2 }}>{value}</div>
+      {/* Ambient blur blob top-right */}
+      <div style={{
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        width: 128,
+        height: 128,
+        background: `${accentColor}1a`,
+        filter: 'blur(60px)',
+        borderRadius: '50%',
+        pointerEvents: 'none',
+      }} />
+
+      {/* Top row: icon + trend badge */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, position: 'relative' }}>
+        {/* Icon box */}
+        <div style={{
+          width: 44,
+          height: 44,
+          borderRadius: 12,
+          background: `${accentColor}1a`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: accentColor,
+          fontSize: 20,
+        }}>
+          {icon}
         </div>
-        <div style={{ fontSize: 22, color: accentColor, opacity: 0.25 }}>{icon}</div>
+        {/* Trend badge */}
+        {trendLabel && (
+          <span style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: trendUp ? 'var(--badge-success-fg)' : 'var(--badge-error-fg)',
+            background: trendUp ? 'var(--badge-success-bg)' : 'var(--badge-error-bg)',
+            border: `1px solid ${trendUp ? 'var(--badge-success-fg)' : 'var(--badge-error-fg)'}22`,
+            borderRadius: 999,
+            padding: '2px 8px',
+          }}>
+            {trendLabel}
+          </span>
+        )}
       </div>
-      <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)' }}>{sub}</div>
+
+      {/* Label */}
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 500, position: 'relative' }}>{label}</div>
+
+      {/* Value */}
+      <div style={{
+        fontSize: 32,
+        fontWeight: 900,
+        color: 'var(--text-primary)',
+        lineHeight: 1.1,
+        fontFamily: "'Manrope', sans-serif",
+        letterSpacing: '-0.02em',
+        position: 'relative',
+      }}>
+        {value}
+      </div>
+
+      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', position: 'relative' }}>{sub}</div>
     </div>
   )
 }
 
-// ─── Stock dot indicator ──────────────────────────────────────────────────────
+// ─── Stock bar ────────────────────────────────────────────────────────────────
 
-function StockStatus({ count }: { count: number }) {
-  if (count === 0) return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#EF4444', fontSize: 12, fontWeight: 600 }}>
-      <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#EF4444' }} />
-      Out of Stock
-    </div>
-  )
-  if (count < 20) return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#F97316', fontSize: 12, fontWeight: 600 }}>
-      <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#F97316' }} />
-      Low Stock ({count})
-    </div>
-  )
+function StockBar({ pct, color }: { pct: number; color: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#6366F1', fontSize: 12, fontWeight: 600 }}>
-      <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#6366F1' }} />
-      In Stock ({count})
+    <div style={{
+      width: 64,
+      height: 6,
+      background: 'var(--bg-surface-alt)',
+      borderRadius: 9999,
+      overflow: 'hidden',
+      flexShrink: 0,
+    }}>
+      <div style={{
+        background: color,
+        height: '100%',
+        width: `${Math.min(100, Math.max(0, pct))}%`,
+        borderRadius: 9999,
+        transition: 'width 0.4s',
+      }} />
     </div>
+  )
+}
+
+// ─── Status pill ──────────────────────────────────────────────────────────────
+
+function StatusPill({ count }: { count: number }) {
+  if (count === 0) {
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+        background: 'var(--badge-error-bg)', color: 'var(--badge-error-fg)',
+        border: '1px solid var(--badge-error-fg)22',
+      }}>
+        Out of Stock
+      </span>
+    )
+  }
+  if (count < 100) {
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+        background: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)',
+        border: '1px solid var(--badge-warning-fg)22',
+      }}>
+        Low Stock
+      </span>
+    )
+  }
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+      background: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)',
+      border: '1px solid var(--badge-success-fg)22',
+    }}>
+      In Stock
+    </span>
   )
 }
 
@@ -71,21 +167,22 @@ function StockStatus({ count }: { count: number }) {
 function CategoryPill({ name }: { name: string }) {
   return (
     <span style={{
-      background: '#EEF2FF',
-      color: '#4338CA',
-      fontSize: 10,
+      background: 'var(--badge-info-bg)',
+      color: 'var(--badge-info-fg)',
+      fontSize: 9,
       fontWeight: 700,
       textTransform: 'uppercase',
-      letterSpacing: '0.04em',
-      padding: '3px 8px',
-      borderRadius: 20,
+      letterSpacing: '0.08em',
+      padding: '3px 10px',
+      borderRadius: 999,
+      border: '1px solid var(--badge-info-fg)22',
     }}>
       {name}
     </span>
   )
 }
 
-// ─── Product avatar placeholder ───────────────────────────────────────────────
+// ─── Product avatar ───────────────────────────────────────────────────────────
 
 const PRODUCT_ICONS: Record<string, string> = {
   'Electronics': '🎧',
@@ -93,14 +190,20 @@ const PRODUCT_ICONS: Record<string, string> = {
   default: '📦',
 }
 
-function ProductAvatar({ category, name }: { category?: string; name: string }) {
+function ProductAvatar({ category }: { category?: string }) {
   const emoji = PRODUCT_ICONS[category ?? ''] ?? PRODUCT_ICONS.default
   return (
     <div style={{
-      width: 44, height: 44, borderRadius: 10,
+      width: 56,
+      height: 56,
+      borderRadius: 16,
       background: 'var(--bg-surface)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 20, flexShrink: 0,
+      border: '1px solid var(--border)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: 24,
+      flexShrink: 0,
     }}>
       {emoji}
     </div>
@@ -132,22 +235,36 @@ export default function ProductsPage() {
   return (
     <div>
       {/* ── Page header ── */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{t('products.title')}</h1>
+          <h1 style={{
+            margin: 0,
+            fontSize: 22,
+            fontWeight: 700,
+            color: 'var(--text-primary)',
+          }}>
+            {t('products.title')}
+          </h1>
           <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>{t('products.subtitle')}</p>
         </div>
         <Space>
           <Button
             icon={<DownloadOutlined />}
-            style={{ borderRadius: 10, height: 38, fontWeight: 600, border: '1px solid var(--border)' }}
+            style={{
+              borderRadius: 10, height: 40, fontWeight: 600,
+              border: '1px solid var(--border)',
+              background: 'var(--bg-btn)', color: 'var(--text-secondary)',
+            }}
           >
             {t('products.exportCsv')}
           </Button>
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            style={{ background: '#6366F1', border: 'none', borderRadius: 10, height: 38, fontWeight: 600, boxShadow: '0 4px 12px rgba(99,102,241,0.3)' }}
+            style={{
+              background: 'var(--accent-gradient)',
+              border: 'none', borderRadius: 10, height: 40, fontWeight: 600,
+            }}
           >
             {t('products.addProduct')}
           </Button>
@@ -155,26 +272,30 @@ export default function ProductsPage() {
       </div>
 
       {/* ── KPI cards ── */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 28 }}>
         <KpiCard
           label={t('products.totalProducts')}
           value={String(total)}
           sub={t('products.totalSkus', { count: totalSkus })}
-          accentColor="#6366F1"
+          accentColor="#cc97ff"
           icon={<AppstoreOutlined />}
+          trendLabel="+4.2%"
+          trendUp={true}
         />
         <KpiCard
           label={t('products.stockAlerts')}
-          value={`${lowStockCount} Items`}
+          value={`${lowStockCount}`}
           sub={t('products.lowInventoryDetected')}
-          accentColor="#F97316"
+          accentColor="#53ddfc"
           icon={<WarningOutlined />}
+          trendLabel={lowStockCount > 0 ? 'Needs attention' : undefined}
+          trendUp={false}
         />
         <KpiCard
           label={t('products.activeListings')}
           value={`${items.filter((p: any) => p.isActive).length}`}
           sub={t('products.activeListingsCount')}
-          accentColor="#10B981"
+          accentColor="#ff6daf"
           icon={<ReloadOutlined />}
         />
         <KpiCard
@@ -183,15 +304,16 @@ export default function ProductsPage() {
             ? `$${(items.flatMap((p: any) => p.skus ?? []).reduce((s: number, sk: any) => s + Number(sk.costPrice ?? 0), 0) / Math.max(totalSkus, 1)).toFixed(2)}`
             : '—'}
           sub={t('products.weightedAvgCost')}
-          accentColor="#8B5CF6"
+          accentColor="#f59e0b"
           icon={<WalletOutlined />}
         />
       </div>
 
       {/* ── Filter bar ── */}
       <div style={{
-        background: 'var(--bg-filter)',
-        borderRadius: 12,
+        background: 'var(--bg-surface)',
+        borderRadius: 14,
+        border: '1px solid var(--border-light)',
         padding: '12px 20px',
         marginBottom: 16,
         display: 'flex',
@@ -200,7 +322,7 @@ export default function ProductsPage() {
         flexWrap: 'wrap',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('products.category')}:</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('products.category')}:</span>
           <Select
             allowClear
             placeholder={t('products.allCategories')}
@@ -213,7 +335,7 @@ export default function ProductsPage() {
           />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('common.status')}:</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{t('common.status')}:</span>
           <Select
             allowClear
             placeholder={t('products.allStatuses')}
@@ -233,29 +355,33 @@ export default function ProductsPage() {
             style={{ width: 220 }}
             variant="filled"
           />
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
             {t('products.showingOf', { shown: items.length, total })}
           </span>
         </div>
       </div>
 
-      {/* ── Table ── */}
+      {/* ── Table container ── */}
       <div style={{
         background: 'var(--bg-card)',
-        borderRadius: 12,
-        boxShadow: 'var(--card-shadow-lg)',
+        borderRadius: 24,
+        border: '1px solid var(--border)',
         overflow: 'hidden',
       }}>
         {/* Table header */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: '40px 2fr 140px 160px 90px 150px 80px',
-          padding: '12px 24px',
+          gridTemplateColumns: '40px 2fr 140px 160px 90px 180px 80px',
+          padding: '14px 24px',
           background: 'var(--bg-surface)',
           borderBottom: '1px solid var(--border-light)',
         }}>
           {[null, t('products.product'), t('products.skuCode'), t('products.category'), t('products.skus'), t('products.stockStatus'), ''].map((h, i) => (
-            <div key={i} style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', textAlign: i === 4 ? 'center' : 'left' }}>
+            <div key={i} style={{
+              fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)',
+              letterSpacing: '0.08em', textAlign: i === 4 ? 'center' : 'left',
+              textTransform: 'uppercase',
+            }}>
               {h === null ? <Checkbox /> : h}
             </div>
           ))}
@@ -272,27 +398,31 @@ export default function ProductsPage() {
           </div>
         ) : items.map((product: any, idx: number) => {
           const skuCount = product.skus?.length ?? 0
+          const stockQty = skuCount * 50
+          const stockPct = Math.min(100, (stockQty / 500) * 100)
           const sampleSkuCode = product.skus?.[0]?.skuCode ?? '—'
+          const barColor = stockQty === 0 ? 'var(--badge-error-fg)' : stockQty < 100 ? 'var(--badge-warning-fg)' : 'var(--badge-info-fg)'
+
           return (
             <div
               key={product.id}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '40px 2fr 140px 160px 90px 150px 80px',
+                gridTemplateColumns: '40px 2fr 140px 160px 90px 180px 80px',
                 padding: '16px 24px',
                 alignItems: 'center',
-                background: idx % 2 === 1 ? 'var(--bg-surface-alt)' : 'var(--bg-card)',
-                transition: 'background 0.15s',
+                borderBottom: idx < items.length - 1 ? '1px solid var(--border-light)' : 'none',
                 cursor: 'pointer',
+                transition: 'background 0.15s',
               }}
               onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--row-hover)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = idx % 2 === 1 ? 'var(--bg-surface-alt)' : 'var(--bg-card)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
             >
               <div><Checkbox /></div>
 
               {/* Product cell */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <ProductAvatar category={product.category?.name} name={product.name} />
+                <ProductAvatar category={product.category?.name} />
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>{product.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{product.brand ?? 'No brand'}</div>
@@ -300,7 +430,7 @@ export default function ProductsPage() {
               </div>
 
               {/* SKU code */}
-              <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--text-secondary)' }}>{sampleSkuCode}</div>
+              <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--mono-color)' }}>{sampleSkuCode}</div>
 
               {/* Category */}
               <div>
@@ -312,18 +442,25 @@ export default function ProductsPage() {
 
               {/* SKU count */}
               <div style={{ textAlign: 'center' }}>
-                <span style={{ background: '#EEF2FF', color: '#4338CA', borderRadius: 20, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>
+                <span style={{
+                  background: 'var(--badge-purple-bg)', color: 'var(--badge-purple-fg)',
+                  borderRadius: 999, padding: '3px 12px', fontSize: 12, fontWeight: 700,
+                  border: '1px solid var(--badge-purple-fg)22',
+                }}>
                   {skuCount}
                 </span>
               </div>
 
               {/* Stock */}
-              <StockStatus count={skuCount * 50} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <StockBar pct={stockPct} color={barColor} />
+                <StatusPill count={stockQty} />
+              </div>
 
               {/* Actions */}
               <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                 <Button type="text" size="small" icon={<EditOutlined />} style={{ color: 'var(--text-muted)', borderRadius: 8 }} />
-                <Button type="text" size="small" icon={<DeleteOutlined />} style={{ color: '#EF4444', borderRadius: 8 }} />
+                <Button type="text" size="small" icon={<DeleteOutlined />} style={{ color: 'var(--badge-error-fg)', borderRadius: 8 }} />
               </div>
             </div>
           )
@@ -331,23 +468,27 @@ export default function ProductsPage() {
 
         {/* Pagination footer */}
         <div style={{
-          padding: '14px 24px',
+          padding: '16px 24px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           borderTop: '1px solid var(--border-light)',
         }}>
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-            {t('common.itemsPerPage')}: <strong style={{ color: 'var(--text-primary)' }}>{pageSize}</strong>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            {t('common.itemsPerPage')}: <strong style={{ color: 'var(--text-secondary)' }}>{pageSize}</strong>
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
               style={{
-                padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)',
-                fontSize: 12, fontWeight: 700, cursor: page === 1 ? 'not-allowed' : 'pointer',
-                background: 'var(--bg-card)', color: page === 1 ? 'var(--text-muted)' : 'var(--text-primary)',
+                padding: '6px 14px', borderRadius: 8,
+                border: '1px solid var(--border)',
+                fontSize: 12, fontWeight: 600,
+                cursor: page === 1 ? 'not-allowed' : 'pointer',
+                background: 'var(--bg-btn)',
+                color: page === 1 ? 'var(--text-muted)' : 'var(--text-primary)',
+                opacity: page === 1 ? 0.5 : 1,
               }}
             >
               {t('common.previous')}
@@ -357,10 +498,10 @@ export default function ProductsPage() {
                 key={p}
                 onClick={() => setPage(p)}
                 style={{
-                  width: 32, height: 32, borderRadius: 8, border: 'none',
+                  width: 34, height: 34, borderRadius: 8, border: 'none',
                   fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                  background: page === p ? '#6366F1' : 'transparent',
-                  color: page === p ? '#fff' : 'var(--text-primary)',
+                  background: page === p ? 'var(--accent-gradient)' : 'transparent',
+                  color: page === p ? '#fff' : 'var(--text-secondary)',
                 }}
               >
                 {p}
@@ -370,9 +511,13 @@ export default function ProductsPage() {
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page >= totalPages}
               style={{
-                padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)',
-                fontSize: 12, fontWeight: 700, cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-                background: 'var(--bg-card)', color: page >= totalPages ? 'var(--text-muted)' : 'var(--text-primary)',
+                padding: '6px 14px', borderRadius: 8,
+                border: '1px solid var(--border)',
+                fontSize: 12, fontWeight: 600,
+                cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+                background: 'var(--bg-btn)',
+                color: page >= totalPages ? 'var(--text-muted)' : 'var(--text-primary)',
+                opacity: page >= totalPages ? 0.5 : 1,
               }}
             >
               {t('common.next')}

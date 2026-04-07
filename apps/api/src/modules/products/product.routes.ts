@@ -20,7 +20,10 @@ export async function productRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
   app.get('/', async (request) => {
-    const { page = 1, pageSize = 20, search } = request.query as { page?: number; pageSize?: number; search?: string }
+    const q = request.query as { page?: string; pageSize?: string; search?: string }
+    const page = parseInt(q.page ?? '1', 10)
+    const pageSize = parseInt(q.pageSize ?? '20', 10)
+    const search = q.search
     const where = {
       tenantId: request.user.tenantId,
       isActive: true,

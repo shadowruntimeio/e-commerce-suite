@@ -27,9 +27,9 @@ function PlatformBadge({ platform }: { platform: string }) {
     SHOPEE: { bg: '#FF6633', color: '#fff' },
     TIKTOK: { bg: '#0F172A', color: '#fff' },
     LAZADA: { bg: '#0F146D', color: '#fff' },
-    MANUAL: { bg: '#E2E8F0', color: '#475569' },
+    MANUAL: { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)' },
   }
-  const s = map[platform] ?? { bg: '#E2E8F0', color: '#475569' }
+  const s = map[platform] ?? { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)' }
   return (
     <span style={{ background: s.bg, color: s.color, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, letterSpacing: '0.03em' }}>
       {platform}
@@ -38,8 +38,8 @@ function PlatformBadge({ platform }: { platform: string }) {
 }
 
 function RoasCell({ value }: { value: number }) {
-  const color = value < 1.0 ? '#EF4444' : value >= 3.0 ? '#10B981' : '#F59E0B'
-  const bg = value < 1.0 ? '#FEE2E2' : value >= 3.0 ? '#D1FAE5' : '#FEF3C7'
+  const color = value < 1.0 ? 'var(--badge-error-fg)' : value >= 3.0 ? 'var(--badge-success-fg)' : 'var(--badge-warning-fg)'
+  const bg = value < 1.0 ? 'var(--badge-error-bg)' : value >= 3.0 ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'
   return (
     <span style={{ background: bg, color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>
       {value.toFixed(2)}x
@@ -51,14 +51,15 @@ function RoasCell({ value }: { value: number }) {
 
 function KpiCard({ title, value, accent, icon }: { title: string; value: string; accent: string; icon: React.ReactNode }) {
   return (
-    <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: 'var(--card-shadow)', padding: '20px 24px' }}>
+    <div style={{ position: 'relative', overflow: 'hidden', background: 'var(--kpi-bg)', borderRadius: 20, border: 'var(--kpi-border)', backdropFilter: 'var(--kpi-backdrop)', boxShadow: 'var(--kpi-shadow)', padding: '20px 24px' }}>
+      <div style={{ position: 'absolute', top: -24, right: -24, width: 96, height: 96, borderRadius: '50%', background: accent, filter: 'blur(48px)', opacity: 0.15, pointerEvents: 'none' }} />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>{title}</span>
-        <div style={{ width: 36, height: 36, borderRadius: 10, background: `${accent}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: `${accent}22`, border: `1px solid ${accent}33`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span style={{ color: accent, fontSize: 18 }}>{icon}</span>
         </div>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1, fontFamily: "'Manrope', sans-serif" }}>{value}</div>
     </div>
   )
 }
@@ -128,21 +129,21 @@ export default function AdsPage() {
       dataIndex: 'impressions',
       width: 120,
       align: 'right',
-      render: (v: number) => <span style={{ color: '#374151' }}>{v.toLocaleString()}</span>,
+      render: (v: number) => <span style={{ color: 'var(--text-primary)' }}>{v.toLocaleString()}</span>,
     },
     {
       title: 'Clicks',
       dataIndex: 'clicks',
       width: 90,
       align: 'right',
-      render: (v: number) => <span style={{ color: '#374151' }}>{v.toLocaleString()}</span>,
+      render: (v: number) => <span style={{ color: 'var(--text-primary)' }}>{v.toLocaleString()}</span>,
     },
     {
       title: 'CTR',
       dataIndex: 'CTR',
       width: 90,
       align: 'right',
-      render: (v: number) => <span style={{ color: '#374151' }}>{v.toFixed(2)}%</span>,
+      render: (v: number) => <span style={{ color: 'var(--text-primary)' }}>{v.toFixed(2)}%</span>,
     },
     {
       title: 'Spend',
@@ -181,7 +182,7 @@ export default function AdsPage() {
             icon={<SyncOutlined spin={syncing} />}
             loading={syncing}
             onClick={() => syncMutation.mutate()}
-            style={{ background: 'var(--bg-card)', color: '#374151', border: '1px solid var(--border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+            style={{ background: 'var(--accent-gradient)', color: '#fff', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
           >
             Sync Ads
           </Button>
@@ -190,9 +191,9 @@ export default function AdsPage() {
 
       {/* No data alert */}
       {noData && (
-        <div style={{ background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 12, padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <FundOutlined style={{ color: '#6366F1', fontSize: 18, flexShrink: 0 }} />
-          <div style={{ color: '#3730A3', fontSize: 14 }}>
+        <div style={{ background: 'var(--badge-purple-bg)', border: '1px solid rgba(var(--accent-primary-raw, 204,151,255),0.3)', borderRadius: 12, padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <FundOutlined style={{ color: 'var(--accent-primary)', fontSize: 18, flexShrink: 0 }} />
+          <div style={{ color: 'var(--text-primary)', fontSize: 14 }}>
             <span style={{ fontWeight: 600 }}>Connect ad accounts to see performance data.</span>
             {' '}Link your Shopee or TikTok ad accounts and sync to view campaign metrics here.
           </div>
