@@ -622,11 +622,10 @@ export class TikTokAdapter implements PlatformAdapter {
       code: number
       data: { doc_url?: string; document_url?: string }
     }>(
-      'POST',
+      'GET',
       path,
       accessToken,
       shopCipher,
-      {},
       { document_type: documentType, document_size: documentSize },
     )
 
