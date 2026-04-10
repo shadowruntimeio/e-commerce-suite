@@ -61,7 +61,7 @@ export async function reserveStock(params: {
   orderId: string
   userId: string
 }) {
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx: any) => {
     // Lock the snapshot row
     const snapshot = await tx.inventorySnapshot.findFirst({
       where: { warehouseSkuId: params.warehouseSkuId },

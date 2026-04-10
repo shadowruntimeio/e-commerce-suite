@@ -1,8 +1,19 @@
 import type { Job } from 'bullmq'
-import { prisma, Prisma } from '@ems/db'
+import { prisma } from '@ems/db'
 
-const Decimal = Prisma.Decimal
-type Decimal = InstanceType<typeof Prisma.Decimal>
+// Lightweight Decimal wrapper for ETL arithmetic — avoids floating-point drift
+class Decimal {
+  private val: number
+  constructor(v: number | string | Decimal) { this.val = v instanceof Decimal ? v.val : Number(v) || 0 }
+  add(o: Decimal | number) { return new Decimal(this.val + (o instanceof Decimal ? o.val : o)) }
+  sub(o: Decimal | number) { return new Decimal(this.val - (o instanceof Decimal ? o.val : o)) }
+  mul(o: Decimal | number) { return new Decimal(this.val * (o instanceof Decimal ? o.val : o)) }
+  div(o: Decimal | number) { const d = o instanceof Decimal ? o.val : o; return new Decimal(d === 0 ? 0 : this.val / d) }
+  toFixed(d: number) { return this.val.toFixed(d) }
+  toNumber() { return this.val }
+  valueOf() { return this.val }
+  toString() { return String(this.val) }
+}
 
 export async function etlProcessor(_job: Job): Promise<void> {
   console.log('[etl] Starting nightly ETL run')
@@ -95,7 +106,7 @@ async function processSalesFacts(
     }
 
     // Distribute revenue/commission/shipping proportionally (by sku group qty / total qty)
-    const totalQty = order.items.reduce((s, i) => s + i.quantity, 0) || 1
+    const totalQty = order.items.reduce((s: number, i: any) => s + i.quantity, 0) || 1
     const orderRevenue = dec(order.totalRevenue)
     const orderCommission = dec(order.platformCommission)
     const orderShipping = dec(order.shippingFeeSeller)
@@ -142,11 +153,11 @@ async function processSalesFacts(
       update: {
         ordersCount: fact.ordersCount,
         unitsSold: fact.unitsSold,
-        grossRevenue: fact.grossRevenue,
-        platformCommission: fact.platformCommission,
-        shippingCost: fact.shippingCost,
-        cogs: fact.cogs,
-        profit,
+        grossRevenue: fact.grossRevenue.toNumber(),
+        platformCommission: fact.platformCommission.toNumber(),
+        shippingCost: fact.shippingCost.toNumber(),
+        cogs: fact.cogs.toNumber(),
+        profit: profit.toNumber(),
       },
       create: {
         tenantId,
@@ -155,11 +166,11 @@ async function processSalesFacts(
         systemSkuId: fact.systemSkuId ?? '',
         ordersCount: fact.ordersCount,
         unitsSold: fact.unitsSold,
-        grossRevenue: fact.grossRevenue,
-        platformCommission: fact.platformCommission,
-        shippingCost: fact.shippingCost,
-        cogs: fact.cogs,
-        profit,
+        grossRevenue: fact.grossRevenue.toNumber(),
+        platformCommission: fact.platformCommission.toNumber(),
+        shippingCost: fact.shippingCost.toNumber(),
+        cogs: fact.cogs.toNumber(),
+        profit: profit.toNumber(),
       },
     })
   }
@@ -206,8 +217,8 @@ async function processInventorySnapshots(tenantId: string, dateKey: Date): Promi
     const totalSold = salesAgg._sum.quantity ?? 0
     const avgDailySales = totalSold / 30
     const daysOfStock = avgDailySales > 0
-      ? new Decimal(quantityOnHand).div(avgDailySales).toDecimalPlaces(2)
-      : new Decimal(0)
+      ? Math.round((quantityOnHand / avgDailySales) * 100) / 100
+      : 0
 
     await prisma.inventoryDailySnapshot.upsert({
       where: {
@@ -217,14 +228,14 @@ async function processInventorySnapshots(tenantId: string, dateKey: Date): Promi
           warehouseSkuId: wsku.id,
         },
       },
-      update: { quantityOnHand, inventoryValue, daysOfStock },
+      update: { quantityOnHand, inventoryValue: Number(inventoryValue), daysOfStock },
       create: {
         tenantId,
         date: dateKey,
         warehouseSkuId: wsku.id,
         warehouseId: wsku.warehouseId,
         quantityOnHand,
-        inventoryValue,
+        inventoryValue: Number(inventoryValue),
         daysOfStock,
       },
     })

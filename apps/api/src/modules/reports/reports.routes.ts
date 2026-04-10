@@ -191,7 +191,7 @@ export async function reportsRoutes(app: FastifyInstance) {
       where: { id: { in: skuIds } },
       include: { systemProduct: { select: { name: true } } },
     })
-    const skuMap = new Map(skus.map((s) => [s.id, s]))
+    const skuMap = new Map(skus.map((s: any) => [s.id, s]))
 
     const rows = Array.from(bySkuId.values())
       .map((agg) => {
@@ -226,7 +226,7 @@ export async function reportsRoutes(app: FastifyInstance) {
       distinct: ['warehouseSkuId'],
     })
 
-    const warehouseSkuIds = snapshots.map((s) => s.warehouseSkuId)
+    const warehouseSkuIds = snapshots.map((s: any) => s.warehouseSkuId)
     const warehouseSkus = await prisma.warehouseSku.findMany({
       where: { id: { in: warehouseSkuIds } },
       include: {
@@ -234,9 +234,9 @@ export async function reportsRoutes(app: FastifyInstance) {
         systemSku: { select: { skuCode: true, systemProduct: { select: { name: true } } } },
       },
     })
-    const wskuMap = new Map(warehouseSkus.map((w) => [w.id, w]))
+    const wskuMap = new Map(warehouseSkus.map((w: any) => [w.id, w]))
 
-    const rows = snapshots.map((snap) => {
+    const rows = snapshots.map((snap: any) => {
       const wsku = wskuMap.get(snap.warehouseSkuId)
       const days = Number(snap.daysOfStock)
       let ageCategory: string

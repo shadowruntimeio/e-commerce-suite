@@ -30,7 +30,8 @@ export interface OrderContext {
   tags: string[]
 }
 
-type PrismaTransaction = Prisma.TransactionClient
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type PrismaTransaction = any
 
 // ─── Evaluator (pure — no side effects) ──────────────────────────────────────
 
@@ -133,7 +134,7 @@ export async function applyActions(
 
   await tx.order.update({
     where: { id: order.id },
-    data: updateData as Parameters<typeof tx.order.update>[0]['data'],
+    data: updateData as any,
   })
 }
 
