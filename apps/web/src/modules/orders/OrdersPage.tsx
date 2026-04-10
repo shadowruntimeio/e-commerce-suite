@@ -1,10 +1,12 @@
 import { Table, Input, Select, Space, DatePicker, Button } from 'antd'
 import {
   SyncOutlined, DownloadOutlined, EyeOutlined, ShoppingCartOutlined,
+  PrinterOutlined,
 } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { message } from 'antd'
 import { api } from '../../lib/api'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
@@ -52,6 +54,16 @@ export default function OrdersPage() {
   const [status, setStatus] = useState('')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+
+  async function handlePrintLabel(orderId: string) {
+    try {
+      const res = await api.get(`/orders/${orderId}/shipping-label`)
+      const { docUrl } = res.data.data
+      window.open(docUrl, '_blank')
+    } catch (err: any) {
+      void message.error(err?.response?.data?.error ?? t('orders.labelFailed'))
+    }
+  }
 
   const statusTabs = [
     { key: '', label: t('orders.all') },
@@ -123,9 +135,21 @@ export default function OrdersPage() {
     {
       title: '',
       key: 'actions',
-      width: 48,
-      render: () => (
-        <Button type="text" size="small" icon={<EyeOutlined />} style={{ color: 'var(--text-secondary)' }} />
+      width: 80,
+      render: (_: any, record: any) => (
+        <div style={{ display: 'flex', gap: 2 }}>
+          <Button type="text" size="small" icon={<EyeOutlined />} style={{ color: 'var(--text-secondary)' }} />
+          <Button
+            type="text"
+            size="small"
+            icon={<PrinterOutlined />}
+            style={{ color: 'var(--text-secondary)' }}
+            onClick={(e) => {
+              e.stopPropagation()
+              handlePrintLabel(record.id)
+            }}
+          />
+        </div>
       ),
     },
   ]

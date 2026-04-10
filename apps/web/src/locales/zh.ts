@@ -118,6 +118,7 @@ export default {
     date: '日期',
     noOrders: '暂无订单',
     noOrdersHint: '请同步店铺以导入订单',
+    labelFailed: '获取运单失败',
   },
   products: {
     title: '商品管理',

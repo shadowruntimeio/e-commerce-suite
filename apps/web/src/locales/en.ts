@@ -118,6 +118,7 @@ export default {
     date: 'Date',
     noOrders: 'No orders yet',
     noOrdersHint: 'Sync your shops to import orders',
+    labelFailed: 'Failed to fetch shipping label',
   },
   products: {
     title: 'Products',

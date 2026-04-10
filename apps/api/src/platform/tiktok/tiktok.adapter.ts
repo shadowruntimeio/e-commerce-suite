@@ -592,6 +592,37 @@ export class TikTokAdapter implements PlatformAdapter {
     return products
   }
 
+  // ─── Shipping label (V202309) ───────────────────────────────────────────────
+
+  async getShippingLabel(
+    shop: ShopRecord,
+    orderId: string,
+    documentType: 'SHIPPING_LABEL' | 'PICK_LIST' | 'PACKING_LIST' = 'SHIPPING_LABEL',
+    documentSize: 'A5' | 'A6' = 'A6',
+  ): Promise<{ docUrl: string }> {
+    const { accessToken, shopCipher } = getCredentials(shop)
+    const path = `/fulfillment/202309/orders/${orderId}/shipping_documents/get`
+
+    const resp = await tiktokRequest<{
+      code: number
+      data: { doc_url?: string; document_url?: string }
+    }>(
+      'POST',
+      path,
+      accessToken,
+      shopCipher,
+      {},
+      { document_type: documentType, document_size: documentSize },
+    )
+
+    const docUrl = resp.data?.doc_url ?? resp.data?.document_url
+    if (!docUrl) {
+      throw new Error('No shipping document URL returned from TikTok')
+    }
+
+    return { docUrl }
+  }
+
   async updateStock(shop: ShopRecord, updates: StockUpdate[]): Promise<void> {
     console.log(`[tiktok] updateStock not yet implemented for shop ${shop.id}, ${updates.length} updates queued`)
   }
