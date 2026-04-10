@@ -617,7 +617,7 @@ export class TikTokAdapter implements PlatformAdapter {
       throw new Error('No package found for this order — order may not be ready for shipping yet')
     }
 
-    const path = `/fulfillment/202309/packages/${packageId}/shipping_documents/get`
+    const path = `/fulfillment/202309/packages/${packageId}/shipping_documents`
     const resp = await tiktokRequest<{
       code: number
       data: { doc_url?: string; document_url?: string }
