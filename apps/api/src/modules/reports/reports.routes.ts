@@ -195,7 +195,7 @@ export async function reportsRoutes(app: FastifyInstance) {
 
     const rows = Array.from(bySkuId.values())
       .map((agg) => {
-        const sku = skuMap.get(agg.systemSkuId)
+        const sku: any = skuMap.get(agg.systemSkuId)
         const profitMargin = agg.grossRevenue > 0 ? (agg.profit / agg.grossRevenue) * 100 : 0
         return {
           systemSkuId: agg.systemSkuId,
@@ -237,7 +237,7 @@ export async function reportsRoutes(app: FastifyInstance) {
     const wskuMap = new Map(warehouseSkus.map((w: any) => [w.id, w]))
 
     const rows = snapshots.map((snap: any) => {
-      const wsku = wskuMap.get(snap.warehouseSkuId)
+      const wsku: any = wskuMap.get(snap.warehouseSkuId)
       const days = Number(snap.daysOfStock)
       let ageCategory: string
       if (days <= 30) ageCategory = '0-30d'

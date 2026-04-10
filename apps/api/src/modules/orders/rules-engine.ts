@@ -177,7 +177,7 @@ export async function runRulesForOrder(orderId: string, tenantId: string): Promi
     const actions = rule.actions as unknown as RuleAction[]
 
     if (evaluateConditions(conditions, context)) {
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         await applyActions(actions, { id: order.id, status: order.status, tags: order.tags }, tx)
       })
       // Stop after first matching rule (firewall style)
