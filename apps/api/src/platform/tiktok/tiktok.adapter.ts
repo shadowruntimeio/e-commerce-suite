@@ -607,7 +607,8 @@ export class TikTokAdapter implements PlatformAdapter {
       code: number
       data: { packages?: Array<{ id: string }> }
     }>(
-      'POST', pkgPath, accessToken, shopCipher, {},
+      'POST', pkgPath, accessToken, shopCipher,
+      { page_size: '20' },
       { order_id: orderId },
     )
 
