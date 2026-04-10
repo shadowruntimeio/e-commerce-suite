@@ -601,8 +601,19 @@ export class TikTokAdapter implements PlatformAdapter {
     documentSize: 'A5' | 'A6' = 'A6',
   ): Promise<{ docUrl: string }> {
     const { accessToken, shopCipher } = getCredentials(shop)
-    const path = `/fulfillment/202309/orders/${orderId}/shipping_documents/get`
+    // First get package ID for this order
+    const orderPath = `/order/202309/orders/${orderId}`
+    const orderResp = await tiktokRequest<{
+      code: number
+      data: { packages?: Array<{ id: string }> }
+    }>('GET', orderPath, accessToken, shopCipher)
 
+    const packageId = orderResp.data?.packages?.[0]?.id
+    if (!packageId) {
+      throw new Error('No package found for this order — order may not be shipped yet')
+    }
+
+    const path = `/fulfillment/202309/packages/${packageId}/shipping_documents/get`
     const resp = await tiktokRequest<{
       code: number
       data: { doc_url?: string; document_url?: string }
