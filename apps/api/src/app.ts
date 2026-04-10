@@ -23,8 +23,12 @@ export async function buildApp() {
     logger: process.env.NODE_ENV !== 'test',
   })
 
+  const corsOrigins = (process.env.CORS_ORIGIN ?? 'http://localhost:5173')
+    .split(',')
+    .map((o) => o.trim())
+
   await app.register(cors, {
-    origin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+    origin: corsOrigins,
     credentials: true,
   })
 
