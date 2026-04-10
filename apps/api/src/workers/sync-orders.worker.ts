@@ -2,7 +2,9 @@ import type { Job } from 'bullmq'
 import { prisma } from '@ems/db'
 import type { OrderStatus } from '@ems/shared'
 import { ShopeeAdapter, encryptCredentials } from '../platform/shopee/shopee.adapter'
-import type { PlatformOrder } from '../platform/adapter.interface'
+import { TikTokAdapter, encryptCredentials as encryptTikTokCredentials, decryptCredentials as decryptTikTokCredentials } from '../platform/tiktok/tiktok.adapter'
+import type { TikTokCredentials } from '../platform/tiktok/tiktok.adapter'
+import type { PlatformAdapter, PlatformOrder } from '../platform/adapter.interface'
 
 interface SyncOrdersJob {
   shopId: string
@@ -11,30 +13,52 @@ interface SyncOrdersJob {
 
 const LOOKBACK_SECONDS = 24 * 60 * 60 // 24 hours as first-sync default
 
+function getAdapter(platform: string): PlatformAdapter {
+  switch (platform) {
+    case 'SHOPEE': return new ShopeeAdapter()
+    case 'TIKTOK': return new TikTokAdapter()
+    default: throw new Error(`Unsupported platform: ${platform}`)
+  }
+}
+
 export async function syncOrdersProcessor(job: Job<SyncOrdersJob>) {
+  console.log(`[sync-orders] Job received: shopId=${job.data.shopId} tenantId=${job.data.tenantId}`)
   const { shopId, tenantId } = job.data
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const shop = await prisma.shop.findFirst({ where: { id: shopId, tenantId } }) as any
   if (!shop) throw new Error(`Shop ${shopId} not found`)
-  if (shop.platform !== 'SHOPEE') {
+
+  if (!['SHOPEE', 'TIKTOK'].includes(shop.platform)) {
     console.log(`[sync-orders] Unsupported platform ${shop.platform} for shop ${shop.id}`)
     return
   }
 
   console.log(`[sync-orders] Starting sync for shop ${shop.name} (${shop.platform})`)
 
-  let adapter = new ShopeeAdapter()
+  const adapter = getAdapter(shop.platform)
 
   // ─── Refresh token if expired ────────────────────────────────────────────────
   if (shop.tokenExpiresAt && shop.tokenExpiresAt <= new Date()) {
     console.log(`[sync-orders] Token expired for shop ${shop.id}, refreshing...`)
     try {
       const newTokens = await adapter.refreshAccessToken(shop)
-      const credentials = encryptCredentials({
-        accessToken: newTokens.accessToken,
-        refreshToken: newTokens.refreshToken,
-      })
+      let credentials: any
+      if (shop.platform === 'TIKTOK') {
+        // Preserve existing shopCipher when refreshing tokens
+        const existingCreds = decryptTikTokCredentials(shop.credentialsEncrypted as TikTokCredentials)
+        credentials = encryptTikTokCredentials({
+          accessToken: newTokens.accessToken,
+          refreshToken: newTokens.refreshToken,
+          shopCipher: existingCreds.shopCipher,
+        })
+      } else {
+        credentials = encryptCredentials({
+          accessToken: newTokens.accessToken,
+          refreshToken: newTokens.refreshToken,
+        })
+      }
+
       await prisma.shop.update({
         where: { id: shop.id },
         data: {
@@ -45,8 +69,6 @@ export async function syncOrdersProcessor(job: Job<SyncOrdersJob>) {
       })
       // Reload the shop with fresh credentials
       const refreshed = await prisma.shop.findUniqueOrThrow({ where: { id: shop.id } })
-      adapter = new ShopeeAdapter()
-      // Reassign shop reference so subsequent calls use updated credentials
       Object.assign(shop, refreshed)
     } catch (err) {
       await prisma.shop.update({

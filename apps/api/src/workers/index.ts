@@ -7,6 +7,7 @@ import { restockingProcessor } from './restocking.worker'
 import { etlProcessor } from './etl.worker'
 import { syncAdsProcessor } from './sync-ads.worker'
 import { syncMessagesProcessor } from './sync-messages.worker'
+import { syncProductsProcessor } from './sync-products.worker'
 
 console.log('Starting BullMQ workers...')
 
@@ -39,6 +40,11 @@ new Worker('sync-ads', syncAdsProcessor, {
 new Worker('sync-messages', syncMessagesProcessor, {
   connection: redis,
   concurrency: 5,
+})
+
+new Worker('sync-products', syncProductsProcessor, {
+  connection: redis,
+  concurrency: 3,
 })
 
 console.log('Workers running')

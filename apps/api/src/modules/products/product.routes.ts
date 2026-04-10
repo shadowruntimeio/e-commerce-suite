@@ -19,25 +19,37 @@ const createProductSchema = z.object({
 export async function productRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
+  // List synced platform products (OnlineProduct) from connected shops
   app.get('/', async (request) => {
-    const q = request.query as { page?: string; pageSize?: string; search?: string }
+    const q = request.query as { page?: string; pageSize?: string; search?: string; status?: string; shopId?: string }
     const page = parseInt(q.page ?? '1', 10)
     const pageSize = parseInt(q.pageSize ?? '20', 10)
-    const search = q.search
-    const where = {
-      tenantId: request.user.tenantId,
-      isActive: true,
-      ...(search ? { name: { contains: search, mode: 'insensitive' as const } } : {}),
+
+    const where: Record<string, unknown> = {
+      shop: { tenantId: request.user.tenantId, status: { not: 'INACTIVE' } },
     }
+    if (q.search) {
+      where.title = { contains: q.search, mode: 'insensitive' }
+    }
+    if (q.status) {
+      where.status = q.status
+    }
+    if (q.shopId) {
+      where.shopId = q.shopId
+    }
+
     const [items, total] = await Promise.all([
-      prisma.systemProduct.findMany({
+      prisma.onlineProduct.findMany({
         where,
-        include: { skus: true, category: true },
+        include: {
+          onlineSkus: true,
+          shop: { select: { id: true, name: true, platform: true } },
+        },
         skip: (page - 1) * pageSize,
         take: pageSize,
         orderBy: { createdAt: 'desc' },
       }),
-      prisma.systemProduct.count({ where }),
+      prisma.onlineProduct.count({ where }),
     ])
     return { success: true, data: { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) } }
   })

@@ -15,6 +15,7 @@ import { reportsRoutes } from './modules/reports/reports.routes'
 import { adsRoutes } from './modules/ads/ads.routes'
 import { csRoutes } from './modules/cs/cs.routes'
 import { logisticsRoutes } from './modules/logistics/logistics.routes'
+import { tiktokWebhookRoutes } from './modules/webhooks/tiktok.webhook'
 import { authenticate } from './middleware/authenticate'
 
 export async function buildApp() {
@@ -31,6 +32,7 @@ export async function buildApp() {
 
   // Public routes
   await app.register(authRoutes, { prefix: '/api/v1/auth' })
+  await app.register(tiktokWebhookRoutes, { prefix: '/api/v1/webhooks' })
 
   // Protected routes — authenticate middleware applied per-route
   await app.register(shopRoutes, { prefix: '/api/v1/shops' })

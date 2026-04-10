@@ -5,6 +5,7 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -14,10 +15,11 @@ dayjs.extend(relativeTime)
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation()
   const map: Record<string, { bg: string; color: string; label: string }> = {
-    ACTIVE:       { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', label: 'Active' },
-    INACTIVE:     { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: 'Inactive' },
-    AUTH_EXPIRED: { bg: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)', label: 'Auth Expired' },
+    ACTIVE:       { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', label: t('shops.statusActive') },
+    INACTIVE:     { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: t('shops.statusInactive') },
+    AUTH_EXPIRED: { bg: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)', label: t('shops.statusAuthExpired') },
   }
   const s = map[status] ?? { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: status }
   return (
@@ -39,12 +41,13 @@ function getPlatformStyle(platform: string) {
 
 // ─── Shop Card ───────────────────────────────────────────────────────────────
 
-function ShopCard({ shop, onSync, syncing }: { shop: any; onSync: () => void; syncing: boolean }) {
+function ShopCard({ shop, onSync, syncing, onDisconnect }: { shop: any; onSync: () => void; syncing: boolean; onDisconnect: () => void }) {
+  const { t } = useTranslation()
   const ps = getPlatformStyle(shop.platform)
 
   const menuItems = [
-    { key: 'edit', label: 'Edit Shop' },
-    { key: 'disconnect', label: 'Disconnect', danger: true },
+    { key: 'edit', label: t('shops.editShop') },
+    { key: 'disconnect', label: t('shops.disconnect'), danger: true, onClick: onDisconnect },
   ]
 
   return (
@@ -58,13 +61,13 @@ function ShopCard({ shop, onSync, syncing }: { shop: any; onSync: () => void; sy
       flexDirection: 'column',
     }}>
       {/* Card header strip */}
-      <div style={{ background: ps.bg, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: ps.bg, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <ShopOutlined style={{ fontSize: 18, color: ps.text }} />
           </div>
-          <div>
-            <div style={{ color: ps.text, fontWeight: 700, fontSize: 15, lineHeight: 1.2 }}>{shop.name}</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: ps.text, fontWeight: 700, fontSize: 15, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shop.name}</div>
             <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2 }}>{shop.platform}</div>
           </div>
         </div>
@@ -75,19 +78,19 @@ function ShopCard({ shop, onSync, syncing }: { shop: any; onSync: () => void; sy
       <div style={{ padding: '16px 20px', flex: 1 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>Shop ID</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>{t('shops.shopId')}</span>
             <span style={{ fontSize: 13, color: 'var(--text-primary)', fontFamily: "'Courier New', monospace" }}>
               {shop.externalShopId ?? <span style={{ color: 'var(--text-muted)' }}>—</span>}
             </span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>Last Sync</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>{t('shops.lastSync')}</span>
             <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
-              {shop.lastSyncAt ? dayjs(shop.lastSyncAt).fromNow() : <span style={{ color: 'var(--text-muted)' }}>Never</span>}
+              {shop.lastSyncAt ? dayjs(shop.lastSyncAt).fromNow() : <span style={{ color: 'var(--text-muted)' }}>{t('shops.never')}</span>}
             </span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>Token Expires</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>{t('shops.tokenExpires')}</span>
             <span style={{ fontSize: 13, color: shop.tokenExpiresAt && dayjs(shop.tokenExpiresAt).isBefore(dayjs().add(7, 'day')) ? '#F59E0B' : '#374151' }}>
               {shop.tokenExpiresAt ? dayjs(shop.tokenExpiresAt).format('MMM D, YYYY') : <span style={{ color: 'var(--text-muted)' }}>—</span>}
             </span>
@@ -104,7 +107,7 @@ function ShopCard({ shop, onSync, syncing }: { shop: any; onSync: () => void; sy
           onClick={onSync}
           style={{ borderRadius: 8, fontWeight: 500, height: 32 }}
         >
-          Sync Now
+          {t('common.syncNow')}
         </Button>
         <Dropdown menu={{ items: menuItems }} placement="bottomRight" trigger={['click']}>
           <Button type="text" size="small" icon={<MoreOutlined />} style={{ color: 'var(--text-secondary)' }} />
@@ -116,35 +119,37 @@ function ShopCard({ shop, onSync, syncing }: { shop: any; onSync: () => void; sy
 
 // ─── Empty state ─────────────────────────────────────────────────────────────
 
-function EmptyState({ onConnect }: { onConnect: () => void }) {
+function EmptyState({ onConnectShopee, onConnectTikTok }: { onConnectShopee: () => void; onConnectTikTok: () => void }) {
+  const { t } = useTranslation()
+  const platforms = [
+    { key: 'SHOPEE', onClick: onConnectShopee },
+    { key: 'TIKTOK', onClick: onConnectTikTok },
+  ]
+
   return (
     <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '64px 40px', textAlign: 'center' }}>
       <div style={{ width: 64, height: 64, borderRadius: 16, background: 'rgba(204,151,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
         <ShopOutlined style={{ fontSize: 28, color: '#cc97ff' }} />
       </div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>No shops connected</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>{t('shops.noShops')}</div>
       <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 24, maxWidth: 340, margin: '0 auto 24px' }}>
-        Connect your Shopee or TikTok shop to start syncing orders and products.
+        {t('shops.noShopsHint')}
       </div>
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-        {['SHOPEE', 'TIKTOK', 'LAZADA'].map((p) => {
-          const ps = getPlatformStyle(p)
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+        {platforms.map(({ key, onClick }) => {
+          const ps = getPlatformStyle(key)
           return (
-            <div key={p} style={{ background: ps.bg, color: ps.text, padding: '6px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}>
-              {p}
-            </div>
+            <Button
+              key={key}
+              size="large"
+              onClick={onClick}
+              style={{ background: ps.bg, color: ps.text, border: 'none', borderRadius: 8, fontWeight: 600, height: 40, paddingInline: 24 }}
+            >
+              {t('shops.connectPlatform', { platform: key.charAt(0) + key.slice(1).toLowerCase() })}
+            </Button>
           )
         })}
       </div>
-      <Button
-        type="primary"
-        icon={<ThunderboltOutlined />}
-        size="large"
-        onClick={onConnect}
-        style={{ marginTop: 24, background: 'var(--accent-gradient)', border: 'none', borderRadius: 8, fontWeight: 500 }}
-      >
-        Connect a Shop
-      </Button>
     </div>
   )
 }
@@ -152,6 +157,7 @@ function EmptyState({ onConnect }: { onConnect: () => void }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ShopsPage() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [connectingShopee, setConnectingShopee] = useState(false)
   const [connectingTikTok, setConnectingTikTok] = useState(false)
@@ -164,19 +170,28 @@ export default function ShopsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('connected') === 'true') {
-      void message.success('Shop connected successfully!')
+      void message.success(t('shops.connectedSuccess'))
       queryClient.invalidateQueries({ queryKey: ['shops'] })
       window.history.replaceState({}, '', window.location.pathname)
     } else if (params.get('error') === 'oauth_failed') {
-      void message.error('Failed to connect shop. Please try again.')
+      void message.error(t('shops.connectedFailed'))
       window.history.replaceState({}, '', window.location.pathname)
     }
   }, [queryClient])
 
   const syncMutation = useMutation({
     mutationFn: (shopId: string) => api.post(`/shops/${shopId}/sync`),
-    onSuccess: () => void message.success('Sync job queued'),
-    onError: () => void message.error('Failed to queue sync'),
+    onSuccess: () => void message.success(t('shops.syncQueued')),
+    onError: () => void message.error(t('shops.syncFailed')),
+  })
+
+  const disconnectMutation = useMutation({
+    mutationFn: (shopId: string) => api.delete(`/shops/${shopId}`),
+    onSuccess: () => {
+      void message.success(t('shops.disconnected'))
+      queryClient.invalidateQueries({ queryKey: ['shops'] })
+    },
+    onError: () => void message.error(t('shops.disconnectFailed')),
   })
 
   async function handleConnectShopee() {
@@ -186,7 +201,7 @@ export default function ShopsPage() {
       const url: string = res.data.data.url
       window.location.href = url
     } catch {
-      void message.error('Failed to get Shopee connect URL')
+      void message.error(t('shops.connectShopeeError'))
       setConnectingShopee(false)
     }
   }
@@ -198,7 +213,7 @@ export default function ShopsPage() {
       const url: string = res.data.data.url
       window.location.href = url
     } catch {
-      void message.error('Failed to get TikTok connect URL')
+      void message.error(t('shops.connectTiktokError'))
       setConnectingTikTok(false)
     }
   }
@@ -207,8 +222,8 @@ export default function ShopsPage() {
 
   const connectMenu = {
     items: [
-      { key: 'shopee', label: 'Connect Shopee', onClick: handleConnectShopee },
-      { key: 'tiktok', label: 'Connect TikTok Shop', onClick: handleConnectTikTok },
+      { key: 'shopee', label: t('shops.connectShopee'), onClick: handleConnectShopee },
+      { key: 'tiktok', label: t('shops.connectTiktok'), onClick: handleConnectTikTok },
     ],
   }
 
@@ -218,8 +233,8 @@ export default function ShopsPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Connected Shops</h1>
-            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Manage your platform store connections</p>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{t('shops.title')}</h1>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>{t('shops.subtitle')}</p>
           </div>
           <Space>
             <Dropdown menu={connectMenu} placement="bottomRight" trigger={['click']}>
@@ -228,7 +243,7 @@ export default function ShopsPage() {
                 loading={connectingShopee || connectingTikTok}
                 style={{ background: 'var(--accent-gradient)', border: 'none', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
               >
-                Connect Shop <DownOutlined style={{ fontSize: 11 }} />
+                {t('shops.connectShop')} <DownOutlined style={{ fontSize: 11 }} />
               </Button>
             </Dropdown>
           </Space>
@@ -241,7 +256,7 @@ export default function ShopsPage() {
           <Spin size="large" />
         </div>
       ) : shops.length === 0 ? (
-        <EmptyState onConnect={handleConnectShopee} />
+        <EmptyState onConnectShopee={handleConnectShopee} onConnectTikTok={handleConnectTikTok} />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
           {shops.map((shop: any) => (
@@ -250,6 +265,7 @@ export default function ShopsPage() {
               shop={shop}
               onSync={() => syncMutation.mutate(shop.id)}
               syncing={syncMutation.isPending && syncMutation.variables === shop.id}
+              onDisconnect={() => disconnectMutation.mutate(shop.id)}
             />
           ))}
         </div>

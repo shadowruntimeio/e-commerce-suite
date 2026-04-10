@@ -3,10 +3,10 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Avatar, Dropdown, Badge, Tooltip } from 'antd'
 import {
   DashboardOutlined, ShoppingCartOutlined, AppstoreOutlined,
-  InboxOutlined, ShoppingOutlined, ShopOutlined, LogoutOutlined,
-  FilterOutlined, AlertOutlined, BarChartOutlined, LineChartOutlined,
-  MessageOutlined, TruckOutlined, BellOutlined, FundOutlined,
+  InboxOutlined, ShopOutlined, LogoutOutlined, BankOutlined,
+  BarChartOutlined, TruckOutlined, BellOutlined,
   MoonOutlined, SunOutlined, TranslationOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined,
 } from '@ant-design/icons'
 import { useAuthStore } from '../../store/auth.store'
 import { useSettingsStore } from '../../store/settings.store'
@@ -30,7 +30,6 @@ const navGroups: NavGroup[] = [
     groupKey: 'sales',
     items: [
       { key: '/orders', icon: <ShoppingCartOutlined />, labelKey: 'nav.orders' },
-      { key: '/orders/rules', icon: <FilterOutlined />, labelKey: 'nav.rules' },
     ],
   },
   {
@@ -41,31 +40,22 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    groupKey: 'supplyChain',
-    items: [
-      { key: '/purchase', icon: <ShoppingOutlined />, labelKey: 'nav.purchase' },
-      { key: '/purchase/restocking', icon: <AlertOutlined />, labelKey: 'nav.restocking' },
-    ],
-  },
-  {
     groupKey: 'analytics',
     items: [
       { key: '/reports/sales', icon: <BarChartOutlined />, labelKey: 'nav.salesReport' },
-      { key: '/reports/profit', icon: <LineChartOutlined />, labelKey: 'nav.profitReport' },
     ],
   },
   {
     groupKey: 'channels',
     items: [
       { key: '/shops', icon: <ShopOutlined />, labelKey: 'nav.shops' },
-      { key: '/ads', icon: <FundOutlined />, labelKey: 'nav.ads' },
     ],
   },
   {
     groupKey: 'operations',
     items: [
+      { key: '/warehouses', icon: <BankOutlined />, labelKey: 'nav.warehouses' },
       { key: '/logistics', icon: <TruckOutlined />, labelKey: 'nav.logistics' },
-      { key: '/cs', icon: <MessageOutlined />, labelKey: 'nav.inbox' },
     ],
   },
 ]
@@ -73,17 +63,11 @@ const navGroups: NavGroup[] = [
 const PAGE_TITLE_KEYS: Record<string, string> = {
   '/dashboard': 'pageTitles.dashboard',
   '/orders': 'pageTitles.orders',
-  '/orders/rules': 'pageTitles.orderRules',
   '/products': 'pageTitles.products',
   '/inventory': 'pageTitles.inventory',
-  '/purchase': 'pageTitles.purchase',
-  '/purchase/restocking': 'pageTitles.restocking',
   '/reports/sales': 'pageTitles.salesReport',
-  '/reports/profit': 'pageTitles.profitReport',
   '/shops': 'pageTitles.shops',
-  '/ads': 'pageTitles.ads',
   '/logistics': 'pageTitles.logistics',
-  '/cs': 'pageTitles.inbox',
   '/warehouses': 'pageTitles.warehouses',
 }
 
@@ -160,7 +144,9 @@ export function AppLayout() {
   const { user, logout } = useAuthStore()
   const { isDark, lang, toggleDark, setLang } = useSettingsStore()
   const { t } = useTranslation()
-  const [isExpanded, setIsExpanded] = React.useState(false)
+  const [isPinned, setIsPinned] = React.useState(true)
+  const [isHovered, setIsHovered] = React.useState(false)
+  const isExpanded = isPinned || isHovered
 
   const pageTitleKey = PAGE_TITLE_KEYS[location.pathname] ?? 'pageTitles.dashboard'
   const pageTitle = t(pageTitleKey)
@@ -174,8 +160,8 @@ export function AppLayout() {
     <Layout style={{ minHeight: '100vh', background: 'var(--bg-page)' }}>
       {/* ── Sidebar ── */}
       <div
-        onMouseEnter={() => setIsExpanded(true)}
-        onMouseLeave={() => setIsExpanded(false)}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         style={{
           position: 'fixed',
           height: '100vh',
@@ -219,14 +205,34 @@ export function AppLayout() {
           </div>
           <div style={{
             opacity: isExpanded ? 1 : 0,
-            maxWidth: isExpanded ? 160 : 0,
+            maxWidth: isExpanded ? 120 : 0,
             overflow: 'hidden',
             transition: 'opacity 0.2s, max-width 0.2s',
             whiteSpace: 'nowrap',
+            flex: 1,
           }}>
             <div style={{ color: 'var(--sidebar-title-color)', fontWeight: 800, fontSize: 15, lineHeight: 1.2, letterSpacing: '-0.3px', fontFamily: "'Manrope', sans-serif" }}>EMS</div>
             <div style={{ color: 'var(--sidebar-muted-color)', fontSize: 10, lineHeight: 1.2 }}>E-commerce Suite</div>
           </div>
+          {isExpanded && (
+            <span
+              onClick={() => setIsPinned(!isPinned)}
+              title={isPinned ? 'Collapse sidebar' : 'Pin sidebar'}
+              style={{
+                color: isPinned ? 'var(--sidebar-active-color)' : 'var(--sidebar-muted-color)',
+                cursor: 'pointer',
+                fontSize: 16,
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                padding: 4,
+                borderRadius: 6,
+                transition: 'color 0.15s',
+              }}
+            >
+              {isPinned ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+            </span>
+          )}
         </div>
 
         {/* Nav groups */}

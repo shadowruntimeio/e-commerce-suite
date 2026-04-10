@@ -4,6 +4,7 @@ import {
 } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
@@ -11,14 +12,15 @@ import dayjs from 'dayjs'
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation()
   const map: Record<string, { bg: string; color: string; label: string }> = {
-    PENDING:     { bg: 'var(--badge-warning-bg)',  color: 'var(--badge-warning-fg)',  label: 'Pending' },
-    TO_SHIP:     { bg: 'var(--badge-info-bg)',     color: 'var(--badge-info-fg)',     label: 'To Ship' },
-    SHIPPED:     { bg: 'var(--badge-success-bg)',  color: 'var(--badge-success-fg)',  label: 'Shipped' },
-    COMPLETED:   { bg: 'var(--badge-success-bg)',  color: 'var(--badge-success-fg)',  label: 'Completed' },
-    CANCELLED:   { bg: 'var(--badge-neutral-bg)',  color: 'var(--badge-neutral-fg)',  label: 'Cancelled' },
-    AFTER_SALES: { bg: 'var(--badge-purple-bg)',   color: 'var(--badge-purple-fg)',   label: 'After Sales' },
-    UNPAID:      { bg: 'var(--badge-error-bg)',    color: 'var(--badge-error-fg)',    label: 'Unpaid' },
+    PENDING:     { bg: 'var(--badge-warning-bg)',  color: 'var(--badge-warning-fg)',  label: t('orders.pending') },
+    TO_SHIP:     { bg: 'var(--badge-info-bg)',     color: 'var(--badge-info-fg)',     label: t('orders.toShip') },
+    SHIPPED:     { bg: 'var(--badge-success-bg)',  color: 'var(--badge-success-fg)',  label: t('orders.shipped') },
+    COMPLETED:   { bg: 'var(--badge-success-bg)',  color: 'var(--badge-success-fg)',  label: t('orders.completed') },
+    CANCELLED:   { bg: 'var(--badge-neutral-bg)',  color: 'var(--badge-neutral-fg)',  label: t('orders.cancelled') },
+    AFTER_SALES: { bg: 'var(--badge-purple-bg)',   color: 'var(--badge-purple-fg)',   label: t('orders.afterSales') },
+    UNPAID:      { bg: 'var(--badge-error-bg)',    color: 'var(--badge-error-fg)',    label: t('orders.unpaid') },
   }
   const s = map[status] ?? { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: status }
   return (
@@ -43,24 +45,23 @@ function PlatformBadge({ platform }: { platform: string }) {
   )
 }
 
-// ─── Tab config ──────────────────────────────────────────────────────────────
-
-const STATUS_TABS: { key: string; label: string }[] = [
-  { key: '', label: 'All' },
-  { key: 'UNPAID', label: 'Unpaid' },
-  { key: 'PENDING', label: 'Pending' },
-  { key: 'TO_SHIP', label: 'To Ship' },
-  { key: 'SHIPPED', label: 'Shipped' },
-  { key: 'COMPLETED', label: 'Completed' },
-  { key: 'CANCELLED', label: 'Cancelled' },
-]
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function OrdersPage() {
+  const { t } = useTranslation()
   const [status, setStatus] = useState('')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+
+  const statusTabs = [
+    { key: '', label: t('orders.all') },
+    { key: 'UNPAID', label: t('orders.unpaid') },
+    { key: 'PENDING', label: t('orders.pending') },
+    { key: 'TO_SHIP', label: t('orders.toShip') },
+    { key: 'SHIPPED', label: t('orders.shipped') },
+    { key: 'COMPLETED', label: t('orders.completed') },
+    { key: 'CANCELLED', label: t('orders.cancelled') },
+  ]
 
   const { data, isLoading } = useQuery({
     queryKey: ['orders', { status, search, page }],
@@ -72,7 +73,7 @@ export default function OrdersPage() {
 
   const columns: ColumnsType<any> = [
     {
-      title: 'Order ID',
+      title: t('orders.orderId'),
       dataIndex: 'platformOrderId',
       width: 160,
       render: (v) => (
@@ -80,32 +81,32 @@ export default function OrdersPage() {
       ),
     },
     {
-      title: 'Platform',
+      title: t('orders.platform'),
       dataIndex: ['shop', 'platform'],
       width: 100,
       render: (v) => v ? <PlatformBadge platform={v} /> : '—',
     },
-    { title: 'Shop', dataIndex: ['shop', 'name'], width: 120, ellipsis: true },
-    { title: 'Buyer', dataIndex: 'buyerName', width: 140, ellipsis: true },
+    { title: t('orders.shop'), dataIndex: ['shop', 'name'], width: 120, ellipsis: true },
+    { title: t('orders.buyer'), dataIndex: 'buyerName', width: 140, ellipsis: true },
     {
-      title: 'Items',
+      title: t('orders.items'),
       dataIndex: 'items',
       width: 60,
       align: 'center',
       render: (items) => (
-        <span style={{ background: 'rgba(28,37,62,0.8)', color: 'var(--text-secondary)', borderRadius: 20, padding: '2px 8px', fontSize: 12, fontWeight: 500 }}>
+        <span style={{ background: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', borderRadius: 20, padding: '2px 8px', fontSize: 12, fontWeight: 500 }}>
           {items?.length ?? 0}
         </span>
       ),
     },
     {
-      title: 'Status',
+      title: t('common.status'),
       dataIndex: 'status',
       width: 120,
       render: (s) => <StatusBadge status={s} />,
     },
     {
-      title: 'Revenue',
+      title: t('orders.revenue'),
       dataIndex: 'totalRevenue',
       width: 120,
       align: 'right',
@@ -114,7 +115,7 @@ export default function OrdersPage() {
       ),
     },
     {
-      title: 'Date',
+      title: t('orders.date'),
       dataIndex: 'createdAt',
       width: 140,
       render: (v) => dayjs(v).format('MMM D, HH:mm'),
@@ -135,15 +136,15 @@ export default function OrdersPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Orders</h1>
-            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Manage and track all platform orders</p>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{t('orders.title')}</h1>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>{t('orders.subtitle')}</p>
           </div>
           <Space>
             <Button
               icon={<SyncOutlined />}
               style={{ background: 'var(--accent-gradient)', color: '#fff', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
             >
-              Sync Now
+              {t('common.syncNow')}
             </Button>
           </Space>
         </div>
@@ -151,7 +152,7 @@ export default function OrdersPage() {
 
       {/* Status Tabs */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
-        {STATUS_TABS.map((tab) => {
+        {statusTabs.map((tab) => {
           const isActive = status === tab.key
           return (
             <button
@@ -178,14 +179,14 @@ export default function OrdersPage() {
       {/* Filter Bar */}
       <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '16px 20px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <Input.Search
-          placeholder="Order ID / Buyer name"
+          placeholder={t('orders.searchPlaceholder')}
           allowClear
           onSearch={(v) => { setSearch(v); setPage(1) }}
           style={{ width: 260 }}
         />
         <Select
           allowClear
-          placeholder="All shops"
+          placeholder={t('orders.allShops')}
           style={{ width: 180 }}
         />
         <DatePicker.RangePicker style={{ borderRadius: 8 }} />
@@ -194,7 +195,7 @@ export default function OrdersPage() {
             icon={<DownloadOutlined />}
             style={{ background: 'var(--header-btn-bg)', color: 'var(--header-btn-color)', border: 'var(--header-btn-border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
           >
-            Export
+            {t('common.export')}
           </Button>
         </div>
       </div>
@@ -216,7 +217,7 @@ export default function OrdersPage() {
             total: data?.total ?? 0,
             onChange: (p) => setPage(p),
             showSizeChanger: false,
-            showTotal: (total) => `${total.toLocaleString()} records`,
+            showTotal: (total) => t('common.records', { count: total }),
             style: { padding: '12px 20px' },
           }}
           scroll={{ x: 'max-content' }}
@@ -224,8 +225,8 @@ export default function OrdersPage() {
             emptyText: (
               <div style={{ padding: '48px 0', color: 'var(--text-muted)', textAlign: 'center' }}>
                 <ShoppingCartOutlined style={{ fontSize: 40, marginBottom: 12, display: 'block', margin: '0 auto 12px' }} />
-                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>No orders yet</div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Sync your shops to import orders</div>
+                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>{t('orders.noOrders')}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>{t('orders.noOrdersHint')}</div>
               </div>
             ),
           }}

@@ -1,7 +1,7 @@
 import { prisma } from '@ems/db'
-import { syncOrdersQueue, refreshTokensQueue, restockingQueue, etlQueue } from '../lib/queues'
+import { syncOrdersQueue, syncProductsQueue, refreshTokensQueue, restockingQueue, etlQueue } from '../lib/queues'
 
-const SYNC_INTERVAL_MS = 30 * 60 * 1000        // 30 minutes
+const SYNC_INTERVAL_MS = 5 * 60 * 1000          // 5 minutes
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000     // 30 minutes
 const RESTOCKING_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 const ETL_INTERVAL_MS = 24 * 60 * 60 * 1000    // 24 hours
@@ -12,12 +12,17 @@ async function scheduleOrderSyncs() {
       where: { status: 'ACTIVE' },
       select: { id: true, tenantId: true, name: true },
     })
-    console.log(`[scheduler] Scheduling sync-orders for ${activeShops.length} active shops`)
+    console.log(`[scheduler] Scheduling sync-orders + sync-products for ${activeShops.length} active shops`)
     for (const shop of activeShops) {
       await syncOrdersQueue.add(
         'sync-orders',
         { shopId: shop.id, tenantId: shop.tenantId },
         { jobId: `scheduled-sync-${shop.id}-${Math.floor(Date.now() / 60000)}` }
+      )
+      await syncProductsQueue.add(
+        'sync-products',
+        { shopId: shop.id, tenantId: shop.tenantId },
+        { jobId: `scheduled-product-sync-${shop.id}-${Math.floor(Date.now() / 60000)}` }
       )
     }
   } catch (err) {
@@ -75,7 +80,7 @@ async function scheduleEtl() {
 }
 
 export function startScheduler() {
-  console.log('[scheduler] Starting — sync interval: 30m, refresh interval: 30m, restocking interval: 24h, etl interval: 24h')
+  console.log('[scheduler] Starting — sync interval: 5m, refresh interval: 30m, restocking interval: 24h, etl interval: 24h')
 
   // Run immediately on startup, then on interval
   void scheduleOrderSyncs()
