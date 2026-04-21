@@ -19,7 +19,7 @@ export async function csRoutes(app: FastifyInstance) {
       pageSize?: number
     }
 
-    const where: any = { tenantId }
+    const where: any = { tenantId, shop: { status: { not: 'INACTIVE' } } }
     if (shopId) where.shopId = shopId
     if (isRead !== undefined) where.isRead = isRead === 'true'
     if (tag) where.tags = { has: tag }

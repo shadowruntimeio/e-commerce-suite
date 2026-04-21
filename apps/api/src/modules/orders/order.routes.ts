@@ -13,6 +13,7 @@ export async function orderRoutes(app: FastifyInstance) {
     }
     const where = {
       tenantId: request.user.tenantId,
+      shop: { status: { not: 'INACTIVE' as const } },
       ...(status ? { status: status as any } : {}),
       ...(shopId ? { shopId } : {}),
       ...(search ? {

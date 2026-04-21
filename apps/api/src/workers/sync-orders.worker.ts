@@ -79,6 +79,35 @@ export async function syncOrdersProcessor(job: Job<SyncOrdersJob>) {
     }
   }
 
+  // ─── Backfill shop_cipher for TikTok shops where it's missing ───────────────
+  if (shop.platform === 'TIKTOK') {
+    const creds = decryptTikTokCredentials(shop.credentialsEncrypted as TikTokCredentials)
+    if (!creds.shopCipher) {
+      console.log(`[sync-orders] shop_cipher missing for shop ${shop.id}, fetching from /authorization/202309/shops`)
+      try {
+        const cipher = await (adapter as TikTokAdapter).fetchShopCipher(creds.accessToken, shop.externalShopId)
+        if (cipher) {
+          const updated = encryptTikTokCredentials({
+            accessToken: creds.accessToken,
+            refreshToken: creds.refreshToken,
+            shopCipher: cipher,
+          })
+          await prisma.shop.update({
+            where: { id: shop.id },
+            data: { credentialsEncrypted: updated as any },
+          })
+          const refreshed = await prisma.shop.findUniqueOrThrow({ where: { id: shop.id } })
+          Object.assign(shop, refreshed)
+          console.log(`[sync-orders] shop_cipher backfilled for shop ${shop.id}`)
+        } else {
+          console.warn(`[sync-orders] No matching shop found in /authorization/202309/shops for externalShopId=${shop.externalShopId}`)
+        }
+      } catch (err) {
+        console.warn(`[sync-orders] Failed to backfill shop_cipher for shop ${shop.id}: ${(err as Error).message}`)
+      }
+    }
+  }
+
   // ─── Determine sync window ───────────────────────────────────────────────────
   const timeTo = Math.floor(Date.now() / 1000)
   const timeFrom = shop.lastSyncAt

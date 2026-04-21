@@ -18,11 +18,20 @@ export async function adsRoutes(app: FastifyInstance) {
     const from = dateFrom ? new Date(dateFrom) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     const to = dateTo ? new Date(dateTo) : new Date()
 
+    const activeShops = await prisma.shop.findMany({
+      where: { tenantId, status: { not: 'INACTIVE' } },
+      select: { id: true },
+    })
+    const activeShopIds = activeShops.map((s) => s.id)
+    const shopIdFilter = shopId
+      ? { shopId: activeShopIds.includes(shopId) ? shopId : '__none__' }
+      : { shopId: { in: activeShopIds } }
+
     const facts = await prisma.adSpendFact.findMany({
       where: {
         tenantId,
         date: { gte: from, lte: to },
-        ...(shopId ? { shopId } : {}),
+        ...shopIdFilter,
       },
     })
 
@@ -71,11 +80,20 @@ export async function adsRoutes(app: FastifyInstance) {
     const from = dateFrom ? new Date(dateFrom) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     const to = dateTo ? new Date(dateTo) : new Date()
 
+    const activeShops = await prisma.shop.findMany({
+      where: { tenantId, status: { not: 'INACTIVE' } },
+      select: { id: true },
+    })
+    const activeShopIds = activeShops.map((s) => s.id)
+    const shopIdFilter = shopId
+      ? { shopId: activeShopIds.includes(shopId) ? shopId : '__none__' }
+      : { shopId: { in: activeShopIds } }
+
     const facts = await prisma.adSpendFact.findMany({
       where: {
         tenantId,
         date: { gte: from, lte: to },
-        ...(shopId ? { shopId } : {}),
+        ...shopIdFilter,
       },
       orderBy: { date: 'desc' },
     })

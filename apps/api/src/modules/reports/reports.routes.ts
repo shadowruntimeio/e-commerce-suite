@@ -17,6 +17,15 @@ export async function reportsRoutes(app: FastifyInstance) {
     const from = dateFrom ? new Date(dateFrom) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     const to = dateTo ? new Date(dateTo) : new Date()
 
+    const activeShops = await prisma.shop.findMany({
+      where: { tenantId, status: { not: 'INACTIVE' } },
+      select: { id: true },
+    })
+    const activeShopIds = activeShops.map((s) => s.id)
+    const shopIdFilter = shopId
+      ? { shopId: activeShopIds.includes(shopId) ? shopId : '__none__' }
+      : { shopId: { in: activeShopIds } }
+
     // Try SalesFact first
     const hasFacts = await prisma.salesFact.count({ where: { tenantId } })
 
@@ -25,7 +34,7 @@ export async function reportsRoutes(app: FastifyInstance) {
         where: {
           tenantId,
           date: { gte: from, lte: to },
-          ...(shopId ? { shopId } : {}),
+          ...shopIdFilter,
         },
         orderBy: { date: 'asc' },
       })
@@ -78,6 +87,7 @@ export async function reportsRoutes(app: FastifyInstance) {
       tenantId,
       createdAt: { gte: from, lte: to },
       status: { notIn: ['CANCELLED'] as any[] },
+      shop: { status: { not: 'INACTIVE' as const } },
       ...(shopId ? { shopId } : {}),
     }
 
@@ -145,12 +155,21 @@ export async function reportsRoutes(app: FastifyInstance) {
     const from = dateFrom ? new Date(dateFrom) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
     const to = dateTo ? new Date(dateTo) : new Date()
 
+    const activeShops = await prisma.shop.findMany({
+      where: { tenantId, status: { not: 'INACTIVE' } },
+      select: { id: true },
+    })
+    const activeShopIds = activeShops.map((s) => s.id)
+    const shopIdFilter = shopId
+      ? { shopId: activeShopIds.includes(shopId) ? shopId : '__none__' }
+      : { shopId: { in: activeShopIds } }
+
     const facts = await prisma.salesFact.findMany({
       where: {
         tenantId,
         date: { gte: from, lte: to },
         systemSkuId: { not: null },
-        ...(shopId ? { shopId } : {}),
+        ...shopIdFilter,
       },
     })
 
@@ -265,14 +284,20 @@ export async function reportsRoutes(app: FastifyInstance) {
     const tenantId = request.user.tenantId
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
 
+    const activeShops = await prisma.shop.findMany({
+      where: { tenantId, status: { not: 'INACTIVE' } },
+      select: { id: true },
+    })
+    const activeShopIds = activeShops.map((s) => s.id)
+
     try {
       const hasFacts = await prisma.salesFact.count({
-        where: { tenantId, date: { gte: thirtyDaysAgo } },
+        where: { tenantId, date: { gte: thirtyDaysAgo }, shopId: { in: activeShopIds } },
       })
 
       if (hasFacts > 0) {
         const facts = await prisma.salesFact.findMany({
-          where: { tenantId, date: { gte: thirtyDaysAgo } },
+          where: { tenantId, date: { gte: thirtyDaysAgo }, shopId: { in: activeShopIds } },
           orderBy: { date: 'asc' },
         })
 
@@ -297,6 +322,7 @@ export async function reportsRoutes(app: FastifyInstance) {
         tenantId,
         createdAt: { gte: thirtyDaysAgo },
         status: { notIn: ['CANCELLED'] as any[] },
+        shop: { status: { not: 'INACTIVE' } },
       },
       select: { createdAt: true, totalRevenue: true, platformCommission: true, shippingFeeSeller: true },
       orderBy: { createdAt: 'asc' },

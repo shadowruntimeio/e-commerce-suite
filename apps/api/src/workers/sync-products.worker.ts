@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq'
 import { prisma } from '@ems/db'
-import { TikTokAdapter } from '../platform/tiktok/tiktok.adapter'
+import { TikTokAdapter, encryptCredentials as encryptTikTokCredentials, decryptCredentials as decryptTikTokCredentials } from '../platform/tiktok/tiktok.adapter'
+import type { TikTokCredentials } from '../platform/tiktok/tiktok.adapter'
 import type { PlatformAdapter, PlatformProduct } from '../platform/adapter.interface'
 
 interface SyncProductsJob {
@@ -30,6 +31,36 @@ export async function syncProductsProcessor(job: Job<SyncProductsJob>) {
   console.log(`[sync-products] Starting product sync for shop ${shop.name} (${shop.platform})`)
 
   const adapter = getAdapter(shop.platform)
+
+  // Backfill shop_cipher for TikTok shops where it's missing
+  if (shop.platform === 'TIKTOK') {
+    const creds = decryptTikTokCredentials(shop.credentialsEncrypted as TikTokCredentials)
+    if (!creds.shopCipher) {
+      console.log(`[sync-products] shop_cipher missing for shop ${shop.id}, fetching from /authorization/202309/shops`)
+      try {
+        const cipher = await (adapter as TikTokAdapter).fetchShopCipher(creds.accessToken, shop.externalShopId)
+        if (cipher) {
+          const updated = encryptTikTokCredentials({
+            accessToken: creds.accessToken,
+            refreshToken: creds.refreshToken,
+            shopCipher: cipher,
+          })
+          await prisma.shop.update({
+            where: { id: shop.id },
+            data: { credentialsEncrypted: updated as any },
+          })
+          const refreshed = await prisma.shop.findUniqueOrThrow({ where: { id: shop.id } })
+          Object.assign(shop, refreshed)
+          console.log(`[sync-products] shop_cipher backfilled for shop ${shop.id}`)
+        } else {
+          console.warn(`[sync-products] No matching shop found in /authorization/202309/shops for externalShopId=${shop.externalShopId}`)
+        }
+      } catch (err) {
+        console.warn(`[sync-products] Failed to backfill shop_cipher for shop ${shop.id}: ${(err as Error).message}`)
+      }
+    }
+  }
+
   const products: PlatformProduct[] = await adapter.syncProducts(shop)
 
   console.log(`[sync-products] Fetched ${products.length} products for shop ${shop.id}`)

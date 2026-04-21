@@ -10,20 +10,22 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
+    const activeShopFilter = { shop: { status: { not: 'INACTIVE' as const } } }
+
     const [
       pendingOrders,
       toShipOrders,
       todayOrdersCount,
       shops,
     ] = await Promise.all([
-      prisma.order.count({ where: { tenantId, status: 'PENDING' } }),
-      prisma.order.count({ where: { tenantId, status: 'TO_SHIP' } }),
-      prisma.order.count({ where: { tenantId, createdAt: { gte: today } } }),
+      prisma.order.count({ where: { tenantId, status: 'PENDING', ...activeShopFilter } }),
+      prisma.order.count({ where: { tenantId, status: 'TO_SHIP', ...activeShopFilter } }),
+      prisma.order.count({ where: { tenantId, createdAt: { gte: today }, ...activeShopFilter } }),
       prisma.shop.count({ where: { tenantId, status: 'ACTIVE' } }),
     ])
 
     const todayRevenue = await prisma.order.aggregate({
-      where: { tenantId, createdAt: { gte: today }, status: { notIn: ['CANCELLED'] } },
+      where: { tenantId, createdAt: { gte: today }, status: { notIn: ['CANCELLED'] }, ...activeShopFilter },
       _sum: { totalRevenue: true },
     })
 

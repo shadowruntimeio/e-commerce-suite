@@ -355,6 +355,16 @@ export class TikTokAdapter implements PlatformAdapter {
   }
 
   /**
+   * Re-fetch the shop_cipher for a shop whose stored credentials are missing it.
+   * Returns the cipher for the shop matching `externalShopId`, or undefined if no match.
+   */
+  async fetchShopCipher(accessToken: string, externalShopId: string): Promise<string | undefined> {
+    const shops = await this.getAuthorizedShops(accessToken)
+    const match = shops.find((s) => s.id === externalShopId) ?? shops[0]
+    return match?.cipher
+  }
+
+  /**
    * Call /authorization/202309/shops to get list of shops with their cipher.
    */
   private async getAuthorizedShops(accessToken: string): Promise<TikTokShopInfo[]> {

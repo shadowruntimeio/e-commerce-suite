@@ -52,7 +52,7 @@ export async function shopRoutes(app: FastifyInstance) {
           return reply.status(400).send({ success: false, error: 'Could not determine tenant from OAuth state' })
         }
 
-        await prisma.shop.upsert({
+        const shop = await prisma.shop.upsert({
           where: {
             tenantId_platform_externalShopId: {
               tenantId,
@@ -79,6 +79,18 @@ export async function shopRoutes(app: FastifyInstance) {
           },
         })
 
+        const ts = Date.now()
+        await syncOrdersQueue.add(
+          'sync-orders',
+          { shopId: shop.id, tenantId: shop.tenantId },
+          { jobId: `initial-sync-${shop.id}-${ts}` }
+        )
+        await syncProductsQueue.add(
+          'sync-products',
+          { shopId: shop.id, tenantId: shop.tenantId },
+          { jobId: `initial-product-sync-${shop.id}-${ts}` }
+        )
+
         return reply.redirect(`${FRONTEND_URL}/shops?connected=true`)
       } catch (err) {
         console.error('[shopee/callback] Error:', err)
@@ -87,44 +99,63 @@ export async function shopRoutes(app: FastifyInstance) {
     })
 
   app.get('/tiktok/callback', async (request, reply) => {
+      console.log('[tiktok/callback] incoming query:', request.query)
       const { code, state } = request.query as Record<string, string>
 
       if (!code) {
+        console.error('[tiktok/callback] missing code in query')
         return reply.status(400).send({ success: false, error: 'Missing code' })
       }
 
       const adapter = new TikTokAdapter()
 
       try {
+        console.log('[tiktok/callback] step 1: exchanging code for tokens')
         const tokens = await adapter.exchangeCode(code)
+        console.log('[tiktok/callback] step 1 ok. tokens:', {
+          shopId: tokens.shopId,
+          shopName: tokens.shopName,
+          shopCipher: tokens.shopCipher ? 'present' : 'MISSING',
+          expiresAt: tokens.expiresAt,
+          accessTokenPreview: tokens.accessToken?.slice(0, 10),
+        })
+
+        console.log('[tiktok/callback] step 2: encrypting credentials')
         const credentials = encryptTikTokCredentials({
           accessToken: tokens.accessToken,
           refreshToken: tokens.refreshToken,
           shopCipher: tokens.shopCipher,
         })
+        console.log('[tiktok/callback] step 2 ok')
 
+        console.log('[tiktok/callback] step 3: resolving tenantId. state present:', !!state)
         let tenantId: string | undefined
         if (state) {
           try {
             tenantId = Buffer.from(state, 'base64').toString('utf8')
-          } catch {
-            // ignore malformed state
+            console.log('[tiktok/callback] decoded tenantId from state:', tenantId)
+          } catch (e) {
+            console.warn('[tiktok/callback] malformed state, could not decode:', (e as Error).message)
           }
         }
 
         if (!tenantId) {
+          console.log('[tiktok/callback] falling back to existing shop lookup by externalShopId:', tokens.shopId)
           const existing = await prisma.shop.findFirst({
             where: { externalShopId: tokens.shopId, platform: 'TIKTOK' },
             select: { tenantId: true },
           })
           tenantId = existing?.tenantId
+          console.log('[tiktok/callback] fallback tenantId:', tenantId)
         }
 
         if (!tenantId) {
+          console.error('[tiktok/callback] no tenantId resolved')
           return reply.status(400).send({ success: false, error: 'Could not determine tenant from OAuth state' })
         }
 
-        await prisma.shop.upsert({
+        console.log('[tiktok/callback] step 4: upserting shop. tenantId:', tenantId, 'externalShopId:', tokens.shopId)
+        const shop = await prisma.shop.upsert({
           where: {
             tenantId_platform_externalShopId: {
               tenantId,
@@ -150,11 +181,27 @@ export async function shopRoutes(app: FastifyInstance) {
             tokenExpiresAt: tokens.expiresAt,
           },
         })
+        console.log('[tiktok/callback] step 4 ok. queueing initial sync jobs')
+
+        const ts = Date.now()
+        await syncOrdersQueue.add(
+          'sync-orders',
+          { shopId: shop.id, tenantId: shop.tenantId },
+          { jobId: `initial-sync-${shop.id}-${ts}` }
+        )
+        await syncProductsQueue.add(
+          'sync-products',
+          { shopId: shop.id, tenantId: shop.tenantId },
+          { jobId: `initial-product-sync-${shop.id}-${ts}` }
+        )
+        console.log('[tiktok/callback] initial sync jobs queued. redirecting to frontend success.')
 
         return reply.redirect(`${FRONTEND_URL}/shops?connected=true`)
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
+        const stack = err instanceof Error ? err.stack : undefined
         console.error('[tiktok/callback] Error:', errMsg)
+        if (stack) console.error('[tiktok/callback] Stack:', stack)
         return reply.redirect(`${FRONTEND_URL}/shops?error=oauth_failed&detail=${encodeURIComponent(errMsg)}`)
       }
   })
