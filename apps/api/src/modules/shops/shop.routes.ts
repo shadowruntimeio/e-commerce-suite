@@ -234,7 +234,10 @@ export async function shopRoutes(app: FastifyInstance) {
       return reply.send({ success: true, data: { url } })
     })
 
-    // POST /:id/sync — manually trigger order + product sync for a shop
+    // POST /:id/sync — manually trigger order + product sync for a shop.
+    // JobId has 5-second granularity: rapid button mashing collapses, but
+    // intentional triggers spaced >5s apart stay distinct (e.g. post-print
+    // retries or page mount after a fresh action).
     auth.post('/:id/sync', async (request, reply) => {
       const { id } = request.params as { id: string }
       const shop = await prisma.shop.findFirst({
@@ -244,19 +247,42 @@ export async function shopRoutes(app: FastifyInstance) {
         return reply.status(404).send({ success: false, error: 'Shop not found' })
       }
 
-      const ts = Date.now()
+      const bucket = Math.floor(Date.now() / 5000)
       await syncOrdersQueue.add(
         'sync-orders',
         { shopId: shop.id, tenantId: shop.tenantId },
-        { jobId: `manual-sync-${shop.id}-${ts}` }
+        { jobId: `manual-sync-${shop.id}-${bucket}` }
       )
       await syncProductsQueue.add(
         'sync-products',
         { shopId: shop.id, tenantId: shop.tenantId },
-        { jobId: `manual-product-sync-${shop.id}-${ts}` }
+        { jobId: `manual-product-sync-${shop.id}-${bucket}` }
       )
 
       return reply.send({ success: true, data: { message: 'Order and product sync jobs queued' } })
+    })
+
+    // POST /sync-all — enqueue order + product sync for every active shop in
+    // this tenant. Used by the web app on page navigation and post-action refresh.
+    auth.post('/sync-all', async (request) => {
+      const shops = await prisma.shop.findMany({
+        where: { tenantId: request.user.tenantId, status: 'ACTIVE' },
+        select: { id: true, tenantId: true },
+      })
+      const bucket = Math.floor(Date.now() / 5000)
+      for (const shop of shops) {
+        await syncOrdersQueue.add(
+          'sync-orders',
+          { shopId: shop.id, tenantId: shop.tenantId },
+          { jobId: `manual-sync-${shop.id}-${bucket}` }
+        )
+        await syncProductsQueue.add(
+          'sync-products',
+          { shopId: shop.id, tenantId: shop.tenantId },
+          { jobId: `manual-product-sync-${shop.id}-${bucket}` }
+        )
+      }
+      return { success: true, data: { queued: shops.length } }
     })
 
     // DELETE /:id — soft-delete a shop

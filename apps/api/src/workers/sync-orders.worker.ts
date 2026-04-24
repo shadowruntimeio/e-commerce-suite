@@ -156,6 +156,9 @@ async function upsertOrder(
   tenantId: string,
   platformOrder: PlatformOrder
 ): Promise<void> {
+  // Denormalize the first seller_sku onto the order for sort-by-SKU.
+  const firstSellerSku = platformOrder.items.find((i) => i.sellerSku)?.sellerSku ?? null
+
   // Upsert the order
   const order = await prisma.order.upsert({
     where: {
@@ -179,6 +182,7 @@ async function upsertOrder(
       totalRevenue: platformOrder.totalRevenue,
       platformMetadata: platformOrder.platformMetadata as any,
       platformCreatedAt: platformOrder.platformCreatedAt,
+      firstSellerSku,
     },
     create: {
       shopId,
@@ -198,6 +202,7 @@ async function upsertOrder(
       totalRevenue: platformOrder.totalRevenue,
       platformMetadata: platformOrder.platformMetadata as any,
       platformCreatedAt: platformOrder.platformCreatedAt,
+      firstSellerSku,
     },
   })
 
@@ -214,18 +219,178 @@ async function upsertOrder(
       select: { id: true, systemSkuId: true },
     })
 
+    // Resolve SystemSku: prefer OnlineSku mapping, fall back to matching the
+    // seller-provided sku_code directly (same-merchant-same-SKU convention).
+    let systemSkuId = onlineSku?.systemSkuId ?? null
+    if (!systemSkuId && item.sellerSku) {
+      systemSkuId = await resolveSystemSkuByCode(item.sellerSku, tenantId)
+    }
+
     await prisma.orderItem.create({
       data: {
         orderId: order.id,
         platformSkuId: item.platformSkuId,
+        sellerSku: item.sellerSku,
         productName: item.productName,
         skuName: item.skuName,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         discount: item.discount,
         onlineSkuId: onlineSku?.id ?? null,
-        systemSkuId: onlineSku?.systemSkuId ?? null,
+        systemSkuId,
       },
     })
+
+    // Backfill the OnlineSku side so the next sync takes the fast path.
+    if (onlineSku?.id && !onlineSku.systemSkuId && systemSkuId) {
+      await prisma.onlineSku.update({
+        where: { id: onlineSku.id },
+        data: { systemSkuId },
+      })
+    }
   }
+
+  // Deduct inventory once the order reaches a "committed" status. PENDING is
+  // the first commit point (label / fulfillment arranged), SHIPPED is out the
+  // door, COMPLETED is delivered-and-closed. TO_SHIP is not yet committed;
+  // UNPAID / CANCELLED / EXCEPTION never deduct. Idempotent — re-syncs are
+  // safe because deductInventoryForOrder skips when an OUTBOUND event already
+  // exists for this order.
+  if (shouldDeductForStatus(platformOrder.status)) {
+    await deductInventoryForOrder(order.id, tenantId, platformOrder.platformMetadata, 'TIKTOK')
+  }
+}
+
+const DEDUCTION_STATUSES = new Set(['PENDING', 'SHIPPED', 'COMPLETED'])
+
+function shouldDeductForStatus(status: string): boolean {
+  return DEDUCTION_STATUSES.has(status)
+}
+
+// Resolve an EMS Warehouse for an order, trying the precise platform mapping
+// first, then falling back to tenant conventions. Returns null when ambiguous.
+async function resolveDeductionWarehouse(
+  tenantId: string,
+  platformMetadata: unknown,
+  platform: 'TIKTOK' | 'SHOPEE',
+): Promise<{ id: string; name: string } | null> {
+  // 1. Precise mapping via Warehouse.platformWarehouseIds (future-proof for multi-warehouse)
+  const platformWarehouseId = (platformMetadata as { warehouse_id?: string } | undefined)?.warehouse_id
+  if (platformWarehouseId) {
+    const mapped = await prisma.warehouse.findFirst({
+      where: {
+        tenantId,
+        isActive: true,
+        platformWarehouseIds: { path: [platform], array_contains: platformWarehouseId },
+      },
+      select: { id: true, name: true },
+    })
+    if (mapped) return mapped
+  }
+
+  // 2. Fallback: if tenant has only one active warehouse, use it.
+  const active = await prisma.warehouse.findMany({
+    where: { tenantId, isActive: true },
+    select: { id: true, name: true, isDefault: true },
+  })
+  if (active.length === 1) return { id: active[0].id, name: active[0].name }
+
+  // 3. Multiple active warehouses — route to the default one.
+  const def = active.find((w) => w.isDefault)
+  if (def) return { id: def.id, name: def.name }
+
+  return null
+}
+
+// Look up a SystemSku by its code, scoped to the tenant (SystemProduct carries
+// the tenant). Returns the SystemSku id or null.
+async function resolveSystemSkuByCode(skuCode: string, tenantId: string): Promise<string | null> {
+  const sku = await prisma.systemSku.findUnique({
+    where: { skuCode },
+    select: { id: true, systemProduct: { select: { tenantId: true } } },
+  })
+  if (!sku || sku.systemProduct.tenantId !== tenantId) return null
+  return sku.id
+}
+
+async function deductInventoryForOrder(
+  orderId: string,
+  tenantId: string,
+  platformMetadata: unknown,
+  platform: 'TIKTOK' | 'SHOPEE',
+): Promise<void> {
+  // Idempotency: skip if we've already written an OUTBOUND event for this order.
+  const existing = await prisma.inventoryEvent.findFirst({
+    where: { referenceType: 'order', referenceId: orderId, eventType: 'OUTBOUND' },
+    select: { id: true },
+  })
+  if (existing) return
+
+  const warehouse = await resolveDeductionWarehouse(tenantId, platformMetadata, platform)
+  if (!warehouse) {
+    const platformWarehouseId = (platformMetadata as { warehouse_id?: string } | undefined)?.warehouse_id
+    console.warn(`[sync-orders] order ${orderId}: cannot resolve deduction warehouse (platform wh=${platformWarehouseId ?? 'none'}, no single/default fallback) — skipping`)
+    return
+  }
+
+  const items = await prisma.orderItem.findMany({
+    where: { orderId },
+    select: { id: true, systemSkuId: true, sellerSku: true, quantity: true, productName: true, platformSkuId: true },
+  })
+
+  let deducted = 0
+  for (const item of items) {
+    // Self-heal: historical OrderItems may lack systemSkuId because the catalog
+    // was empty at sync time. Try text-matching sellerSku → SystemSku.skuCode
+    // now, and patch the row so later runs don't have to repeat the lookup.
+    let systemSkuId = item.systemSkuId
+    if (!systemSkuId && item.sellerSku) {
+      systemSkuId = await resolveSystemSkuByCode(item.sellerSku, tenantId)
+      if (systemSkuId) {
+        await prisma.orderItem.update({ where: { id: item.id }, data: { systemSkuId } })
+      }
+    }
+
+    if (!systemSkuId) {
+      console.warn(`[sync-orders] order ${orderId} item "${item.productName}" (sellerSku=${item.sellerSku ?? '-'} / ${item.platformSkuId}) has no matching SystemSku — inventory not deducted`)
+      continue
+    }
+    const warehouseSku = await prisma.warehouseSku.findUnique({
+      where: { systemSkuId_warehouseId: { systemSkuId, warehouseId: warehouse.id } },
+      select: { id: true },
+    })
+    if (!warehouseSku) {
+      console.warn(`[sync-orders] no warehouseSku for systemSku ${systemSkuId} in warehouse ${warehouse.id} — inventory not deducted`)
+      continue
+    }
+
+    await prisma.$transaction(async (tx: any) => {
+      await tx.inventoryEvent.create({
+        data: {
+          tenantId,
+          warehouseSkuId: warehouseSku.id,
+          warehouseId: warehouse.id,
+          eventType: 'OUTBOUND',
+          quantityDelta: -item.quantity,
+          referenceType: 'order',
+          referenceId: orderId,
+        },
+      })
+      const snapshot = await tx.inventorySnapshot.findFirst({
+        where: { warehouseSkuId: warehouseSku.id },
+        orderBy: { snapshotAt: 'desc' },
+      })
+      if (snapshot) {
+        await tx.inventorySnapshot.update({
+          where: { id: snapshot.id },
+          data: {
+            quantityOnHand: { decrement: item.quantity },
+            quantityAvailable: { decrement: item.quantity },
+          },
+        })
+      }
+    })
+    deducted++
+  }
+  console.log(`[sync-orders] order ${orderId}: deducted ${deducted}/${items.length} items from inventory`)
 }

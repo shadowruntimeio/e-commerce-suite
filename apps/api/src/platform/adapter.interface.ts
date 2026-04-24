@@ -58,6 +58,7 @@ export interface PlatformOrder {
 
 export interface PlatformOrderItem {
   platformSkuId: string
+  sellerSku?: string  // seller-defined SKU code (e.g. "D-1-2"); used for picking
   productName: string
   skuName?: string
   quantity: number

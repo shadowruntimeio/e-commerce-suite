@@ -1,7 +1,7 @@
 import { prisma } from '@ems/db'
 import { syncOrdersQueue, syncProductsQueue, refreshTokensQueue, restockingQueue, etlQueue } from '../lib/queues'
 
-const SYNC_INTERVAL_MS = 5 * 60 * 1000          // 5 minutes
+const SYNC_INTERVAL_MS = 60 * 1000              // 1 minute
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000     // 30 minutes
 const RESTOCKING_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 const ETL_INTERVAL_MS = 24 * 60 * 60 * 1000    // 24 hours
@@ -80,7 +80,7 @@ async function scheduleEtl() {
 }
 
 export function startScheduler() {
-  console.log('[scheduler] Starting — sync interval: 5m, refresh interval: 30m, restocking interval: 24h, etl interval: 24h')
+  console.log('[scheduler] Starting — sync interval: 1m, refresh interval: 30m, restocking interval: 24h, etl interval: 24h')
 
   // Run immediately on startup, then on interval
   void scheduleOrderSyncs()

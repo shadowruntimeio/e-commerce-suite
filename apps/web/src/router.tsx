@@ -12,6 +12,7 @@ const OrdersPage = lazy(() => import('./modules/orders/OrdersPage'))
 const RulesPage = lazy(() => import('./modules/orders/RulesPage'))
 const ProductsPage = lazy(() => import('./modules/products/ProductsPage'))
 const InventoryPage = lazy(() => import('./modules/inventory/InventoryPage'))
+const InventoryHistoryPage = lazy(() => import('./modules/inventory/HistoryPage'))
 const PurchasePage = lazy(() => import('./modules/purchase/PurchasePage'))
 const RestockingPage = lazy(() => import('./modules/purchase/RestockingPage'))
 const WarehousesPage = lazy(() => import('./modules/warehouses/WarehousesPage'))
@@ -47,6 +48,7 @@ export const router = createBrowserRouter([
       { path: 'orders/rules', element: <Suspense fallback={<Loading />}><RulesPage /></Suspense> },
       { path: 'products', element: <Suspense fallback={<Loading />}><ProductsPage /></Suspense> },
       { path: 'inventory', element: <Suspense fallback={<Loading />}><InventoryPage /></Suspense> },
+      { path: 'inventory/history', element: <Suspense fallback={<Loading />}><InventoryHistoryPage /></Suspense> },
       { path: 'purchase', element: <Suspense fallback={<Loading />}><PurchasePage /></Suspense> },
       { path: 'purchase/restocking', element: <Suspense fallback={<Loading />}><RestockingPage /></Suspense> },
       { path: 'warehouses', element: <Suspense fallback={<Loading />}><WarehousesPage /></Suspense> },

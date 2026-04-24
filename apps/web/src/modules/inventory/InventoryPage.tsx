@@ -1,174 +1,182 @@
-import { Table, Input, Select, Button, Space, message, Modal } from 'antd'
-import { InboxOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, useRef } from 'react'
+import { Table, Input, Select, Button, Space, Switch, Tooltip, message } from 'antd'
+import { InboxOutlined, UploadOutlined, EditOutlined, HistoryOutlined, DownloadOutlined } from '@ant-design/icons'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
+import { AdjustDialog } from './AdjustDialog'
+import { ImportDialog } from './ImportDialog'
 
-// ─── Event type color map ────────────────────────────────────────────────────
-
-const EVENT_TYPE_MAP: Record<string, { bg: string; color: string; labelKey: string }> = {
-  INBOUND:       { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', labelKey: 'inventory.inbound' },
-  OUTBOUND:      { bg: 'var(--badge-error-bg)',   color: 'var(--badge-error-fg)',   labelKey: 'inventory.outbound' },
-  ADJUSTMENT:    { bg: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)', labelKey: 'inventory.adjustment' },
-  RESERVED:      { bg: 'var(--badge-info-bg)',    color: 'var(--badge-info-fg)',    labelKey: 'inventory.reserved' },
-  UNRESERVED:    { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', labelKey: 'inventory.unreserved' },
-  TRANSFER_IN:   { bg: 'var(--badge-info-bg)',    color: 'var(--badge-info-fg)',    labelKey: 'inventory.transferIn' },
-  TRANSFER_OUT:  { bg: 'var(--badge-purple-bg)',  color: 'var(--badge-purple-fg)',  labelKey: 'inventory.transferOut' },
-  RETURN:        { bg: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)', labelKey: 'inventory.return' },
+type StockRow = {
+  warehouseSkuId: string
+  warehouseId: string
+  warehouseName: string
+  skuCode: string
+  productName: string
+  categoryId: string | null
+  categoryName: string | null
+  quantityOnHand: number
+  quantityReserved: number
+  quantityAvailable: number
+  reorderPoint: number
+  lastEventAt: string | null
 }
-
-function EventTypeBadge({ type }: { type: string }) {
-  const { t } = useTranslation()
-  const s = EVENT_TYPE_MAP[type] ?? { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', labelKey: type }
-  return (
-    <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
-      {t(s.labelKey)}
-    </span>
-  )
-}
-
-// ─── CSV template ────────────────────────────────────────────────────────────
-
-const CSV_TEMPLATE = `sku_code,event_type,quantity,notes
-SKU-001,INBOUND,100,Initial stock
-SKU-002,INBOUND,50,Supplier delivery
-SKU-001,OUTBOUND,10,Order fulfillment`
-
-function downloadTemplate() {
-  const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'inventory-import-template.csv'
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function InventoryPage() {
   const { t } = useTranslation()
-  const [search, setSearch] = useState('')
-  const [eventType, setEventType] = useState<string | undefined>()
-  const [uploading, setUploading] = useState(false)
-  const [importResult, setImportResult] = useState<{ imported: number; errors: string[]; totalRows: number } | null>(null)
-  const [showImportModal, setShowImportModal] = useState(false)
-  const [selectedWarehouse, setSelectedWarehouse] = useState<string | undefined>()
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const queryClient = useQueryClient()
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [warehouseId, setWarehouseId] = useState<string | undefined>()
+  const [categoryId, setCategoryId] = useState<string | undefined>()
+  const [skuSearch, setSkuSearch] = useState('')
+  const [lowStockOnly, setLowStockOnly] = useState(false)
+  const [page, setPage] = useState(1)
+  const pageSize = 50
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['inventory-events', { search, eventType }],
-    queryFn: () =>
-      api.get('/inventory/events', { params: { limit: 50, eventType: eventType || undefined } }).then((r) => r.data.data),
-  })
+  const [editingRow, setEditingRow] = useState<string | null>(null)
+  const [showImportDialog, setShowImportDialog] = useState(false)
+  const [exporting, setExporting] = useState(false)
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const res = await api.get('/inventory/export', {
+        params: {
+          warehouseId: warehouseId || undefined,
+          categoryId: categoryId || undefined,
+          skuSearch: skuSearch.trim() || undefined,
+          lowStockOnly: lowStockOnly ? 'true' : undefined,
+        },
+        responseType: 'blob',
+      })
+      const blob = new Blob([res.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `stock-${dayjs().format('YYYY-MM-DD')}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      void message.error(t('inventory.exportFailed'))
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const { data: warehouses } = useQuery({
     queryKey: ['warehouses'],
     queryFn: () => api.get('/warehouses').then((r) => r.data.data),
   })
 
-  const warehouseOptions = (Array.isArray(warehouses) ? warehouses : []).map((w: any) => ({
-    value: w.id,
-    label: w.name,
-  }))
-
-  const filtered = (data ?? []).filter((row: any) => {
-    if (!search) return true
-    const s = search.toLowerCase()
-    return (
-      (row.warehouseSkuId ?? '').toLowerCase().includes(s) ||
-      (row.referenceType ?? '').toLowerCase().includes(s) ||
-      (row.notes ?? '').toLowerCase().includes(s)
-    )
+  const { data: categories } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => api.get('/categories').then((r) => r.data.data),
   })
 
-  function handleFileSelect(file: File) {
-    setSelectedFile(file)
-    setShowImportModal(true)
-  }
+  const { data, isLoading } = useQuery({
+    queryKey: ['inventory-stock', { warehouseId, categoryId, skuSearch, lowStockOnly, page }],
+    queryFn: () =>
+      api
+        .get('/inventory/stock', {
+          params: {
+            warehouseId: warehouseId || undefined,
+            categoryId: categoryId || undefined,
+            skuSearch: skuSearch.trim() || undefined,
+            lowStockOnly: lowStockOnly ? 'true' : undefined,
+            page,
+            pageSize,
+          },
+        })
+        .then((r) => r.data.data as { items: StockRow[]; total: number; page: number; pageSize: number; totalPages: number }),
+  })
 
-  async function handleImport() {
-    if (!selectedFile || !selectedWarehouse) return
-    setUploading(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', selectedFile)
-      formData.append('warehouseId', selectedWarehouse)
-      const res = await api.post('/inventory/import', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      const result = res.data.data
-      setShowImportModal(false)
-      setSelectedFile(null)
-      setSelectedWarehouse(undefined)
-      setImportResult(result)
-      if (result.imported > 0) {
-        void message.success(t('inventory.importSuccess', { count: result.imported }))
-        queryClient.invalidateQueries({ queryKey: ['inventory-events'] })
-      }
-      if (result.errors.length > 0) {
-        void message.warning(t('inventory.importRowErrors', { count: result.errors.length }))
-      }
-    } catch (err: any) {
-      void message.error(err?.response?.data?.error ?? t('inventory.importFailed'))
-    } finally {
-      setUploading(false)
-    }
-  }
+  const warehouseOptions = (Array.isArray(warehouses) ? warehouses : []).map((w: any) => ({ value: w.id, label: w.name }))
+  const categoryOptions = (Array.isArray(categories) ? categories : []).map((c: any) => ({ value: c.id, label: c.name }))
 
-  const columns: ColumnsType<any> = [
+  const columns: ColumnsType<StockRow> = [
     {
-      title: t('inventory.eventType'),
-      dataIndex: 'eventType',
-      render: (v) => <EventTypeBadge type={v} />,
+      title: t('inventory.warehouse'),
+      dataIndex: 'warehouseName',
+      render: (v) => (
+        <span style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', padding: '2px 8px', borderRadius: 6, fontSize: 12, border: '1px solid var(--border-light)' }}>
+          {v}
+        </span>
+      ),
     },
     {
       title: t('inventory.sku'),
-      dataIndex: 'warehouseSkuId',
+      dataIndex: 'skuCode',
       render: (v) => (
         <span style={{ fontFamily: "'Courier New', monospace", fontSize: 12, color: 'var(--mono-color)' }}>{v}</span>
       ),
     },
     {
-      title: t('inventory.warehouse'),
-      dataIndex: ['warehouseSku', 'warehouse', 'name'],
-      render: (v) => v ? (
-        <span style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', padding: '2px 8px', borderRadius: 6, fontSize: 12, border: '1px solid var(--border-light)' }}>
-          {v}
-        </span>
-      ) : <span style={{ color: 'var(--text-muted)' }}>—</span>,
-    },
-    {
-      title: t('inventory.quantity'),
-      dataIndex: 'quantityDelta',
-      align: 'right',
-      render: (v) => (
-        <span style={{ color: v > 0 ? '#10B981' : '#EF4444', fontWeight: 600, fontSize: 14 }}>
-          {v > 0 ? `+${v}` : v}
-        </span>
-      ),
-    },
-    {
-      title: t('inventory.reference'),
-      dataIndex: 'referenceType',
-      render: (v) => v ?? <span style={{ color: 'var(--text-muted)' }}>—</span>,
-    },
-    {
-      title: t('inventory.notes'),
-      dataIndex: 'notes',
+      title: t('inventory.productName'),
+      dataIndex: 'productName',
       ellipsis: true,
+    },
+    {
+      title: t('inventory.category'),
+      dataIndex: 'categoryName',
       render: (v) => v ?? <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
-      title: t('inventory.date'),
-      dataIndex: 'createdAt',
-      render: (v) => (
-        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{dayjs(v).format('MMM D, HH:mm')}</span>
+      title: t('inventory.onHand'),
+      dataIndex: 'quantityOnHand',
+      align: 'right',
+      render: (v, row) => {
+        const low = v <= row.reorderPoint
+        return (
+          <span style={{ fontWeight: 600, color: low ? '#EF4444' : 'var(--text-primary)' }}>
+            {v}
+            {low && row.reorderPoint > 0 && (
+              <Tooltip title={t('inventory.lowStockTooltip', { reorder: row.reorderPoint })}>
+                <span style={{ marginLeft: 6, fontSize: 11, color: '#EF4444' }}>●</span>
+              </Tooltip>
+            )}
+          </span>
+        )
+      },
+    },
+    {
+      title: t('inventory.reserved'),
+      dataIndex: 'quantityReserved',
+      align: 'right',
+      render: (v) => <span style={{ color: 'var(--text-secondary)' }}>{v}</span>,
+    },
+    {
+      title: t('inventory.available'),
+      dataIndex: 'quantityAvailable',
+      align: 'right',
+      render: (v) => <span style={{ fontWeight: 500, color: v > 0 ? '#10B981' : 'var(--text-muted)' }}>{v}</span>,
+    },
+    {
+      title: t('inventory.reorderPoint'),
+      dataIndex: 'reorderPoint',
+      align: 'right',
+      render: (v) => <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{v}</span>,
+    },
+    {
+      title: t('inventory.lastUpdated'),
+      dataIndex: 'lastEventAt',
+      render: (v) =>
+        v ? (
+          <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{dayjs(v).format('MMM D, HH:mm')}</span>
+        ) : (
+          <span style={{ color: 'var(--text-muted)' }}>—</span>
+        ),
+    },
+    {
+      title: t('common.actions'),
+      fixed: 'right',
+      width: 96,
+      render: (_, row) => (
+        <Button size="small" icon={<EditOutlined />} onClick={() => setEditingRow(row.warehouseSkuId)}>
+          {t('common.edit')}
+        </Button>
       ),
     },
   ]
@@ -182,24 +190,23 @@ export default function InventoryPage() {
           <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>{t('inventory.subtitle')}</p>
         </div>
         <Space>
-          <Button icon={<DownloadOutlined />} onClick={downloadTemplate} style={{ borderRadius: 8, height: 36, fontWeight: 500 }}>
-            {t('inventory.downloadTemplate')}
+          <Link to="/inventory/history">
+            <Button icon={<HistoryOutlined />} style={{ borderRadius: 8, height: 36, fontWeight: 500 }}>
+              {t('inventory.history')}
+            </Button>
+          </Link>
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={handleExport}
+            loading={exporting}
+            style={{ borderRadius: 8, height: 36, fontWeight: 500 }}
+          >
+            {t('inventory.export')}
           </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) handleFileSelect(file)
-              e.target.value = ''
-            }}
-          />
           <Button
             type="primary"
             icon={<UploadOutlined />}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => setShowImportDialog(true)}
             style={{ background: 'var(--accent-gradient)', border: 'none', borderRadius: 8, height: 36, fontWeight: 500 }}
           >
             {t('inventory.importCsv')}
@@ -209,90 +216,67 @@ export default function InventoryPage() {
 
       {/* Filter Bar */}
       <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '16px 20px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Input.Search placeholder={t('inventory.searchPlaceholder')} allowClear onSearch={setSearch} style={{ width: 280 }} />
         <Select
           allowClear
-          placeholder={t('inventory.allEventTypes')}
-          style={{ width: 180 }}
-          onChange={setEventType}
-          options={Object.entries(EVENT_TYPE_MAP).map(([k, v]) => ({ value: k, label: t(v.labelKey) }))}
+          placeholder={t('inventory.allWarehouses')}
+          value={warehouseId}
+          style={{ width: 200 }}
+          onChange={(v) => { setWarehouseId(v); setPage(1) }}
+          options={warehouseOptions}
         />
+        <Select
+          allowClear
+          placeholder={t('inventory.allCategories')}
+          value={categoryId}
+          style={{ width: 200 }}
+          onChange={(v) => { setCategoryId(v); setPage(1) }}
+          options={categoryOptions}
+          notFoundContent={<span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{t('inventory.noCategoriesHint')}</span>}
+        />
+        <Input.Search
+          placeholder={t('inventory.skuSearchPlaceholder')}
+          allowClear
+          onSearch={(v) => { setSkuSearch(v); setPage(1) }}
+          style={{ width: 260 }}
+        />
+        <Space size={8}>
+          <Switch checked={lowStockOnly} onChange={(v) => { setLowStockOnly(v); setPage(1) }} />
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('inventory.lowStockOnly')}</span>
+        </Space>
       </div>
 
       {/* Table */}
       <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
-        <Table
-          rowKey="id"
+        <Table<StockRow>
+          rowKey="warehouseSkuId"
           columns={columns}
-          dataSource={filtered}
+          dataSource={data?.items ?? []}
           loading={isLoading}
           size="middle"
-          pagination={{ pageSize: 20, showSizeChanger: false, showTotal: (total) => t('common.records', { count: total }), style: { padding: '12px 20px' } }}
+          scroll={{ x: 1200 }}
+          pagination={{
+            current: data?.page ?? page,
+            pageSize: data?.pageSize ?? pageSize,
+            total: data?.total ?? 0,
+            showSizeChanger: false,
+            showTotal: (total) => t('common.records', { count: total }),
+            onChange: (p) => setPage(p),
+            style: { padding: '12px 20px' },
+          }}
           locale={{
             emptyText: (
               <div style={{ padding: '48px 0', textAlign: 'center' }}>
                 <InboxOutlined style={{ fontSize: 40, color: 'var(--text-muted)', display: 'block', margin: '0 auto 12px' }} />
-                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>{t('inventory.noEvents')}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>{t('inventory.noEventsHint')}</div>
+                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>{t('inventory.noStock')}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>{t('inventory.noStockHint')}</div>
               </div>
             ),
           }}
         />
       </div>
 
-      {/* Import modal — select warehouse before uploading */}
-      <Modal
-        open={showImportModal}
-        title={t('inventory.importTitle')}
-        onCancel={() => { setShowImportModal(false); setSelectedFile(null); setSelectedWarehouse(undefined) }}
-        onOk={handleImport}
-        okText={t('common.import')}
-        okButtonProps={{ disabled: !selectedWarehouse, loading: uploading }}
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }}>
-          <div>
-            <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>{t('common.file')}</label>
-            <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>{selectedFile?.name}</div>
-          </div>
-          <div>
-            <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>{t('inventory.targetWarehouse')} *</label>
-            <Select
-              value={selectedWarehouse}
-              onChange={setSelectedWarehouse}
-              placeholder={t('inventory.selectWarehouse')}
-              style={{ width: '100%' }}
-              options={warehouseOptions}
-              notFoundContent={<span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{t('inventory.noWarehousesHint')}</span>}
-            />
-          </div>
-        </div>
-      </Modal>
-
-      {/* Import result modal */}
-      <Modal
-        open={!!importResult}
-        title={t('inventory.importResult')}
-        onCancel={() => setImportResult(null)}
-        onOk={() => setImportResult(null)}
-        okText={t('common.ok')}
-        cancelButtonProps={{ style: { display: 'none' } }}
-      >
-        {importResult && (
-          <div>
-            <p>{t('inventory.importedOf', { imported: importResult.imported, total: importResult.totalRows })}</p>
-            {importResult.errors.length > 0 && (
-              <div>
-                <p style={{ color: '#EF4444', fontWeight: 600 }}>{t('inventory.errors', { count: importResult.errors.length })}</p>
-                <div style={{ maxHeight: 200, overflow: 'auto', background: 'var(--bg-surface)', borderRadius: 8, padding: 12, fontSize: 12 }}>
-                  {importResult.errors.map((e, i) => (
-                    <div key={i} style={{ color: 'var(--text-secondary)', marginBottom: 4 }}>{e}</div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </Modal>
+      <AdjustDialog open={!!editingRow} warehouseSkuId={editingRow} onClose={() => setEditingRow(null)} />
+      <ImportDialog open={showImportDialog} onClose={() => setShowImportDialog(false)} />
     </div>
   )
 }

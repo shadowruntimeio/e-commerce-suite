@@ -320,23 +320,27 @@ export async function reportsRoutes(app: FastifyInstance) {
     const orders = await prisma.order.findMany({
       where: {
         tenantId,
-        createdAt: { gte: thirtyDaysAgo },
         status: { notIn: ['CANCELLED'] as any[] },
         shop: { status: { not: 'INACTIVE' } },
+        OR: [
+          { platformCreatedAt: { gte: thirtyDaysAgo } },
+          { platformCreatedAt: null, createdAt: { gte: thirtyDaysAgo } },
+        ],
       },
-      select: { createdAt: true, totalRevenue: true, platformCommission: true, shippingFeeSeller: true },
-      orderBy: { createdAt: 'asc' },
+      select: { createdAt: true, platformCreatedAt: true, totalRevenue: true, platformCommission: true, shippingFeeSeller: true },
     })
 
     const byDate = new Map<string, { date: string; revenue: number; profit: number }>()
     for (const o of orders) {
-      const key = o.createdAt.toISOString().slice(0, 10)
+      const when = o.platformCreatedAt ?? o.createdAt
+      const key = when.toISOString().slice(0, 10)
       const existing = byDate.get(key) ?? { date: key, revenue: 0, profit: 0 }
       existing.revenue += Number(o.totalRevenue)
       existing.profit += Number(o.totalRevenue) - Number(o.platformCommission) - Number(o.shippingFeeSeller)
       byDate.set(key, existing)
     }
 
-    return { success: true, data: Array.from(byDate.values()) }
+    const rows = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date))
+    return { success: true, data: rows }
   })
 }

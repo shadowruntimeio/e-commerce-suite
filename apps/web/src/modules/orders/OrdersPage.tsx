@@ -1,15 +1,36 @@
-import { Table, Input, Select, Space, DatePicker, Button } from 'antd'
+import { Table, Input, Select, Space, DatePicker, Button, Modal } from 'antd'
 import {
   SyncOutlined, DownloadOutlined, EyeOutlined, ShoppingCartOutlined,
   PrinterOutlined,
 } from '@ant-design/icons'
-import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { message } from 'antd'
 import { api } from '../../lib/api'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
+
+// Statuses whose labels TikTok will actually return. Anything else
+// (SHIPPED, COMPLETED, CANCELLED, UNPAID, AFTER_SALES) is filtered out of
+// bulk print to avoid pointless API calls.
+const PRINTABLE_STATUSES = new Set(['TO_SHIP', 'PENDING'])
+
+// An order may be split into multiple packages (TikTok assigns one package_id
+// per line_item, but multiple items can share a package). Return the distinct
+// package_ids in line-item order. Empty if no packages are present yet.
+function packageIdsForOrder(order: { platformMetadata?: any }): string[] {
+  const items = (order?.platformMetadata?.line_items ?? []) as Array<{ package_id?: string }>
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  for (const it of items) {
+    if (it?.package_id && !seen.has(it.package_id)) {
+      seen.add(it.package_id)
+      ordered.push(it.package_id)
+    }
+  }
+  return ordered
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -51,16 +72,110 @@ function PlatformBadge({ platform }: { platform: string }) {
 
 export default function OrdersPage() {
   const { t } = useTranslation()
-  const [status, setStatus] = useState('')
+  const [statuses, setStatuses] = useState<string[]>(['TO_SHIP'])
   const [search, setSearch] = useState('')
+  const [shopId, setShopId] = useState<string | undefined>(undefined)
   const [page, setPage] = useState(1)
+  const [bulkPrinting, setBulkPrinting] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [sortBy, setSortBy] = useState<'sku' | 'date'>('sku')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const queryClient = useQueryClient()
 
-  async function handlePrintLabel(orderId: string) {
+  function toggleStatus(key: string) {
+    setPage(1)
+    if (key === '') { setStatuses([]); return }
+    setStatuses((prev) => prev.includes(key) ? prev.filter((s) => s !== key) : [...prev, key])
+  }
+
+  // Quiet sync: fire-and-forget trigger for all active shops, no UI. Used on
+  // page mount and after order-mutating actions (print). Fires the sync and
+  // invalidates the list after a delay long enough for (a) the worker to run
+  // and (b) TikTok's own update-time propagation to settle (roughly 20s).
+  const syncQuiet = useCallback(async () => {
     try {
-      const res = await api.get(`/orders/${orderId}/shipping-label`)
-      const { docUrl } = res.data.data
-      window.open(docUrl, '_blank')
+      await api.post('/shops/sync-all')
+      window.setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: ['orders'] })
+      }, 20000)
+    } catch {
+      // Silent — this is a background nicety, not user-triggered.
+    }
+  }, [queryClient])
+
+  // On mount (including when returning to this page from another route),
+  // enqueue a sync so the list reflects fresh platform state.
+  useEffect(() => {
+    void syncQuiet()
+  }, [syncQuiet])
+
+  async function handleSyncNow() {
+    if (!shops || shops.length === 0) {
+      void message.warning(t('orders.noShopsToSync'))
+      return
+    }
+    const targets = shopId ? shops.filter((s) => s.id === shopId) : shops
+    if (targets.length === 0) return
+    setSyncing(true)
+    const hide = message.loading({ content: t('orders.syncing'), duration: 0, key: 'sync' })
+    try {
+      await Promise.all(targets.map((s) => api.post(`/shops/${s.id}/sync`)))
+      // The sync runs asynchronously via BullMQ. Give it a beat then refetch.
+      await new Promise((r) => setTimeout(r, 8000))
+      await queryClient.invalidateQueries({ queryKey: ['orders'] })
+      hide()
+      void message.success({ content: t('orders.syncDone'), key: 'sync' })
     } catch (err: any) {
+      hide()
+      void message.error(err?.response?.data?.error ?? t('orders.syncFailed'))
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const { data: shops } = useQuery({
+    queryKey: ['shops'],
+    queryFn: () => api.get('/shops').then((r) => r.data.data as Array<{ id: string; name: string; platform: string }>),
+  })
+
+  async function handlePrintLabel(order: { id: string; platformMetadata?: any }) {
+    const pkgs = packageIdsForOrder(order)
+    const toastKey = `print-${order.id}`
+    void message.loading({ content: t('orders.printing'), duration: 0, key: toastKey })
+    try {
+      // Single package (or unknown): original single-URL flow.
+      if (pkgs.length <= 1) {
+        const res = await api.get(`/orders/${order.id}/shipping-label`, {
+          params: pkgs[0] ? { packageId: pkgs[0] } : undefined,
+        })
+        window.open(res.data.data.docUrl, '_blank')
+        message.destroy(toastKey)
+        void message.success(t('orders.printOpened'))
+        void syncQuiet()
+        return
+      }
+      // Multi-package: fetch each label, merge via pdf-lib, open one blob.
+      const urls: string[] = []
+      for (const pkg of pkgs) {
+        const r = await api.get(`/orders/${order.id}/shipping-label`, { params: { packageId: pkg } })
+        if (r.data?.data?.docUrl) urls.push(r.data.data.docUrl)
+      }
+      if (urls.length === 0) throw new Error('no labels')
+      const { PDFDocument } = await import('pdf-lib')
+      const merged = await PDFDocument.create()
+      for (const u of urls) {
+        const res = await api.get('/orders/label-proxy', { params: { url: u }, responseType: 'arraybuffer' })
+        const src = await PDFDocument.load(res.data as ArrayBuffer)
+        const pages = await merged.copyPages(src, src.getPageIndices())
+        pages.forEach((p) => merged.addPage(p))
+      }
+      const blob = new Blob([new Uint8Array(await merged.save()).buffer], { type: 'application/pdf' })
+      window.open(URL.createObjectURL(blob), '_blank')
+      message.destroy(toastKey)
+      void message.success(t('orders.printOpened'))
+      void syncQuiet()
+    } catch (err: any) {
+      message.destroy(toastKey)
       void message.error(err?.response?.data?.error ?? t('orders.labelFailed'))
     }
   }
@@ -76,12 +191,125 @@ export default function OrdersPage() {
   ]
 
   const { data, isLoading } = useQuery({
-    queryKey: ['orders', { status, search, page }],
+    queryKey: ['orders', { statuses, search, shopId, page, sortBy, sortOrder }],
     queryFn: () =>
       api.get('/orders', {
-        params: { status: status || undefined, search: search || undefined, page, pageSize: 20 },
+        params: {
+          status: statuses.length ? statuses.join(',') : undefined,
+          search: search || undefined,
+          shopId: shopId || undefined,
+          page,
+          pageSize: 20,
+          sortBy,
+          sortOrder,
+        },
       }).then((r) => r.data.data),
+    // Auto-poll so the list reflects backend updates (from both the 1-min
+    // scheduled sync and action-triggered syncs) without manual refresh.
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   })
+
+  async function handlePrintAll() {
+    // Re-fetch the entire filtered list (up to 200) and restrict to printable
+    // statuses server-side filtering gave us.
+    const res = await api.get('/orders', {
+      params: {
+        status: statuses.length ? statuses.join(',') : undefined,
+        search: search || undefined,
+        shopId: shopId || undefined,
+        page: 1,
+        pageSize: 200,
+      },
+    })
+    const all = (res.data.data?.items ?? []) as Array<{ id: string; platformOrderId: string; status: string; platformMetadata?: any }>
+    const printable = all.filter((o) => PRINTABLE_STATUSES.has(o.status))
+    const skipped = all.length - printable.length
+
+    if (printable.length === 0) {
+      void message.info(t('orders.noneToPrint'))
+      return
+    }
+
+    // Expand each order into one (orderId, packageId) task per distinct package.
+    // Preserves order-then-package ordering so labels for the same order stay
+    // adjacent in the merged PDF.
+    const tasks: Array<{ orderId: string; packageId?: string }> = []
+    for (const o of printable) {
+      const pkgs = packageIdsForOrder(o)
+      if (pkgs.length === 0) tasks.push({ orderId: o.id })
+      else for (const pkg of pkgs) tasks.push({ orderId: o.id, packageId: pkg })
+    }
+
+    const content = t('orders.bulkPrintConfirm', { n: tasks.length })
+      + (skipped > 0 ? ' ' + t('orders.bulkPrintSkipped', { skipped }) : '')
+    const confirmed = await new Promise<boolean>((resolve) => {
+      Modal.confirm({
+        title: t('orders.bulkPrintTitle'),
+        content,
+        okText: t('orders.bulkPrintOk'),
+        cancelText: t('common.cancel'),
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      })
+    })
+    if (!confirmed) return
+
+    setBulkPrinting(true)
+    let hide = message.loading(t('orders.bulkPrintProgress', { done: 0, total: tasks.length }), 0)
+    let done = 0
+    let failed = 0
+    const urls: string[] = []
+    try {
+      for (const task of tasks) {
+        try {
+          const r = await api.get(`/orders/${task.orderId}/shipping-label`, {
+            params: task.packageId ? { packageId: task.packageId } : undefined,
+          })
+          const url = r.data?.data?.docUrl
+          if (url) urls.push(url)
+          else failed++
+        } catch {
+          failed++
+        }
+        done++
+        hide()
+        hide = message.loading(t('orders.bulkPrintProgress', { done, total: tasks.length }), 0)
+      }
+
+      if (urls.length === 0) {
+        void message.error(t('orders.bulkPrintDone', { done: 0, failed }))
+        return
+      }
+
+      // Merge all PDFs into a single document so the user gets one print window
+      // instead of N. Dynamic import keeps pdf-lib out of the main bundle.
+      const { PDFDocument } = await import('pdf-lib')
+      const merged = await PDFDocument.create()
+      for (const u of urls) {
+        try {
+          // Fetch via our backend proxy — TikTok's CDN blocks browser CORS.
+          const res = await api.get('/orders/label-proxy', {
+            params: { url: u },
+            responseType: 'arraybuffer',
+          })
+          const src = await PDFDocument.load(res.data as ArrayBuffer)
+          const pages = await merged.copyPages(src, src.getPageIndices())
+          pages.forEach((p) => merged.addPage(p))
+        } catch {
+          failed++
+        }
+      }
+      const blob = new Blob([new Uint8Array(await merged.save()).buffer], { type: 'application/pdf' })
+      const blobUrl = URL.createObjectURL(blob)
+      window.open(blobUrl, '_blank')
+    } finally {
+      hide()
+      setBulkPrinting(false)
+    }
+    void message.success(t('orders.bulkPrintDone', { done: urls.length, failed }))
+    void syncQuiet()
+  }
 
   const columns: ColumnsType<any> = [
     {
@@ -112,6 +340,26 @@ export default function OrdersPage() {
       ),
     },
     {
+      title: t('orders.sku'),
+      dataIndex: 'items',
+      key: 'sku',
+      width: 140,
+      sorter: true,
+      sortOrder: sortBy === 'sku' ? (sortOrder === 'asc' ? 'ascend' : 'descend') : undefined,
+      render: (items: Array<{ sellerSku?: string | null; quantity: number }>) => {
+        if (!items?.length) return <span style={{ color: 'var(--text-muted)' }}>—</span>
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, fontFamily: "'Courier New', monospace" }}>
+            {items.map((it, i) => (
+              <span key={i} style={{ color: it.sellerSku ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                {it.sellerSku ?? '—'}{it.quantity > 1 ? ` × ${it.quantity}` : ''}
+              </span>
+            ))}
+          </div>
+        )
+      },
+    },
+    {
       title: t('common.status'),
       dataIndex: 'status',
       width: 120,
@@ -129,7 +377,10 @@ export default function OrdersPage() {
     {
       title: t('orders.date'),
       dataIndex: 'createdAt',
+      key: 'date',
       width: 140,
+      sorter: true,
+      sortOrder: sortBy === 'date' ? (sortOrder === 'asc' ? 'ascend' : 'descend') : undefined,
       render: (v) => dayjs(v).format('MMM D, HH:mm'),
     },
     {
@@ -146,7 +397,7 @@ export default function OrdersPage() {
             style={{ color: 'var(--text-secondary)' }}
             onClick={(e) => {
               e.stopPropagation()
-              handlePrintLabel(record.id)
+              handlePrintLabel(record)
             }}
           />
         </div>
@@ -165,7 +416,9 @@ export default function OrdersPage() {
           </div>
           <Space>
             <Button
-              icon={<SyncOutlined />}
+              icon={<SyncOutlined spin={syncing} />}
+              loading={syncing}
+              onClick={handleSyncNow}
               style={{ background: 'var(--accent-gradient)', color: '#fff', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
             >
               {t('common.syncNow')}
@@ -174,14 +427,14 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {/* Status Tabs */}
+      {/* Status Tabs (multi-select; "All" clears) */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
         {statusTabs.map((tab) => {
-          const isActive = status === tab.key
+          const isActive = tab.key === '' ? statuses.length === 0 : statuses.includes(tab.key)
           return (
             <button
               key={tab.key}
-              onClick={() => { setStatus(tab.key); setPage(1) }}
+              onClick={() => toggleStatus(tab.key)}
               style={{
                 background: isActive ? 'var(--tab-active-bg)' : 'var(--bg-surface)',
                 color: isActive ? 'var(--tab-active-fg)' : 'var(--text-secondary)',
@@ -212,9 +465,20 @@ export default function OrdersPage() {
           allowClear
           placeholder={t('orders.allShops')}
           style={{ width: 180 }}
+          value={shopId}
+          onChange={(v) => { setShopId(v); setPage(1) }}
+          options={(shops ?? []).map((s) => ({ value: s.id, label: s.name }))}
         />
         <DatePicker.RangePicker style={{ borderRadius: 8 }} />
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <Button
+            icon={<PrinterOutlined />}
+            loading={bulkPrinting}
+            onClick={handlePrintAll}
+            style={{ background: 'var(--accent-gradient)', color: '#fff', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
+          >
+            {t('orders.printAll')}
+          </Button>
           <Button
             icon={<DownloadOutlined />}
             style={{ background: 'var(--header-btn-bg)', color: 'var(--header-btn-color)', border: 'var(--header-btn-border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
@@ -235,6 +499,16 @@ export default function OrdersPage() {
           style={{ borderRadius: 0 }}
           onRow={() => ({ style: { cursor: 'pointer' } })}
           rowHoverable
+          onChange={(_p, _f, sorter) => {
+            const s = Array.isArray(sorter) ? sorter[0] : sorter
+            const key = (s?.columnKey as 'sku' | 'date') ?? 'sku'
+            const order = s?.order === 'ascend' ? 'asc' : 'desc'
+            // Antd emits order=undefined when user clicks a sorter to "none".
+            // Keep SKU-desc as the fallback so the list is never unsorted.
+            setSortBy(s?.order ? key : 'sku')
+            setSortOrder(s?.order ? order : 'desc')
+            setPage(1)
+          }}
           pagination={{
             current: page,
             pageSize: 20,
