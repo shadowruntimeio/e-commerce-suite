@@ -14,27 +14,23 @@ import {
 import dayjs from 'dayjs'
 import { api } from '../../lib/api'
 
-// ─── Sample revenue data (30 days) ────────────────────────────────────────────
-function generateChartData() {
-  const data = []
+// ─── Build a gap-filled 30-day series from API rows ───────────────────────────
+function buildChartData(rows: Array<{ date: string; revenue: number; profit: number }> | undefined) {
+  const byDate = new Map(rows?.map((r) => [r.date, r]) ?? [])
   const now = dayjs()
-  let prevRevenue = 12000
-  let prevProfit = 4200
+  const out = []
   for (let i = 29; i >= 0; i--) {
-    const revDelta = (Math.random() - 0.4) * 2000
-    const profDelta = (Math.random() - 0.4) * 600
-    prevRevenue = Math.max(6000, prevRevenue + revDelta)
-    prevProfit = Math.max(1200, prevProfit + profDelta)
-    data.push({
-      date: now.subtract(i, 'day').format('MM/DD'),
-      revenue: Math.round(prevRevenue),
-      profit: Math.round(prevProfit),
+    const d = now.subtract(i, 'day')
+    const key = d.format('YYYY-MM-DD')
+    const row = byDate.get(key)
+    out.push({
+      date: d.format('MM/DD'),
+      revenue: row ? Math.round(row.revenue) : 0,
+      profit: row ? Math.round(row.profit) : 0,
     })
   }
-  return data
+  return out
 }
-
-const chartData = generateChartData()
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
 function ChartTooltip({ active, payload, label }: any) {
@@ -204,10 +200,21 @@ export default function DashboardPage() {
     refetchInterval: 30_000,
   })
 
+  const { data: chartRows } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: () => api.get('/reports/dashboard-stats').then((r) => r.data.data),
+    refetchInterval: 60_000,
+  })
+
+  const chartData = buildChartData(chartRows)
+
   const { data: recentOrders, isLoading: ordersLoading } = useQuery({
     queryKey: ['orders', { page: 1 }],
     queryFn: () => api.get('/orders', { params: { page: 1, pageSize: 5 } }).then(r => r.data.data),
   })
+
+  const fmtTrend = (pct: number | null | undefined): string | undefined =>
+    pct == null ? undefined : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`
 
   if (isLoading) {
     return (
@@ -234,8 +241,8 @@ export default function DashboardPage() {
           title="Today's Revenue"
           value={`$${Number(data?.todayRevenue ?? 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
           subtitle="vs yesterday"
-          trend="+8.3%"
-          trendUp={true}
+          trend={fmtTrend(data?.revenueTrendPct)}
+          trendUp={(data?.revenueTrendPct ?? 0) >= 0}
           icon={<DollarOutlined />}
           accentColor="#cc97ff"
         />
@@ -243,8 +250,8 @@ export default function DashboardPage() {
           title="Today's Orders"
           value={data?.todayOrdersCount ?? 0}
           subtitle="vs yesterday"
-          trend="+12%"
-          trendUp={true}
+          trend={fmtTrend(data?.ordersTrendPct)}
+          trendUp={(data?.ordersTrendPct ?? 0) >= 0}
           icon={<ShoppingCartOutlined />}
           accentColor="#53ddfc"
         />
@@ -441,7 +448,7 @@ export default function DashboardPage() {
                 <div style={{
                   fontSize: 20, fontWeight: 800, color: 'var(--text-primary)',
                   fontFamily: "'Manrope', sans-serif",
-                }}>{data?.todayOrdersCount ?? 0}</div>
+                }}>{data?.thisMonthOrdersCount ?? 0}</div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Total Orders</div>
               </div>
               <div>
@@ -449,7 +456,7 @@ export default function DashboardPage() {
                   fontSize: 20, fontWeight: 800, color: 'var(--badge-success-fg)',
                   fontFamily: "'Manrope', sans-serif",
                 }}>
-                  ${Number(data?.todayRevenue ?? 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  ${Number(data?.thisMonthRevenue ?? 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Revenue</div>
               </div>
@@ -525,7 +532,7 @@ export default function DashboardPage() {
                       ${Number(order.totalRevenue).toFixed(2)}
                     </td>
                     <td style={{ padding: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                      {dayjs(order.createdAt).format('MM/DD HH:mm')}
+                      {dayjs(order.platformCreatedAt ?? order.createdAt).format('MM/DD HH:mm')}
                     </td>
                   </tr>
                 ))}

@@ -8,13 +8,22 @@ export async function orderRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
   app.get('/', async (request) => {
-    const { status, shopId, page = 1, pageSize = 20, search } = request.query as {
+    const {
+      status, shopId, page = 1, pageSize = 20, search,
+      sortBy = 'sku', sortOrder = 'desc',
+    } = request.query as {
       status?: string; shopId?: string; page?: number; pageSize?: number; search?: string
+      sortBy?: 'sku' | 'date'; sortOrder?: 'asc' | 'desc'
     }
+    const statusList = (status ?? '').split(',').map((s) => s.trim()).filter(Boolean)
     const where = {
       tenantId: request.user.tenantId,
       shop: { status: { not: 'INACTIVE' as const } },
-      ...(status ? { status: status as any } : {}),
+      ...(statusList.length === 1
+        ? { status: statusList[0] as any }
+        : statusList.length > 1
+          ? { status: { in: statusList as any[] } }
+          : {}),
       ...(shopId ? { shopId } : {}),
       ...(search ? {
         OR: [
@@ -23,13 +32,19 @@ export async function orderRoutes(app: FastifyInstance) {
         ],
       } : {}),
     }
+    const dir = sortOrder === 'asc' ? 'asc' : 'desc'
+    const orderBy = sortBy === 'date'
+      ? [{ platformCreatedAt: dir as any }, { createdAt: dir as any }]
+      // Sort by SKU first, then by creation date as a secondary key so rows
+      // with the same SKU appear newest-first.
+      : [{ firstSellerSku: { sort: dir as any, nulls: 'last' as const } }, { platformCreatedAt: 'desc' as const }]
     const [items, total] = await Promise.all([
       prisma.order.findMany({
         where,
         include: { shop: { select: { name: true, platform: true } }, items: true },
         skip: (Number(page) - 1) * Number(pageSize),
         take: Number(pageSize),
-        orderBy: { createdAt: 'desc' },
+        orderBy,
       }),
       prisma.order.count({ where }),
     ])
@@ -56,9 +71,13 @@ export async function orderRoutes(app: FastifyInstance) {
   })
 
   // GET /:id/shipping-label — fetch shipping label from platform
+  // Query params: type, size, packageId (optional — pass to target a specific
+  // package for orders split across multiple packages).
   app.get('/:id/shipping-label', async (request, reply) => {
     const { id } = request.params as { id: string }
-    const { type = 'SHIPPING_LABEL', size = 'A6' } = request.query as { type?: string; size?: string }
+    const { type = 'SHIPPING_LABEL_AND_PACKING_SLIP', size = 'A6', packageId } = request.query as {
+      type?: string; size?: string; packageId?: string
+    }
 
     const order = await prisma.order.findFirst({
       where: { id, tenantId: request.user.tenantId },
@@ -68,12 +87,17 @@ export async function orderRoutes(app: FastifyInstance) {
 
     if (order.shop.platform === 'TIKTOK') {
       const adapter = new TikTokAdapter()
+      // Prefer explicit packageId from caller; else fall back to the first
+      // package_id on the stored line_items.
+      const meta = (order.platformMetadata ?? {}) as { line_items?: Array<{ package_id?: string }> }
+      const packageIdHint = packageId ?? meta.line_items?.find((li) => li.package_id)?.package_id
       try {
         const { docUrl } = await adapter.getShippingLabel(
           order.shop as any,
           order.platformOrderId,
-          type as 'SHIPPING_LABEL' | 'PICK_LIST' | 'PACKING_LIST',
+          type as any,
           size as 'A5' | 'A6',
+          packageIdHint,
         )
         return { success: true, data: { docUrl, platform: 'TIKTOK' } }
       } catch (err) {
@@ -84,6 +108,27 @@ export async function orderRoutes(app: FastifyInstance) {
     }
 
     return reply.status(400).send({ success: false, error: `Shipping labels not supported for ${order.shop.platform}` })
+  })
+
+  // GET /label-proxy?url=... — fetch a signed TikTok label PDF on behalf of the
+  // browser, which can't hit open-fs-sg.tiktokshop.com directly due to CORS.
+  // Used by bulk print to merge multiple PDFs client-side.
+  app.get('/label-proxy', async (request, reply) => {
+    const { url } = request.query as { url?: string }
+    if (!url) return reply.status(400).send({ success: false, error: 'url query param required' })
+    let parsed: URL
+    try { parsed = new URL(url) } catch { return reply.status(400).send({ success: false, error: 'invalid url' }) }
+    if (!parsed.hostname.endsWith('.tiktokshop.com')) {
+      return reply.status(400).send({ success: false, error: 'only tiktokshop.com URLs allowed' })
+    }
+    const upstream = await fetch(url)
+    if (!upstream.ok) {
+      return reply.status(502).send({ success: false, error: `upstream returned ${upstream.status}` })
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    reply.header('content-type', upstream.headers.get('content-type') ?? 'application/pdf')
+    reply.header('cache-control', 'private, max-age=60')
+    return reply.send(buf)
   })
 
   // POST /:id/run-rules — manually run all rules against a specific order

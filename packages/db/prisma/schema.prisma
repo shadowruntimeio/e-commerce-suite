@@ -82,6 +82,16 @@ enum ShopStatus {
   AUTH_EXPIRED
 }
 
+enum AdjustmentReason {
+  STOCKTAKE_CORRECTION
+  DAMAGE
+  LOSS
+  EXPIRY
+  FOUND
+  SYSTEM_ERROR
+  OTHER
+}
+
 // ─── Tenant & Identity ────────────────────────────────────────────────────────
 
 model Tenant {
@@ -95,6 +105,7 @@ model Tenant {
   shops            Shop[]
   warehouses       Warehouse[]
   systemProducts   SystemProduct[]
+  productCategories ProductCategory[]
   orders           Order[]
   purchaseOrders   PurchaseOrder[]
   suppliers        Supplier[]
@@ -164,15 +175,20 @@ model Shop {
 // ─── Product Catalog (3-tier) ─────────────────────────────────────────────────
 
 model ProductCategory {
-  id       String  @id @default(cuid())
-  tenantId String
-  name     String
-  parentId String?
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  parentId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  tenant   Tenant            @relation(fields: [tenantId], references: [id])
   parent   ProductCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
   children ProductCategory[] @relation("CategoryHierarchy")
   products SystemProduct[]
 
+  @@unique([tenantId, name])
+  @@index([tenantId])
   @@map("product_categories")
 }
 
@@ -264,6 +280,9 @@ model Warehouse {
   address   Json?
   isDefault Boolean       @default(false)
   isActive  Boolean       @default(true)
+  // Map to external platforms' warehouse IDs, e.g.
+  // { "TIKTOK": ["7540272170501474069"], "SHOPEE": [...] }
+  platformWarehouseIds Json @default("{}")
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
@@ -307,6 +326,7 @@ model InventoryEvent {
   warehouseId     String
   eventType       InventoryEventType
   quantityDelta   Int
+  reason          AdjustmentReason?  // required when eventType = ADJUSTMENT (enforced in app layer)
   referenceType   String?            // "order", "purchase_order", "adjustment", etc.
   referenceId     String?
   notes           String?
@@ -377,6 +397,9 @@ model Order {
   totalRevenue     Decimal     @default(0) @db.Decimal(12, 4)
   platformMetadata Json        @default("{}")  // raw platform response
   tags             String[]    @default([])
+  // Denormalized: first line item's seller_sku. Populated on sync so the
+  // order list can be sorted by SKU at the DB level without joining items.
+  firstSellerSku   String?
   platformCreatedAt DateTime?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
@@ -390,6 +413,7 @@ model Order {
   @@unique([shopId, platformOrderId])
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
+  @@index([tenantId, firstSellerSku])
   @@map("orders")
 }
 
@@ -399,6 +423,7 @@ model OrderItem {
   onlineSkuId    String?
   systemSkuId    String?
   platformSkuId  String
+  sellerSku      String?  // seller-defined SKU code (e.g. D-1-2); used in picking
   productName    String
   skuName        String?
   quantity       Int

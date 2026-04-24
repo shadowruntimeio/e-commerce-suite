@@ -11,6 +11,10 @@ import type {
   StockUpdate,
 } from '../adapter.interface'
 
+function tkLog(line: string) {
+  console.log(line)
+}
+
 function getAppKey() { return process.env.TIKTOK_APP_KEY ?? '' }
 function getAppSecret() { return process.env.TIKTOK_APP_SECRET ?? '' }
 function getRedirectUri() { return process.env.TIKTOK_REDIRECT_URI ?? '' }
@@ -49,7 +53,10 @@ function buildSignV2(
 
 // ─── HTTP helpers (V202309) ──────────────────────────────────────────────────
 
-async function tiktokRequest<T>(
+// TikTok transient error codes that are safe to retry.
+const TIKTOK_RETRYABLE_CODES = new Set([36009007]) // 36009007 = Request timeout
+
+async function tiktokRequestOnce<T>(
   method: 'GET' | 'POST',
   path: string,
   accessToken: string,
@@ -88,10 +95,10 @@ async function tiktokRequest<T>(
     options.body = bodyStr
   }
 
-  console.log(`[tiktok] ${method} ${path} → ${url.split('?')[0]}?... (shop_cipher=${shopCipher ? 'yes' : 'no'})`)
+  tkLog(`[tiktok] ${method} ${path} → ${url.split('?')[0]}?... (shop_cipher=${shopCipher ? 'yes' : 'no'})`)
   const res = await fetch(url, options)
   const text = await res.text()
-  console.log(`[tiktok] ${method} ${path} response (status=${res.status}):`, text.slice(0, 500))
+  tkLog(`[tiktok] ${method} ${path} response (status=${res.status}): ${text.slice(0, 500)}`)
 
   let parsed: Record<string, unknown>
   try {
@@ -106,6 +113,51 @@ async function tiktokRequest<T>(
   }
 
   return parsed as T
+}
+
+async function tiktokRequest<T>(
+  method: 'GET' | 'POST',
+  path: string,
+  accessToken: string,
+  shopCipher?: string,
+  queryParams: Record<string, string> = {},
+  body?: Record<string, unknown>,
+): Promise<T> {
+  const delays = [0, 800, 2000]
+  let lastErr: unknown
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt] > 0) {
+      await new Promise((r) => setTimeout(r, delays[attempt]))
+      console.log(`[tiktok] retry ${attempt}/${delays.length - 1} on ${path}`)
+    }
+    try {
+      return await tiktokRequestOnce<T>(method, path, accessToken, shopCipher, queryParams, body)
+    } catch (err) {
+      lastErr = err
+      const msg = err instanceof Error ? err.message : String(err)
+      const codeMatch = msg.match(/code=(\d+)/)
+      const code = codeMatch ? Number(codeMatch[1]) : null
+      if (code == null || !TIKTOK_RETRYABLE_CODES.has(code)) throw err
+    }
+  }
+  throw lastErr
+}
+
+export type TikTokDocumentType =
+  | 'SHIPPING_LABEL'
+  | 'PACKING_SLIP'
+  | 'SHIPPING_LABEL_AND_PACKING_SLIP'
+  | 'SHIPPING_LABEL_PICTURE'
+  | 'HAZMAT_LABEL'
+  | 'INVOICE_LABEL'
+
+// TikTok error 21042104 means "documents can't be printed before shipped".
+// Code in main flow catches this to auto-arrange shipping via TLA.
+class NotShippedError extends Error {}
+function isNotShippedError(err: unknown): boolean {
+  if (err instanceof NotShippedError) return true
+  const msg = err instanceof Error ? err.message : String(err)
+  return msg.includes('21042104') || msg.includes("couldn't be printed before shipped")
 }
 
 // ─── Credentials ──────────────────────────────────────────────────────────────
@@ -209,6 +261,7 @@ interface TikTokShopsResponse {
 interface TikTokOrderLineItem {
   id: string
   sku_id: string
+  seller_sku?: string
   product_name: string
   sku_name?: string
   quantity: number
@@ -498,6 +551,7 @@ export class TikTokAdapter implements PlatformAdapter {
       const originalPrice = item.original_price ? parsePrice(item.original_price) : salePrice
       return {
         platformSkuId: item.sku_id ?? item.id,
+        sellerSku: item.seller_sku,
         productName: item.product_name,
         skuName: item.sku_name,
         quantity: item.quantity ?? 1,
@@ -602,49 +656,134 @@ export class TikTokAdapter implements PlatformAdapter {
     return products
   }
 
-  // ─── Shipping label (V202309) ───────────────────────────────────────────────
+  // ─── Shipping label (V202309, TLA flow) ─────────────────────────────────────
+  // If the package isn't in a shippable state yet, auto-run the TLA chain:
+  // warehouses → shipping_services → buy_shipping_label → retry documents.
 
   async getShippingLabel(
     shop: ShopRecord,
     orderId: string,
-    documentType: 'SHIPPING_LABEL' | 'PICK_LIST' | 'PACKING_LIST' = 'SHIPPING_LABEL',
+    // TikTok V202309 valid values (verified via API error):
+    //   SHIPPING_LABEL, PACKING_SLIP, SHIPPING_LABEL_AND_PACKING_SLIP,
+    //   SHIPPING_LABEL_PICTURE, HAZMAT_LABEL, INVOICE_LABEL
+    documentType: TikTokDocumentType = 'SHIPPING_LABEL_AND_PACKING_SLIP',
     documentSize: 'A5' | 'A6' = 'A6',
+    packageIdHint?: string,
+  ): Promise<{ docUrl: string }> {
+    tkLog(`[tiktok] ===== getShippingLabel start: order=${orderId} type=${documentType} size=${documentSize} hint=${packageIdHint ?? 'none'} =====`)
+
+    let packageId: string | null = packageIdHint ?? null
+
+    try {
+      if (!packageId) throw new NotShippedError('No package ID provided — will arrange shipping')
+      return await this.fetchShippingDocument(shop, packageId, documentType, documentSize)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!isNotShippedError(err)) {
+        tkLog(`[tiktok] non-recoverable label error for order ${orderId}: ${msg}`)
+        throw err
+      }
+
+      tkLog(`[tiktok] >>> TLA recovery START for order ${orderId} (trigger: ${msg.slice(0, 200)})`)
+      const arranged = await this.arrangeShippingTLA(shop, orderId, packageId)
+      if (arranged.packageId) packageId = arranged.packageId
+      if (!packageId) throw new Error('TLA arranged but no package ID available — cannot fetch label')
+      tkLog(`[tiktok] <<< TLA recovery DONE for order ${orderId}, waiting for state update then retrying`)
+
+      // TikTok takes a moment to transition the package state after /ship.
+      // Poll shipping_documents with backoff (1s, 3s, 6s) before giving up.
+      const delays = [1000, 3000, 6000]
+      let lastErr: unknown
+      for (const d of delays) {
+        await new Promise((r) => setTimeout(r, d))
+        try {
+          return await this.fetchShippingDocument(shop, packageId, documentType, documentSize)
+        } catch (e) {
+          lastErr = e
+          const em = e instanceof Error ? e.message : String(e)
+          tkLog(`[tiktok] post-arrange retry after ${d}ms still failing: ${em.slice(0, 160)}`)
+          if (!isNotShippedError(e)) throw e
+        }
+      }
+      throw lastErr
+    }
+  }
+
+  private async fetchShippingDocument(
+    shop: ShopRecord,
+    packageId: string,
+    documentType: string,
+    documentSize: string,
   ): Promise<{ docUrl: string }> {
     const { accessToken, shopCipher } = getCredentials(shop)
-    // First get package IDs for this order
-    const pkgPath = '/fulfillment/202309/packages/search'
-    const pkgResp = await tiktokRequest<{
-      code: number
-      data: { packages?: Array<{ id: string }> }
-    }>(
-      'POST', pkgPath, accessToken, shopCipher,
-      { page_size: '20' },
-      { order_id: orderId },
-    )
-
-    const packageId = pkgResp.data?.packages?.[0]?.id
-    if (!packageId) {
-      throw new Error('No package found for this order — order may not be ready for shipping yet')
-    }
-
-    const path = `/fulfillment/202309/packages/${packageId}/shipping_documents`
     const resp = await tiktokRequest<{
       code: number
       data: { doc_url?: string; document_url?: string }
     }>(
       'GET',
-      path,
-      accessToken,
-      shopCipher,
+      `/fulfillment/202309/packages/${packageId}/shipping_documents`,
+      accessToken, shopCipher,
       { document_type: documentType, document_size: documentSize },
     )
-
     const docUrl = resp.data?.doc_url ?? resp.data?.document_url
-    if (!docUrl) {
-      throw new Error('No shipping document URL returned from TikTok')
+    if (!docUrl) throw new Error('No shipping document URL returned from TikTok')
+    return { docUrl }
+  }
+
+  /**
+   * Advance a package from TO_FULFILL to a shippable state via V202309
+   * `POST /fulfillment/202309/packages/{id}/ship`. Tries DROP_OFF first
+   * (simplest — no pickup slot needed); falls back to PICKUP with the first
+   * available handover slot if the seller isn't set up for drop-off.
+   */
+  private async arrangeShippingTLA(
+    shop: ShopRecord,
+    orderId: string,
+    knownPackageId?: string | null,
+  ): Promise<{ packageId?: string }> {
+    const { accessToken, shopCipher } = getCredentials(shop)
+    if (!knownPackageId) {
+      throw new Error(`Cannot arrange shipping: no package_id available for order ${orderId}. Re-sync the order to populate package metadata.`)
     }
 
-    return { docUrl }
+    const shipPath = `/fulfillment/202309/packages/${knownPackageId}/ship`
+
+    try {
+      const dropResp = await tiktokRequest<{ code: number; data: unknown }>(
+        'POST', shipPath, accessToken, shopCipher, {},
+        { handover_method: 'DROP_OFF' },
+      )
+      tkLog(`[tiktok] DROP_OFF ship ok for package ${knownPackageId}: ${JSON.stringify(dropResp).slice(0, 300)}`)
+      return { packageId: knownPackageId }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      tkLog(`[tiktok] DROP_OFF ship failed, falling back to PICKUP: ${msg.slice(0, 200)}`)
+    }
+
+    const slotsResp = await tiktokRequest<{
+      code: number
+      data: { pickup_slots?: Array<{ start_time?: number; end_time?: number; slot_id?: string }> }
+    }>(
+      'GET', `/fulfillment/202309/packages/${knownPackageId}/handover_time_slots`,
+      accessToken, shopCipher,
+    )
+    const slot = slotsResp.data?.pickup_slots?.[0]
+    if (!slot) throw new Error('No pickup slot available and DROP_OFF was rejected — check shop pickup settings')
+    tkLog(`[tiktok] Picked pickup slot: ${JSON.stringify(slot)}`)
+
+    const pickupResp = await tiktokRequest<{ code: number; data: unknown }>(
+      'POST', shipPath, accessToken, shopCipher, {},
+      {
+        handover_method: 'PICKUP',
+        pickup_slot: {
+          start_time: slot.start_time,
+          end_time: slot.end_time,
+          ...(slot.slot_id ? { slot_id: slot.slot_id } : {}),
+        },
+      },
+    )
+    tkLog(`[tiktok] PICKUP ship ok for package ${knownPackageId}: ${JSON.stringify(pickupResp).slice(0, 300)}`)
+    return { packageId: knownPackageId }
   }
 
   async updateStock(shop: ShopRecord, updates: StockUpdate[]): Promise<void> {

@@ -4,6 +4,7 @@ import sensible from '@fastify/sensible'
 import { authRoutes } from './modules/auth/auth.routes'
 import { shopRoutes } from './modules/shops/shop.routes'
 import { productRoutes } from './modules/products/product.routes'
+import { categoryRoutes } from './modules/categories/category.routes'
 import { orderRoutes } from './modules/orders/order.routes'
 import { rulesRoutes } from './modules/orders/rules.routes'
 import { inventoryRoutes } from './modules/inventory/inventory.routes'
@@ -41,6 +42,7 @@ export async function buildApp() {
   // Protected routes — authenticate middleware applied per-route
   await app.register(shopRoutes, { prefix: '/api/v1/shops' })
   await app.register(productRoutes, { prefix: '/api/v1/products' })
+  await app.register(categoryRoutes, { prefix: '/api/v1/categories' })
   await app.register(orderRoutes, { prefix: '/api/v1/orders' })
   await app.register(rulesRoutes, { prefix: '/api/v1/orders/rules' })
   await app.register(inventoryRoutes, { prefix: '/api/v1/inventory' })
