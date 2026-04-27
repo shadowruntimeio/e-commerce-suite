@@ -159,96 +159,106 @@ async function upsertOrder(
   // Denormalize the first seller_sku onto the order for sort-by-SKU.
   const firstSellerSku = platformOrder.items.find((i) => i.sellerSku)?.sellerSku ?? null
 
-  // Upsert the order
-  const order = await prisma.order.upsert({
-    where: {
-      shopId_platformOrderId: {
-        shopId,
-        platformOrderId: platformOrder.platformOrderId,
-      },
-    },
-    update: {
-      status: platformOrder.status as OrderStatus,
-      buyerName: platformOrder.buyerName,
-      buyerPhone: platformOrder.buyerPhone,
-      shippingAddress: platformOrder.shippingAddress as any,
-      currency: platformOrder.currency,
-      subtotal: platformOrder.subtotal,
-      platformDiscount: platformOrder.platformDiscount,
-      sellerDiscount: platformOrder.sellerDiscount,
-      shippingFeeBuyer: platformOrder.shippingFeeBuyer,
-      shippingFeeSeller: platformOrder.shippingFeeSeller,
-      platformCommission: platformOrder.platformCommission,
-      totalRevenue: platformOrder.totalRevenue,
-      platformMetadata: platformOrder.platformMetadata as any,
-      platformCreatedAt: platformOrder.platformCreatedAt,
-      firstSellerSku,
-    },
-    create: {
-      shopId,
-      tenantId,
-      platformOrderId: platformOrder.platformOrderId,
-      status: platformOrder.status as OrderStatus,
-      buyerName: platformOrder.buyerName,
-      buyerPhone: platformOrder.buyerPhone,
-      shippingAddress: platformOrder.shippingAddress as any,
-      currency: platformOrder.currency,
-      subtotal: platformOrder.subtotal,
-      platformDiscount: platformOrder.platformDiscount,
-      sellerDiscount: platformOrder.sellerDiscount,
-      shippingFeeBuyer: platformOrder.shippingFeeBuyer,
-      shippingFeeSeller: platformOrder.shippingFeeSeller,
-      platformCommission: platformOrder.platformCommission,
-      totalRevenue: platformOrder.totalRevenue,
-      platformMetadata: platformOrder.platformMetadata as any,
-      platformCreatedAt: platformOrder.platformCreatedAt,
-      firstSellerSku,
-    },
-  })
+  // Wrap upsert + items rebuild in a transaction with a per-order advisory
+  // lock. Without this, two concurrent sync workers (e.g. scheduled + webhook)
+  // could each run deleteMany while the other had not yet inserted, then both
+  // insert, leading to N× duplicate order_items rows.
+  const order = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`order:${shopId}:${platformOrder.platformOrderId}`}))`
 
-  // Delete old items and re-insert (simpler than full upsert on compound key)
-  await prisma.orderItem.deleteMany({ where: { orderId: order.id } })
-
-  for (const item of platformOrder.items) {
-    // Try to match platformSkuId to an OnlineSku in this shop
-    const onlineSku = await prisma.onlineSku.findFirst({
+    const upserted = await tx.order.upsert({
       where: {
-        platformSkuId: item.platformSkuId,
-        onlineProduct: { shopId },
+        shopId_platformOrderId: {
+          shopId,
+          platformOrderId: platformOrder.platformOrderId,
+        },
       },
-      select: { id: true, systemSkuId: true },
+      update: {
+        status: platformOrder.status as OrderStatus,
+        buyerName: platformOrder.buyerName,
+        buyerPhone: platformOrder.buyerPhone,
+        shippingAddress: platformOrder.shippingAddress as any,
+        currency: platformOrder.currency,
+        subtotal: platformOrder.subtotal,
+        platformDiscount: platformOrder.platformDiscount,
+        sellerDiscount: platformOrder.sellerDiscount,
+        shippingFeeBuyer: platformOrder.shippingFeeBuyer,
+        shippingFeeSeller: platformOrder.shippingFeeSeller,
+        platformCommission: platformOrder.platformCommission,
+        totalRevenue: platformOrder.totalRevenue,
+        platformMetadata: platformOrder.platformMetadata as any,
+        platformCreatedAt: platformOrder.platformCreatedAt,
+        firstSellerSku,
+      },
+      create: {
+        shopId,
+        tenantId,
+        platformOrderId: platformOrder.platformOrderId,
+        status: platformOrder.status as OrderStatus,
+        buyerName: platformOrder.buyerName,
+        buyerPhone: platformOrder.buyerPhone,
+        shippingAddress: platformOrder.shippingAddress as any,
+        currency: platformOrder.currency,
+        subtotal: platformOrder.subtotal,
+        platformDiscount: platformOrder.platformDiscount,
+        sellerDiscount: platformOrder.sellerDiscount,
+        shippingFeeBuyer: platformOrder.shippingFeeBuyer,
+        shippingFeeSeller: platformOrder.shippingFeeSeller,
+        platformCommission: platformOrder.platformCommission,
+        totalRevenue: platformOrder.totalRevenue,
+        platformMetadata: platformOrder.platformMetadata as any,
+        platformCreatedAt: platformOrder.platformCreatedAt,
+        firstSellerSku,
+      },
     })
 
-    // Resolve SystemSku: prefer OnlineSku mapping, fall back to matching the
-    // seller-provided sku_code directly (same-merchant-same-SKU convention).
-    let systemSkuId = onlineSku?.systemSkuId ?? null
-    if (!systemSkuId && item.sellerSku) {
-      systemSkuId = await resolveSystemSkuByCode(item.sellerSku, tenantId)
-    }
+    await tx.orderItem.deleteMany({ where: { orderId: upserted.id } })
 
-    await prisma.orderItem.create({
-      data: {
-        orderId: order.id,
-        platformSkuId: item.platformSkuId,
-        sellerSku: item.sellerSku,
-        productName: item.productName,
-        skuName: item.skuName,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        discount: item.discount,
-        onlineSkuId: onlineSku?.id ?? null,
-        systemSkuId,
-      },
-    })
-
-    // Backfill the OnlineSku side so the next sync takes the fast path.
-    if (onlineSku?.id && !onlineSku.systemSkuId && systemSkuId) {
-      await prisma.onlineSku.update({
-        where: { id: onlineSku.id },
-        data: { systemSkuId },
+    for (const item of platformOrder.items) {
+      const onlineSku = await tx.onlineSku.findFirst({
+        where: {
+          platformSkuId: item.platformSkuId,
+          onlineProduct: { shopId },
+        },
+        select: { id: true, systemSkuId: true },
       })
+
+      // Resolve SystemSku: prefer OnlineSku mapping, fall back to matching the
+      // seller-provided sku_code directly (same-merchant-same-SKU convention).
+      let systemSkuId = onlineSku?.systemSkuId ?? null
+      if (!systemSkuId && item.sellerSku) {
+        const sysSku = await tx.systemSku.findUnique({
+          where: { skuCode: item.sellerSku },
+          select: { id: true, systemProduct: { select: { tenantId: true } } },
+        })
+        if (sysSku && sysSku.systemProduct.tenantId === tenantId) systemSkuId = sysSku.id
+      }
+
+      await tx.orderItem.create({
+        data: {
+          orderId: upserted.id,
+          platformSkuId: item.platformSkuId,
+          sellerSku: item.sellerSku,
+          productName: item.productName,
+          skuName: item.skuName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discount: item.discount,
+          onlineSkuId: onlineSku?.id ?? null,
+          systemSkuId,
+        },
+      })
+
+      if (onlineSku?.id && !onlineSku.systemSkuId && systemSkuId) {
+        await tx.onlineSku.update({
+          where: { id: onlineSku.id },
+          data: { systemSkuId },
+        })
+      }
     }
-  }
+
+    return upserted
+  })
 
   // Deduct inventory once the order reaches a "committed" status. PENDING is
   // the first commit point (label / fulfillment arranged), SHIPPED is out the

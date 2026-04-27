@@ -104,12 +104,15 @@ export async function tiktokWebhookRoutes(app: FastifyInstance) {
           console.log(`[webhook/tiktok] Updated order ${orderId} → ${mapped} (matched=${updated.count})`)
         }
 
-        // Also queue a full sync to get complete order details
+        // Also queue a full sync to get complete order details. Use a 5-second
+        // bucket on the jobId so a burst of webhooks (TK can fire multiple
+        // events per state change) collapses into a single sync — without this
+        // the worker can race itself and produce duplicate order_items rows.
         await syncOrdersQueue.add(
           'sync-orders',
           { shopId: shop.id, tenantId: shop.tenantId },
           {
-            jobId: `webhook-sync-${shop.id}-${Date.now()}`,
+            jobId: `webhook-sync-${shop.id}-${Math.floor(Date.now() / 5000)}`,
             priority: 1, // high priority
           },
         )
