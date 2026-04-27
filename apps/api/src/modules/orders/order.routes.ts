@@ -1,24 +1,51 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@ems/db'
 import { authenticate } from '../../middleware/authenticate'
+import { requireCapabilities } from '../../middleware/authorize'
 import { runRulesForOrder } from './rules-engine'
 import { TikTokAdapter } from '../../platform/tiktok/tiktok.adapter'
+import { recordAudit, AuditAction } from '../../lib/audit'
+import { reserveStockForOrder, releaseStockForOrder } from '../inventory/inventory.service'
 
 export async function orderRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
   app.get('/', async (request) => {
     const {
-      status, shopId, page = 1, pageSize = 20, search,
+      status, shopId, ownerUserId, merchantConfirm, page = 1, pageSize = 20, search,
       sortBy = 'sku', sortOrder = 'desc',
     } = request.query as {
-      status?: string; shopId?: string; page?: number; pageSize?: number; search?: string
+      status?: string; shopId?: string; ownerUserId?: string; merchantConfirm?: string
+      page?: number; pageSize?: number; search?: string
       sortBy?: 'sku' | 'date'; sortOrder?: 'asc' | 'desc'
     }
     const statusList = (status ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+
+    // Role-based scope:
+    // - MERCHANT: only own shops, sees ALL merchantConfirmStatus by default
+    // - WAREHOUSE_STAFF / ADMIN: only orders past merchant gate by default
+    const shopFilter: Record<string, unknown> = { status: { not: 'INACTIVE' as const } }
+    if (request.user.role === 'MERCHANT') {
+      shopFilter.ownerUserId = request.user.userId
+    } else if (ownerUserId) {
+      shopFilter.ownerUserId = ownerUserId
+    }
+
+    let merchantConfirmFilter: Record<string, unknown> | undefined
+    if (request.user.role === 'MERCHANT') {
+      // optional explicit filter
+      if (merchantConfirm) merchantConfirmFilter = { merchantConfirmStatus: merchantConfirm }
+    } else {
+      // warehouse default: only confirmed (incl. auto)
+      merchantConfirmFilter = merchantConfirm
+        ? { merchantConfirmStatus: merchantConfirm }
+        : { merchantConfirmStatus: { in: ['CONFIRMED', 'AUTO_CONFIRMED'] as const } }
+    }
+
     const where = {
       tenantId: request.user.tenantId,
-      shop: { status: { not: 'INACTIVE' as const } },
+      shop: shopFilter,
+      ...(merchantConfirmFilter ?? {}),
       ...(statusList.length === 1
         ? { status: statusList[0] as any }
         : statusList.length > 1
@@ -41,7 +68,17 @@ export async function orderRoutes(app: FastifyInstance) {
     const [items, total] = await Promise.all([
       prisma.order.findMany({
         where,
-        include: { shop: { select: { name: true, platform: true } }, items: true },
+        include: {
+          shop: {
+            select: {
+              name: true,
+              platform: true,
+              ownerUserId: true,
+              owner: { select: { id: true, name: true, email: true } },
+            },
+          },
+          items: true,
+        },
         skip: (Number(page) - 1) * Number(pageSize),
         take: Number(pageSize),
         orderBy,
@@ -53,20 +90,132 @@ export async function orderRoutes(app: FastifyInstance) {
 
   app.get('/:id', async (request, reply) => {
     const { id } = request.params as { id: string }
+    const where: Record<string, unknown> = { id, tenantId: request.user.tenantId }
+    if (request.user.role === 'MERCHANT') {
+      where.shop = { ownerUserId: request.user.userId }
+    }
     const order = await prisma.order.findFirst({
-      where: { id, tenantId: request.user.tenantId },
-      include: { shop: true, items: { include: { systemSku: { include: { systemProduct: true } } } }, afterSalesTickets: true },
+      where,
+      include: {
+        shop: { include: { owner: { select: { id: true, name: true, email: true } } } },
+        items: { include: { systemSku: { include: { systemProduct: true } } } },
+        afterSalesTickets: true,
+      },
     })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
     return { success: true, data: order }
   })
 
-  app.patch('/:id/status', async (request, reply) => {
+  app.patch('/:id/status', { preHandler: requireCapabilities(['ORDER_PROCESS']) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const { status } = request.body as { status: string }
     const order = await prisma.order.findFirst({ where: { id, tenantId: request.user.tenantId } })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
     const updated = await prisma.order.update({ where: { id }, data: { status: status as any } })
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.ORDER_STATUS_UPDATE,
+      targetType: 'order',
+      targetId: id,
+      payload: { from: order.status, to: status },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
+    return { success: true, data: updated }
+  })
+
+  // POST /:id/merchant-confirm — merchant confirms an order; warehouse becomes
+  // visible. Reserves inventory.
+  app.post('/:id/merchant-confirm', async (request, reply) => {
+    if (request.user.role !== 'MERCHANT' && request.user.role !== 'ADMIN') {
+      return reply.status(403).send({ success: false, error: 'Forbidden' })
+    }
+    const { id } = request.params as { id: string }
+    const order = await prisma.order.findFirst({
+      where: {
+        id,
+        tenantId: request.user.tenantId,
+        ...(request.user.role === 'MERCHANT' ? { shop: { ownerUserId: request.user.userId } } : {}),
+      },
+      include: { shop: true, items: true },
+    })
+    if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
+    if (order.merchantConfirmStatus !== 'PENDING_CONFIRM') {
+      return reply.status(400).send({ success: false, error: `Order is already ${order.merchantConfirmStatus}` })
+    }
+
+    const updated = await prisma.order.update({
+      where: { id },
+      data: {
+        merchantConfirmStatus: 'CONFIRMED',
+        merchantConfirmedAt: new Date(),
+      },
+    })
+
+    // Try to reserve inventory (best effort — warehouse will see the order regardless)
+    await reserveStockForOrder(id, request.user.tenantId, request.user.userId).catch((err) => {
+      console.warn(`[orders] reserveStockForOrder failed for ${id}:`, (err as Error).message)
+    })
+
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.ORDER_MERCHANT_CONFIRM,
+      targetType: 'order',
+      targetId: id,
+      payload: { ownerUserId: order.shop.ownerUserId },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
+
+    return { success: true, data: updated }
+  })
+
+  // POST /:id/merchant-cancel — merchant cancels (e.g. out of stock). Updates status
+  // to CANCELLED and notes which side cancelled. Releases any reservations.
+  app.post('/:id/merchant-cancel', async (request, reply) => {
+    if (request.user.role !== 'MERCHANT' && request.user.role !== 'ADMIN') {
+      return reply.status(403).send({ success: false, error: 'Forbidden' })
+    }
+    const { id } = request.params as { id: string }
+    const { reason } = (request.body ?? {}) as { reason?: string }
+    const order = await prisma.order.findFirst({
+      where: {
+        id,
+        tenantId: request.user.tenantId,
+        ...(request.user.role === 'MERCHANT' ? { shop: { ownerUserId: request.user.userId } } : {}),
+      },
+    })
+    if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
+
+    const wasConfirmed = order.merchantConfirmStatus === 'CONFIRMED' || order.merchantConfirmStatus === 'AUTO_CONFIRMED'
+
+    const updated = await prisma.order.update({
+      where: { id },
+      data: {
+        merchantConfirmStatus: 'CANCELLED_BY_MERCHANT',
+        status: 'CANCELLED',
+      },
+    })
+
+    if (wasConfirmed) {
+      await releaseStockForOrder(id, request.user.tenantId, request.user.userId).catch((err) => {
+        console.warn(`[orders] releaseStockForOrder failed for ${id}:`, (err as Error).message)
+      })
+    }
+
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.ORDER_MERCHANT_CANCEL,
+      targetType: 'order',
+      targetId: id,
+      payload: { reason: reason ?? null, wasConfirmed },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
+
     return { success: true, data: updated }
   })
 

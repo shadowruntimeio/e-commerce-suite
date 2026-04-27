@@ -1,13 +1,14 @@
-import { Table, Input, Select, Space, DatePicker, Button, Modal } from 'antd'
+import { Table, Input, Select, Space, DatePicker, Button, Modal, Tag, Popconfirm } from 'antd'
 import {
   SyncOutlined, DownloadOutlined, EyeOutlined, ShoppingCartOutlined,
-  PrinterOutlined,
+  PrinterOutlined, CheckOutlined, CloseOutlined,
 } from '@ant-design/icons'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { message } from 'antd'
 import { api } from '../../lib/api'
+import { useAuthStore, isMerchant } from '../../store/auth.store'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 
@@ -72,15 +73,38 @@ function PlatformBadge({ platform }: { platform: string }) {
 
 export default function OrdersPage() {
   const { t } = useTranslation()
-  const [statuses, setStatuses] = useState<string[]>(['TO_SHIP'])
+  const user = useAuthStore((s) => s.user)
+  const merchantUser = isMerchant(user)
+  const [statuses, setStatuses] = useState<string[]>(merchantUser ? [] : ['TO_SHIP'])
   const [search, setSearch] = useState('')
   const [shopId, setShopId] = useState<string | undefined>(undefined)
+  const [merchantId, setMerchantId] = useState<string | undefined>(undefined)
+  const [confirmStatus, setConfirmStatus] = useState<string | undefined>(
+    merchantUser ? 'PENDING_CONFIRM' : undefined
+  )
   const [page, setPage] = useState(1)
   const [bulkPrinting, setBulkPrinting] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [sortBy, setSortBy] = useState<'sku' | 'date'>('sku')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const queryClient = useQueryClient()
+
+  // Sub-account list (for warehouse/admin merchant filter)
+  const { data: merchants } = useQuery({
+    enabled: !merchantUser,
+    queryKey: ['merchants-for-filter'],
+    queryFn: async () => (await api.get('/admin/users', { params: { role: 'MERCHANT' } })).data.data as Array<{ id: string; name: string; email: string }>,
+  })
+
+  const confirmMut = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: 'confirm' | 'cancel' }) =>
+      api.post(`/orders/${id}/merchant-${action}`),
+    onSuccess: () => {
+      message.success('Updated')
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+    },
+    onError: (err: any) => message.error(err?.response?.data?.error ?? 'Failed'),
+  })
 
   function toggleStatus(key: string) {
     setPage(1)
@@ -191,13 +215,15 @@ export default function OrdersPage() {
   ]
 
   const { data, isLoading } = useQuery({
-    queryKey: ['orders', { statuses, search, shopId, page, sortBy, sortOrder }],
+    queryKey: ['orders', { statuses, search, shopId, merchantId, confirmStatus, page, sortBy, sortOrder }],
     queryFn: () =>
       api.get('/orders', {
         params: {
           status: statuses.length ? statuses.join(',') : undefined,
           search: search || undefined,
           shopId: shopId || undefined,
+          ownerUserId: merchantId || undefined,
+          merchantConfirm: confirmStatus || undefined,
           page,
           pageSize: 20,
           sortBy,
@@ -327,6 +353,27 @@ export default function OrdersPage() {
       render: (v) => v ? <PlatformBadge platform={v} /> : '—',
     },
     { title: t('orders.shop'), dataIndex: ['shop', 'name'], width: 120, ellipsis: true },
+    ...(!merchantUser ? [{
+      title: t('orders.merchant'),
+      key: 'merchant',
+      width: 130,
+      ellipsis: true,
+      render: (_: any, r: any) => r.shop?.owner?.name ?? '—',
+    }] : []),
+    {
+      title: t('orders.merchantConfirm'),
+      dataIndex: 'merchantConfirmStatus',
+      width: 140,
+      render: (s: string) => {
+        const colors: Record<string, string> = {
+          PENDING_CONFIRM: 'gold',
+          CONFIRMED: 'green',
+          AUTO_CONFIRMED: 'blue',
+          CANCELLED_BY_MERCHANT: 'red',
+        }
+        return <Tag color={colors[s] ?? 'default'} style={{ fontSize: 11 }}>{s}</Tag>
+      },
+    },
     { title: t('orders.buyer'), dataIndex: 'buyerName', width: 140, ellipsis: true },
     {
       title: t('orders.items'),
@@ -386,22 +433,36 @@ export default function OrdersPage() {
     {
       title: '',
       key: 'actions',
-      width: 80,
-      render: (_: any, record: any) => (
-        <div style={{ display: 'flex', gap: 2 }}>
-          <Button type="text" size="small" icon={<EyeOutlined />} style={{ color: 'var(--text-secondary)' }} />
-          <Button
-            type="text"
-            size="small"
-            icon={<PrinterOutlined />}
-            style={{ color: 'var(--text-secondary)' }}
-            onClick={(e) => {
-              e.stopPropagation()
-              handlePrintLabel(record)
-            }}
-          />
-        </div>
-      ),
+      width: 180,
+      render: (_: any, record: any) => {
+        const isPending = record.merchantConfirmStatus === 'PENDING_CONFIRM'
+        const canMerchantAct = (merchantUser || user?.role === 'ADMIN') && isPending
+        return (
+          <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            {canMerchantAct && (
+              <>
+                <Popconfirm title="Confirm order?" onConfirm={() => confirmMut.mutate({ id: record.id, action: 'confirm' })}>
+                  <Button type="text" size="small" icon={<CheckOutlined />} style={{ color: 'var(--success-color, #16a34a)' }} title="Confirm" />
+                </Popconfirm>
+                <Popconfirm title="Cancel order?" onConfirm={() => confirmMut.mutate({ id: record.id, action: 'cancel' })}>
+                  <Button type="text" size="small" icon={<CloseOutlined />} danger title="Cancel" />
+                </Popconfirm>
+              </>
+            )}
+            <Button type="text" size="small" icon={<EyeOutlined />} style={{ color: 'var(--text-secondary)' }} />
+            <Button
+              type="text"
+              size="small"
+              icon={<PrinterOutlined />}
+              style={{ color: 'var(--text-secondary)' }}
+              onClick={(e) => {
+                e.stopPropagation()
+                handlePrintLabel(record)
+              }}
+            />
+          </div>
+        )
+      },
     },
   ]
 
@@ -468,6 +529,29 @@ export default function OrdersPage() {
           value={shopId}
           onChange={(v) => { setShopId(v); setPage(1) }}
           options={(shops ?? []).map((s) => ({ value: s.id, label: s.name }))}
+        />
+        {!merchantUser && (
+          <Select
+            allowClear
+            placeholder={t('orders.allMerchants')}
+            style={{ width: 200 }}
+            value={merchantId}
+            onChange={(v) => { setMerchantId(v); setPage(1) }}
+            options={(merchants ?? []).map((m) => ({ value: m.id, label: m.name }))}
+          />
+        )}
+        <Select
+          allowClear
+          placeholder={t('orders.confirmFilter')}
+          style={{ width: 200 }}
+          value={confirmStatus}
+          onChange={(v) => { setConfirmStatus(v); setPage(1) }}
+          options={[
+            { value: 'PENDING_CONFIRM', label: t('orders.cfPending') },
+            { value: 'CONFIRMED', label: t('orders.cfConfirmed') },
+            { value: 'AUTO_CONFIRMED', label: t('orders.cfAuto') },
+            { value: 'CANCELLED_BY_MERCHANT', label: t('orders.cfCancelled') },
+          ]}
         />
         <DatePicker.RangePicker style={{ borderRadius: 8 }} />
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>

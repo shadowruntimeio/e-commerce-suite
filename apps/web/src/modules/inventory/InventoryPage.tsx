@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
+import { useAuthStore, isMerchant } from '../../store/auth.store'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 import { AdjustDialog } from './AdjustDialog'
@@ -14,6 +15,8 @@ type StockRow = {
   warehouseSkuId: string
   warehouseId: string
   warehouseName: string
+  ownerUserId?: string
+  ownerName?: string | null
   skuCode: string
   productName: string
   categoryId: string | null
@@ -27,12 +30,21 @@ type StockRow = {
 
 export default function InventoryPage() {
   const { t } = useTranslation()
+  const user = useAuthStore((s) => s.user)
+  const merchantUser = isMerchant(user)
   const [warehouseId, setWarehouseId] = useState<string | undefined>()
   const [categoryId, setCategoryId] = useState<string | undefined>()
+  const [merchantId, setMerchantId] = useState<string | undefined>()
   const [skuSearch, setSkuSearch] = useState('')
   const [lowStockOnly, setLowStockOnly] = useState(false)
   const [page, setPage] = useState(1)
   const pageSize = 50
+
+  const { data: merchants } = useQuery({
+    enabled: !merchantUser,
+    queryKey: ['merchants-for-inventory'],
+    queryFn: async () => (await api.get('/admin/users', { params: { role: 'MERCHANT' } })).data.data as Array<{ id: string; name: string }>,
+  })
 
   const [editingRow, setEditingRow] = useState<string | null>(null)
   const [showImportDialog, setShowImportDialog] = useState(false)
@@ -77,13 +89,14 @@ export default function InventoryPage() {
   })
 
   const { data, isLoading } = useQuery({
-    queryKey: ['inventory-stock', { warehouseId, categoryId, skuSearch, lowStockOnly, page }],
+    queryKey: ['inventory-stock', { warehouseId, categoryId, merchantId, skuSearch, lowStockOnly, page }],
     queryFn: () =>
       api
         .get('/inventory/stock', {
           params: {
             warehouseId: warehouseId || undefined,
             categoryId: categoryId || undefined,
+            ownerUserId: merchantId || undefined,
             skuSearch: skuSearch.trim() || undefined,
             lowStockOnly: lowStockOnly ? 'true' : undefined,
             page,
@@ -106,6 +119,11 @@ export default function InventoryPage() {
         </span>
       ),
     },
+    ...(!merchantUser ? [{
+      title: t('inventory.merchant'),
+      dataIndex: 'ownerName',
+      render: (v: string | null) => v ?? '—',
+    }] : []),
     {
       title: t('inventory.sku'),
       dataIndex: 'skuCode',
@@ -233,6 +251,16 @@ export default function InventoryPage() {
           options={categoryOptions}
           notFoundContent={<span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{t('inventory.noCategoriesHint')}</span>}
         />
+        {!merchantUser && (
+          <Select
+            allowClear
+            placeholder={t('inventory.allMerchants')}
+            value={merchantId}
+            style={{ width: 200 }}
+            onChange={(v) => { setMerchantId(v); setPage(1) }}
+            options={(merchants ?? []).map((m) => ({ value: m.id, label: m.name }))}
+          />
+        )}
         <Input.Search
           placeholder={t('inventory.skuSearchPlaceholder')}
           allowClear

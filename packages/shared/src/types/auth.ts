@@ -15,8 +15,21 @@ export interface AuthTokens {
   refreshToken: string
 }
 
+export type UserRole = 'ADMIN' | 'WAREHOUSE_STAFF' | 'MERCHANT'
+
+export type Capability =
+  | 'ORDER_VIEW'
+  | 'ORDER_PROCESS'
+  | 'ORDER_CANCEL'
+  | 'INVENTORY_VIEW'
+  | 'INVENTORY_ADJUST'
+  | 'PO_APPROVE'
+  | 'RETURN_INTAKE'
+
 export interface JwtPayload {
   userId: string
   tenantId: string
-  role: string
+  role: UserRole
+  capabilities: Capability[]
+  warehouseScope: string[]
 }

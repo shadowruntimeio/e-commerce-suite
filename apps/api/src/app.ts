@@ -18,6 +18,9 @@ import { csRoutes } from './modules/cs/cs.routes'
 import { logisticsRoutes } from './modules/logistics/logistics.routes'
 import { tiktokWebhookRoutes } from './modules/webhooks/tiktok.webhook'
 import { authenticate } from './middleware/authenticate'
+import { adminRoutes } from './modules/admin/admin.routes'
+import { returnsRoutes } from './modules/returns/returns.routes'
+import { auditRoutes } from './modules/admin/audit.routes'
 
 export async function buildApp() {
   const app = Fastify({
@@ -54,6 +57,9 @@ export async function buildApp() {
   await app.register(adsRoutes, { prefix: '/api/v1/ads' })
   await app.register(csRoutes, { prefix: '/api/v1/cs' })
   await app.register(logisticsRoutes, { prefix: '/api/v1/logistics' })
+  await app.register(adminRoutes, { prefix: '/api/v1/admin' })
+  await app.register(auditRoutes, { prefix: '/api/v1/audit' })
+  await app.register(returnsRoutes, { prefix: '/api/v1/returns' })
 
   app.get('/health', async () => ({ status: 'ok' }))
 

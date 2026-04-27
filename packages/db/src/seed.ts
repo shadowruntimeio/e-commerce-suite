@@ -34,6 +34,19 @@ async function main() {
     },
   })
 
+  // ─── Default warehouse ───────────────────────────────────────────────────
+  await prisma.warehouse.upsert({
+    where: { id: 'seed-warehouse-1' },
+    update: {},
+    create: {
+      id: 'seed-warehouse-1',
+      tenantId: tenant.id,
+      name: 'Main Warehouse',
+      type: 'LOCAL',
+      isDefault: true,
+    },
+  })
+
   console.log('Seed complete!')
   console.log(`   Tenant: ${tenant.name}`)
   console.log(`   Login:  admin@demo.com / password123`)

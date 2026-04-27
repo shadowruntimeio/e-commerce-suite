@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@ems/db'
 import { authenticate } from '../../middleware/authenticate'
-import { requireRoles } from '../../middleware/authorize'
+import { requireRoles, requireCapabilities } from '../../middleware/authorize'
+import { recordAudit, AuditAction } from '../../lib/audit'
 import {
   getCurrentStock,
   createInventoryEvent,
@@ -30,7 +31,7 @@ const adjustmentSchema = z.object({
   { message: 'notes is required when reason is OTHER', path: ['notes'] }
 )
 
-const writerRoles = ['ADMIN', 'MANAGER', 'OPERATOR'] as const
+const writerRoles = ['ADMIN', 'WAREHOUSE_STAFF', 'MERCHANT'] as const
 
 export async function inventoryRoutes(app: FastifyInstance) {
   await app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } })
@@ -43,17 +44,23 @@ export async function inventoryRoutes(app: FastifyInstance) {
       categoryId?: string
       skuSearch?: string
       lowStockOnly?: string
+      ownerUserId?: string
       page?: string
       pageSize?: string
     }
     const page = Math.max(1, Number(q.page ?? 1))
     const pageSize = Math.min(200, Math.max(1, Number(q.pageSize ?? 50)))
+    // MERCHANT users always force-scoped to their own inventory
+    const ownerUserId = request.user.role === 'MERCHANT'
+      ? request.user.userId
+      : (q.ownerUserId || undefined)
     const { items, total } = await getStockList({
       tenantId: request.user.tenantId,
       warehouseId: q.warehouseId,
       categoryId: q.categoryId,
       skuSearch: q.skuSearch?.trim() || undefined,
       lowStockOnly: q.lowStockOnly === 'true',
+      ownerUserId,
       page,
       pageSize,
     })
@@ -278,15 +285,20 @@ export async function inventoryRoutes(app: FastifyInstance) {
     const parts = request.parts()
     let fileBuffer: Buffer | undefined
     let mode: 'absolute' | 'delta' = 'absolute'
+    let ownerUserId: string | undefined
     for await (const part of parts) {
       if (part.type === 'file') fileBuffer = await part.toBuffer()
       else if (part.fieldname === 'mode') mode = (part.value as string) === 'delta' ? 'delta' : 'absolute'
+      else if (part.fieldname === 'ownerUserId') ownerUserId = part.value as string
     }
     if (!fileBuffer) return reply.status(400).send({ success: false, error: 'No file uploaded' })
+    if (request.user.role === 'MERCHANT') ownerUserId = request.user.userId
+    if (!ownerUserId) return reply.status(400).send({ success: false, error: 'ownerUserId (merchant) is required' })
     try {
       const result = await previewImport({
         tenantId: request.user.tenantId,
         userId: request.user.userId,
+        ownerUserId,
         mode,
         buffer: fileBuffer,
       })
@@ -314,125 +326,13 @@ export async function inventoryRoutes(app: FastifyInstance) {
     }
   })
 
-  // CSV import (legacy — kept for backward compat; xlsx preview flow is preferred)
-  app.post('/import', { preHandler: requireRoles([...writerRoles]) }, async (request, reply) => {
-    const parts = request.parts()
-    let fileBuffer: Buffer | undefined
-    let warehouseId: string | undefined
-
-    for await (const part of parts) {
-      if (part.type === 'file') {
-        fileBuffer = await part.toBuffer()
-      } else if (part.fieldname === 'warehouseId') {
-        warehouseId = part.value as string
-      }
-    }
-
-    if (!fileBuffer) return reply.status(400).send({ success: false, error: 'No file uploaded' })
-    if (!warehouseId) return reply.status(400).send({ success: false, error: 'Warehouse is required' })
-
-    // Verify warehouse exists and belongs to tenant
-    const warehouse = await prisma.warehouse.findFirst({
-      where: { id: warehouseId, tenantId: request.user.tenantId },
-    })
-    if (!warehouse) return reply.status(400).send({ success: false, error: 'Warehouse not found' })
-
-    const text = fileBuffer.toString('utf-8')
-    const lines = text.split(/\r?\n/).filter((l) => l.trim())
-
-    if (lines.length < 2) {
-      return reply.status(400).send({ success: false, error: 'CSV must have a header row and at least one data row' })
-    }
-
-    const header = lines[0].split(',').map((h) => h.trim().toLowerCase())
-    const requiredCols = ['sku_code', 'event_type', 'quantity']
-    for (const col of requiredCols) {
-      if (!header.includes(col)) {
-        return reply.status(400).send({ success: false, error: `Missing required column: ${col}` })
-      }
-    }
-
-    const skuIdx = header.indexOf('sku_code')
-    const typeIdx = header.indexOf('event_type')
-    const qtyIdx = header.indexOf('quantity')
-    const notesIdx = header.indexOf('notes')
-
-    const validTypes = ['INBOUND', 'OUTBOUND', 'ADJUSTMENT', 'TRANSFER_IN', 'TRANSFER_OUT', 'RETURN']
-    const errors: string[] = []
-    let imported = 0
-
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(',').map((c) => c.trim())
-      const skuCode = cols[skuIdx]
-      const eventType = cols[typeIdx]?.toUpperCase()
-      const quantity = parseInt(cols[qtyIdx], 10)
-      const notes = notesIdx >= 0 ? cols[notesIdx] : undefined
-
-      if (!skuCode || !eventType || isNaN(quantity)) {
-        errors.push(`Row ${i + 1}: missing or invalid data`)
-        continue
-      }
-
-      if (!validTypes.includes(eventType)) {
-        errors.push(`Row ${i + 1}: invalid event_type "${eventType}"`)
-        continue
-      }
-
-      // Find or auto-create system SKU by code
-      let systemSku = await prisma.systemSku.findUnique({ where: { skuCode } })
-      if (!systemSku) {
-        // Create a minimal system product + SKU
-        const product = await prisma.systemProduct.create({
-          data: {
-            tenantId: request.user.tenantId,
-            spuCode: skuCode,
-            name: skuCode,
-          },
-        })
-        systemSku = await prisma.systemSku.create({
-          data: {
-            systemProductId: product.id,
-            skuCode,
-            attributes: {},
-            costPrice: 0,
-          },
-        })
-        console.log(`[inventory/import] Auto-created SKU: ${skuCode}`)
-      }
-
-      // Find or create warehouseSku
-      let warehouseSku = await prisma.warehouseSku.findUnique({
-        where: { systemSkuId_warehouseId: { systemSkuId: systemSku.id, warehouseId: warehouse.id } },
-      })
-      if (!warehouseSku) {
-        warehouseSku = await prisma.warehouseSku.create({
-          data: { systemSkuId: systemSku.id, warehouseId: warehouse.id },
-        })
-      }
-
-      const delta = ['OUTBOUND', 'TRANSFER_OUT'].includes(eventType) ? -Math.abs(quantity) : Math.abs(quantity)
-
-      await createInventoryEvent({
-        tenantId: request.user.tenantId,
-        warehouseSkuId: warehouseSku.id,
-        warehouseId: warehouse.id,
-        eventType: eventType as any,
-        quantityDelta: delta,
-        notes: notes || `CSV import row ${i + 1}`,
-        referenceType: 'csv_import',
-        createdBy: request.user.userId,
-      })
-      imported++
-    }
-
-    return {
-      success: true,
-      data: { imported, errors, totalRows: lines.length - 1 },
-    }
+  // Legacy CSV import removed in sub-account migration. Use /import/preview + /import/apply.
+  app.post('/import-legacy-removed', { preHandler: requireRoles([...writerRoles]) }, async (_request, reply) => {
+    return reply.status(410).send({ success: false, error: 'Legacy CSV import removed. Use /import/preview + /import/apply.' })
   })
 
   // Single-row adjustment with reason + optimistic lock
-  app.post('/adjust', { preHandler: requireRoles([...writerRoles]) }, async (request, reply) => {
+  app.post('/adjust', { preHandler: requireCapabilities(['INVENTORY_ADJUST']) }, async (request, reply) => {
     const body = adjustmentSchema.parse(request.body)
     try {
       const event = await adjustStock({
@@ -444,6 +344,19 @@ export async function inventoryRoutes(app: FastifyInstance) {
         reason: body.reason as any,
         notes: body.notes,
         userId: request.user.userId,
+      })
+      await recordAudit({
+        tenantId: request.user.tenantId,
+        actorUserId: request.user.userId,
+        action: AuditAction.INVENTORY_ADJUST,
+        targetType: 'warehouse_sku',
+        targetId: body.warehouseSkuId,
+        payload: {
+          mode: body.mode, value: body.value, reason: body.reason, notes: body.notes,
+          expectedQuantity: body.expectedQuantity,
+        },
+        ip: request.ip,
+        userAgent: request.headers['user-agent'] ?? undefined,
       })
       return { success: true, data: event }
     } catch (err) {

@@ -22,6 +22,9 @@ const ProfitReportPage = lazy(() => import('./modules/reports/ProfitReportPage')
 const AdsPage = lazy(() => import('./modules/ads/AdsPage'))
 const InboxPage = lazy(() => import('./modules/cs/InboxPage'))
 const LogisticsPage = lazy(() => import('./modules/logistics/LogisticsPage'))
+const AdminUsersPage = lazy(() => import('./modules/admin/UsersPage'))
+const AdminAuditPage = lazy(() => import('./modules/admin/AuditPage'))
+const ReturnsPage = lazy(() => import('./modules/returns/ReturnsPage'))
 
 const Loading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -58,6 +61,9 @@ export const router = createBrowserRouter([
       { path: 'ads', element: <Suspense fallback={<Loading />}><AdsPage /></Suspense> },
       { path: 'cs', element: <Suspense fallback={<Loading />}><InboxPage /></Suspense> },
       { path: 'logistics', element: <Suspense fallback={<Loading />}><LogisticsPage /></Suspense> },
+      { path: 'admin/users', element: <Suspense fallback={<Loading />}><AdminUsersPage /></Suspense> },
+      { path: 'admin/audit', element: <Suspense fallback={<Loading />}><AdminAuditPage /></Suspense> },
+      { path: 'returns', element: <Suspense fallback={<Loading />}><ReturnsPage /></Suspense> },
     ],
   },
   { path: '*', element: <Navigate to="/" replace /> },

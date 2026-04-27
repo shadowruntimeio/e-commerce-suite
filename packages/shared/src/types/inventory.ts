@@ -31,6 +31,8 @@ export interface StockRow {
   warehouseSkuId: string
   warehouseId: string
   warehouseName: string
+  ownerUserId?: string
+  ownerName?: string | null
   systemSkuId: string
   skuCode: string
   productName: string

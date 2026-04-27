@@ -19,9 +19,32 @@ enum Platform {
 
 enum UserRole {
   ADMIN
-  MANAGER
-  OPERATOR
-  VIEWER
+  WAREHOUSE_STAFF
+  MERCHANT
+}
+
+enum Capability {
+  ORDER_VIEW
+  ORDER_PROCESS       // 打单、改物流、标记发货
+  ORDER_CANCEL
+  INVENTORY_VIEW
+  INVENTORY_ADJUST
+  PO_APPROVE
+  RETURN_INTAKE
+}
+
+enum MerchantConfirmStatus {
+  PENDING_CONFIRM
+  CONFIRMED
+  AUTO_CONFIRMED
+  CANCELLED_BY_MERCHANT
+}
+
+enum ReturnCondition {
+  PENDING_INSPECTION
+  SELLABLE
+  DAMAGED
+  DISPOSED
 }
 
 enum OrderStatus {
@@ -112,24 +135,35 @@ model Tenant {
   inventoryEvents  InventoryEvent[]
   orderRules       OrderRule[]
   restockingSuggestions RestockingSuggestion[]
+  auditLogs        AuditLog[]
 
   @@map("tenants")
 }
 
 model User {
-  id           String   @id @default(cuid())
-  tenantId     String
-  email        String
-  passwordHash String
-  name         String
-  role         UserRole @default(OPERATOR)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String   @id @default(cuid())
+  tenantId        String
+  email           String
+  passwordHash    String
+  name            String
+  role            UserRole @default(WAREHOUSE_STAFF)
+  capabilities    Capability[] @default([])  // only meaningful for WAREHOUSE_STAFF
+  warehouseScope  String[] @default([])      // warehouseId[]; empty = all warehouses
+  createdByUserId String?
+  settings        Json     @default("{}")    // for MERCHANT: { autoConfirmHours: 12 }
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   tenant              Tenant              @relation(fields: [tenantId], references: [id])
   refreshTokens       RefreshToken[]
   approvalActions     PoApprovalAction[]
+  createdBy           User?               @relation("UserCreator", fields: [createdByUserId], references: [id])
+  createdUsers        User[]              @relation("UserCreator")
+  ownedShops          Shop[]              @relation("ShopOwner")
+  ownedProducts       SystemProduct[]     @relation("ProductOwner")
+  ownedWarehouseSkus  WarehouseSku[]      @relation("WhSkuOwner")
+  auditLogs           AuditLog[]
 
   @@unique([tenantId, email])
   @@map("users")
@@ -152,6 +186,7 @@ model RefreshToken {
 model Shop {
   id                   String     @id @default(cuid())
   tenantId             String
+  ownerUserId          String     // MERCHANT user
   platform             Platform
   externalShopId       String
   name                 String
@@ -163,12 +198,14 @@ model Shop {
   updatedAt            DateTime   @updatedAt
 
   tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  owner          User            @relation("ShopOwner", fields: [ownerUserId], references: [id])
   onlineProducts OnlineProduct[]
   orders         Order[]
   shopMessages   ShopMessage[]
   messageThreads MessageThread[]
 
   @@unique([tenantId, platform, externalShopId])
+  @@index([ownerUserId])
   @@map("shops")
 }
 
@@ -193,31 +230,34 @@ model ProductCategory {
 }
 
 model SystemProduct {
-  id         String   @id @default(cuid())
-  tenantId   String
-  spuCode    String
-  name       String
-  categoryId String?
-  brand      String?
-  weightG    Int?
-  dimensions Json?    // { length, width, height, unit }
-  images     Json     @default("[]")
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id          String   @id @default(cuid())
+  tenantId    String
+  ownerUserId String   // MERCHANT user
+  spuCode     String
+  name        String
+  categoryId  String?
+  brand       String?
+  weightG     Int?
+  dimensions  Json?    // { length, width, height, unit }
+  images      Json     @default("[]")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   tenant   Tenant           @relation(fields: [tenantId], references: [id])
+  owner    User             @relation("ProductOwner", fields: [ownerUserId], references: [id])
   category ProductCategory? @relation(fields: [categoryId], references: [id])
   skus     SystemSku[]
 
-  @@unique([tenantId, spuCode])
+  @@unique([ownerUserId, spuCode])
+  @@index([tenantId])
   @@map("system_products")
 }
 
 model SystemSku {
   id              String   @id @default(cuid())
   systemProductId String
-  skuCode         String   @unique
+  skuCode         String
   attributes      Json     @default("{}")  // { color: "red", size: "XL" }
   costPrice       Decimal  @default(0) @db.Decimal(12, 4)
   createdAt       DateTime @default(now())
@@ -230,6 +270,7 @@ model SystemSku {
   purchaseOrderItems  PurchaseOrderItem[]
   restockingSuggestions RestockingSuggestion[]
 
+  @@unique([systemProductId, skuCode])
   @@map("system_skus")
 }
 
@@ -299,22 +340,27 @@ model Warehouse {
 }
 
 model WarehouseSku {
-  id            String   @id @default(cuid())
-  systemSkuId   String
-  warehouseId   String
-  barcode       String?
-  reorderPoint  Int      @default(0)
-  safetyStockDays Int    @default(14)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(cuid())
+  systemSkuId     String
+  warehouseId     String
+  ownerUserId     String   // MERCHANT user (denormalized from SystemProduct for query speed)
+  barcode         String?
+  reorderPoint    Int      @default(0)
+  safetyStockDays Int      @default(14)
+  quantityOnHand  Int      @default(0)
+  quantityReserved Int     @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   systemSku          SystemSku            @relation(fields: [systemSkuId], references: [id])
   warehouse          Warehouse            @relation(fields: [warehouseId], references: [id])
+  owner              User                 @relation("WhSkuOwner", fields: [ownerUserId], references: [id])
   inventoryEvents    InventoryEvent[]
   inventorySnapshots InventorySnapshot[]
   restockingSuggestions RestockingSuggestion[]
 
   @@unique([systemSkuId, warehouseId])
+  @@index([ownerUserId, warehouseId])
   @@map("warehouse_skus")
 }
 
@@ -404,6 +450,12 @@ model Order {
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
+  // Merchant confirmation gate: incoming orders default to PENDING_CONFIRM and
+  // are not visible to warehouse until merchant confirms (or auto-confirm timer fires).
+  merchantConfirmStatus    MerchantConfirmStatus @default(PENDING_CONFIRM)
+  merchantConfirmedAt      DateTime?
+  merchantConfirmExpiresAt DateTime?
+
   tenant        Tenant          @relation(fields: [tenantId], references: [id])
   shop          Shop            @relation(fields: [shopId], references: [id])
   items         OrderItem[]
@@ -414,6 +466,7 @@ model Order {
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@index([tenantId, firstSellerSku])
+  @@index([merchantConfirmStatus, merchantConfirmExpiresAt])
   @@map("orders")
 }
 
@@ -456,15 +509,21 @@ model OrderRule {
 }
 
 model AfterSalesTicket {
-  id               String           @id @default(cuid())
-  orderId          String
-  type             AfterSalesType
-  status           AfterSalesStatus @default(OPEN)
-  platformTicketId String?
-  notes            String?
-  resolvedAt       DateTime?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  id                String           @id @default(cuid())
+  orderId           String
+  type              AfterSalesType
+  status            AfterSalesStatus @default(OPEN)
+  platformTicketId  String?
+  notes             String?
+  expectedQty       Int?             // qty merchant claimed
+  returnedQty       Int?             // qty actually received at warehouse
+  condition         ReturnCondition  @default(PENDING_INSPECTION)
+  arrivedAt         DateTime?
+  inspectedAt       DateTime?
+  inspectedByUserId String?
+  resolvedAt        DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   order Order @relation(fields: [orderId], references: [id])
 
@@ -721,4 +780,27 @@ model FirstLegShipment {
 
   @@index([tenantId, status])
   @@map("first_leg_shipments")
+}
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  tenantId    String
+  actorUserId String?            // null = system action (cron, webhook)
+  action      String             // e.g. "user.create", "order.cancel", "inventory.adjust"
+  targetType  String?            // "user" | "order" | "warehouse_sku" | ...
+  targetId    String?
+  payload     Json     @default("{}")
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  actor  User?  @relation(fields: [actorUserId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([targetType, targetId])
+  @@index([actorUserId, createdAt])
+  @@map("audit_logs")
 }
