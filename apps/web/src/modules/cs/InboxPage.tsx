@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Select, Switch } from 'antd'
 import { MessageOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -77,6 +78,7 @@ function PlatformBadge({ platform }: { platform: string }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function InboxPage() {
+  const { t } = useTranslation()
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [filterShopId, setFilterShopId] = useState<string | undefined>(undefined)
   const [unreadOnly, setUnreadOnly] = useState(false)
@@ -129,8 +131,8 @@ export default function InboxPage() {
     <div>
       {/* Page Header */}
       <div style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Customer Inbox</h1>
-        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Manage buyer conversations across all shops</p>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{t('cs.title')}</h1>
+        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>{t('cs.subtitle')}</p>
       </div>
 
       {/* Two-panel layout */}
@@ -147,7 +149,7 @@ export default function InboxPage() {
           {/* Filter bar */}
           <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <Select
-              placeholder="All shops"
+              placeholder={t('orders.allShops')}
               allowClear
               style={{ width: '100%' }}
               value={filterShopId}
@@ -157,7 +159,7 @@ export default function InboxPage() {
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Switch size="small" checked={unreadOnly} onChange={setUnreadOnly} style={{ background: unreadOnly ? 'var(--accent-primary)' : undefined }} />
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Unread only</span>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('cs.unreadOnly')}</span>
             </div>
           </div>
 
@@ -166,12 +168,12 @@ export default function InboxPage() {
             {noThreads ? (
               <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
                 <MessageOutlined style={{ fontSize: 28, display: 'block', margin: '0 auto 8px', color: 'var(--text-muted)' }} />
-                No messages yet. Connect a shop to start syncing.
+                {t('cs.noMessages')}
               </div>
             ) : (
               threads.map((thread) => {
                 const isSelected = selectedThreadId === thread.id
-                const name = thread.buyerName ?? 'Unknown Buyer'
+                const name = thread.buyerName ?? t('cs.unknownBuyer')
                 return (
                   <div
                     key={thread.id}
@@ -227,10 +229,10 @@ export default function InboxPage() {
             <>
               {/* Thread header */}
               <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Avatar name={selectedThread.buyerName ?? 'Unknown'} size={36} />
+                <Avatar name={selectedThread.buyerName ?? t('cs.unknownBuyer')} size={36} />
                 <div>
                   <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 15 }}>
-                    {selectedThread.buyerName ?? 'Unknown Buyer'}
+                    {selectedThread.buyerName ?? t('cs.unknownBuyer')}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                     {selectedThread.shop?.platform && <PlatformBadge platform={selectedThread.shop.platform} />}
@@ -242,9 +244,9 @@ export default function InboxPage() {
               {/* Messages */}
               <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {messagesQuery.isLoading ? (
-                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 40 }}>Loading messages...</div>
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 40 }}>{t('cs.loadingMessages')}</div>
                 ) : messages.length === 0 ? (
-                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 40 }}>No messages in this thread</div>
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 40 }}>{t('cs.noMessagesInThread')}</div>
                 ) : (
                   messages.map((msg) => {
                     const isSeller = msg.senderType === 'seller'
@@ -279,8 +281,8 @@ export default function InboxPage() {
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
               <MessageOutlined style={{ fontSize: 48, color: 'var(--text-muted)', marginBottom: 16 }} />
-              <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>Select a conversation</div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Choose a thread from the left to view messages</div>
+              <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>{t('cs.selectConversation')}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>{t('cs.selectHint')}</div>
             </div>
           )}
         </div>

@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import dayjs from 'dayjs'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 
 // ─── Build a gap-filled 30-day series from API rows ───────────────────────────
@@ -34,6 +35,7 @@ function buildChartData(rows: Array<{ date: string; revenue: number; profit: num
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
 function ChartTooltip({ active, payload, label }: any) {
+  const { t } = useTranslation()
   if (!active || !payload?.length) return null
   return (
     <div style={{
@@ -46,10 +48,10 @@ function ChartTooltip({ active, payload, label }: any) {
     }}>
       <div style={{ color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 500 }}>{label}</div>
       <div style={{ color: 'var(--accent-primary)', marginBottom: 2 }}>
-        Revenue: <strong>${payload[0]?.value?.toLocaleString()}</strong>
+        {t('dashboard.revenue')}: <strong>${payload[0]?.value?.toLocaleString()}</strong>
       </div>
       <div style={{ color: '#10b981' }}>
-        Profit: <strong>${payload[1]?.value?.toLocaleString()}</strong>
+        {t('dashboard.profit')}: <strong>${payload[1]?.value?.toLocaleString()}</strong>
       </div>
     </div>
   )
@@ -187,13 +189,14 @@ function PlatformBadge({ platform }: { platform: string }) {
 
 // ─── Action required items ────────────────────────────────────────────────────
 const ACTION_ITEMS = [
-  { icon: <ExclamationCircleOutlined />, accentColor: 'var(--badge-error-fg)',   text: 'Orders pending review', count: 0, link: '/orders' },
-  { icon: <SyncOutlined />,             accentColor: 'var(--badge-warning-fg)', text: 'Ready to ship',         count: 0, link: '/orders' },
-  { icon: <WarningOutlined />,          accentColor: 'var(--accent-primary)',    text: 'Low stock alerts',      count: 0, link: '/inventory' },
+  { icon: <ExclamationCircleOutlined />, accentColor: 'var(--badge-error-fg)',   textKey: 'dashboard.ordersPendingReview', count: 0, link: '/orders' },
+  { icon: <SyncOutlined />,             accentColor: 'var(--badge-warning-fg)', textKey: 'dashboard.readyToShip',         count: 0, link: '/orders' },
+  { icon: <WarningOutlined />,          accentColor: 'var(--accent-primary)',    textKey: 'dashboard.lowStockAlerts',      count: 0, link: '/inventory' },
 ]
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function DashboardPage() {
+  const { t } = useTranslation()
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api.get('/dashboard').then((r) => r.data.data),
@@ -238,34 +241,34 @@ export default function DashboardPage() {
       {/* ── KPI Row ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         <KpiCard
-          title="Today's Revenue"
+          title={t('dashboard.todaysRevenue')}
           value={`$${Number(data?.todayRevenue ?? 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
-          subtitle="vs yesterday"
+          subtitle={t('dashboard.vsYesterday')}
           trend={fmtTrend(data?.revenueTrendPct)}
           trendUp={(data?.revenueTrendPct ?? 0) >= 0}
           icon={<DollarOutlined />}
           accentColor="#cc97ff"
         />
         <KpiCard
-          title="Today's Orders"
+          title={t('dashboard.todaysOrders')}
           value={data?.todayOrdersCount ?? 0}
-          subtitle="vs yesterday"
+          subtitle={t('dashboard.vsYesterday')}
           trend={fmtTrend(data?.ordersTrendPct)}
           trendUp={(data?.ordersTrendPct ?? 0) >= 0}
           icon={<ShoppingCartOutlined />}
           accentColor="#53ddfc"
         />
         <KpiCard
-          title="Pending Review"
+          title={t('dashboard.pendingReview')}
           value={data?.pendingOrders ?? 0}
-          subtitle="needs attention"
+          subtitle={t('dashboard.needsAttention')}
           icon={<ClockCircleOutlined />}
           accentColor="#ff6daf"
         />
         <KpiCard
-          title="To Ship"
+          title={t('dashboard.toShip')}
           value={data?.toShipOrders ?? 0}
-          subtitle="awaiting shipment"
+          subtitle={t('dashboard.awaitingShipment')}
           icon={<ShopOutlined />}
           accentColor="#f59e0b"
         />
@@ -292,8 +295,8 @@ export default function DashboardPage() {
                 color: 'var(--text-primary)',
                 marginBottom: 4,
                 fontFamily: "'Manrope', sans-serif",
-              }}>Revenue & Profit</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Last 30 days</div>
+              }}>{t('dashboard.revenueProfit')}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{t('dashboard.last30Days')}</div>
             </div>
             <div style={{
               fontSize: 12, color: 'var(--text-secondary)',
@@ -310,11 +313,11 @@ export default function DashboardPage() {
           <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
               <div style={{ width: 12, height: 3, borderRadius: 2, background: 'var(--accent-primary)' }} />
-              Revenue
+              {t('dashboard.revenue')}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
               <div style={{ width: 12, height: 3, borderRadius: 2, background: '#10b981' }} />
-              Profit
+              {t('dashboard.profit')}
             </div>
           </div>
 
@@ -383,7 +386,7 @@ export default function DashboardPage() {
               fontWeight: 700,
               color: 'var(--text-primary)',
               fontFamily: "'Manrope', sans-serif",
-            }}>Action Required</div>
+            }}>{t('dashboard.actionRequired')}</div>
             {totalActions > 0 && (
               <span style={{
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -420,9 +423,9 @@ export default function DashboardPage() {
                     {item.icon}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{item.text}</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{t(item.textKey)}</div>
                     <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                      {item.count > 0 ? `${item.count} items` : 'All clear'}
+                      {item.count > 0 ? t('dashboard.items', { count: item.count }) : t('dashboard.allClear')}
                     </div>
                   </div>
                   <RightOutlined style={{ color: 'var(--text-muted)', fontSize: 11 }} />
@@ -441,7 +444,7 @@ export default function DashboardPage() {
               fontSize: 11, color: 'var(--tab-active-fg)', fontWeight: 700, marginBottom: 8,
               textTransform: 'uppercase', letterSpacing: '0.08em',
             }}>
-              This Month
+              {t('dashboard.thisMonth')}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
@@ -449,7 +452,7 @@ export default function DashboardPage() {
                   fontSize: 20, fontWeight: 800, color: 'var(--text-primary)',
                   fontFamily: "'Manrope', sans-serif",
                 }}>{data?.thisMonthOrdersCount ?? 0}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Total Orders</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('dashboard.totalOrdersMonth')}</div>
               </div>
               <div>
                 <div style={{
@@ -458,7 +461,7 @@ export default function DashboardPage() {
                 }}>
                   ${Number(data?.thisMonthRevenue ?? 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Revenue</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('dashboard.revenueMonth')}</div>
               </div>
             </div>
           </div>
@@ -481,9 +484,9 @@ export default function DashboardPage() {
             fontWeight: 700,
             color: 'var(--text-primary)',
             fontFamily: "'Manrope', sans-serif",
-          }}>Recent Orders</div>
+          }}>{t('dashboard.recentOrders')}</div>
           <Link to="/orders" style={{ fontSize: 13, color: 'var(--accent-primary)', fontWeight: 500, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
-            View all <RightOutlined style={{ fontSize: 10 }} />
+            {t('common.viewAll')} <RightOutlined style={{ fontSize: 10 }} />
           </Link>
         </div>
 
@@ -496,7 +499,14 @@ export default function DashboardPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border-light)' }}>
-                  {['Order ID', 'Platform', 'Buyer', 'Status', 'Revenue', 'Time'].map((h) => (
+                  {[
+                    t('orders.orderId'),
+                    t('orders.platform'),
+                    t('orders.buyer'),
+                    t('common.status'),
+                    t('orders.revenue'),
+                    t('common.time'),
+                  ].map((h) => (
                     <th key={h} style={{
                       padding: '8px 12px', textAlign: 'left',
                       fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)',
@@ -539,7 +549,7 @@ export default function DashboardPage() {
                 {(recentOrders?.items ?? []).length === 0 && (
                   <tr>
                     <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      No recent orders
+                      {t('dashboard.noRecentOrders')}
                     </td>
                   </tr>
                 )}

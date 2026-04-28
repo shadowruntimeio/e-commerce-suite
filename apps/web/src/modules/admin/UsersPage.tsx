@@ -3,6 +3,7 @@ import {
   Table, Tag, Space, Button, Modal, Form, Input, Select, InputNumber, Switch, message, Card,
 } from 'antd'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import { ALL_CAPABILITIES, type Capability, type UserRole } from '../../store/auth.store'
 
@@ -22,6 +23,7 @@ interface SubUser {
 interface Warehouse { id: string; name: string }
 
 export default function AdminUsersPage() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const [editingUser, setEditingUser] = useState<SubUser | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -39,60 +41,60 @@ export default function AdminUsersPage() {
 
   const createMut = useMutation({
     mutationFn: (data: Record<string, unknown>) => api.post('/admin/users', data),
-    onSuccess: () => { message.success('Sub-account created'); setCreateOpen(false); refetch() },
-    onError: (err: any) => message.error(err?.response?.data?.error ?? 'Failed to create'),
+    onSuccess: () => { message.success(t('admin.users.created')); setCreateOpen(false); refetch() },
+    onError: (err: any) => message.error(err?.response?.data?.error ?? t('admin.users.createFailed')),
   })
   const updateMut = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       api.patch(`/admin/users/${id}`, data),
-    onSuccess: () => { message.success('Updated'); setEditingUser(null); refetch() },
-    onError: (err: any) => message.error(err?.response?.data?.error ?? 'Failed to update'),
+    onSuccess: () => { message.success(t('common.updated')); setEditingUser(null); refetch() },
+    onError: (err: any) => message.error(err?.response?.data?.error ?? t('admin.users.updateFailed')),
   })
 
   const columns = [
-    { title: 'Name', dataIndex: 'name', key: 'name' },
-    { title: 'Email', dataIndex: 'email', key: 'email' },
+    { title: t('common.name'), dataIndex: 'name', key: 'name' },
+    { title: t('common.email'), dataIndex: 'email', key: 'email' },
     {
-      title: 'Role', dataIndex: 'role', key: 'role',
+      title: t('common.role'), dataIndex: 'role', key: 'role',
       render: (r: UserRole) => {
         const colors: Record<UserRole, string> = {
           ADMIN: 'red', WAREHOUSE_STAFF: 'blue', MERCHANT: 'green',
         }
-        return <Tag color={colors[r]}>{r}</Tag>
+        return <Tag color={colors[r]}>{t(`nav.role.${r}`)}</Tag>
       },
     },
     {
-      title: 'Capabilities / Settings', key: 'caps',
+      title: t('admin.users.capabilitiesSettings'), key: 'caps',
       render: (_: unknown, u: SubUser) => {
-        if (u.role === 'ADMIN') return <i style={{ color: 'var(--text-muted)' }}>(all)</i>
+        if (u.role === 'ADMIN') return <i style={{ color: 'var(--text-muted)' }}>{t('admin.users.allCapabilities')}</i>
         if (u.role === 'MERCHANT') {
           const hours = (u.settings as { autoConfirmHours?: number } | null)?.autoConfirmHours ?? 24
-          return <span>auto-confirm: {hours}h</span>
+          return <span>{t('admin.users.autoConfirm', { hours })}</span>
         }
         return (
           <Space size={4} wrap>
             {u.capabilities.map((c) => <Tag key={c}>{c}</Tag>)}
-            {u.warehouseScope.length > 0 && <Tag color="purple">scope: {u.warehouseScope.length} wh</Tag>}
+            {u.warehouseScope.length > 0 && <Tag color="purple">{t('admin.users.warehouseScopeTag', { n: u.warehouseScope.length })}</Tag>}
           </Space>
         )
       },
     },
     {
-      title: 'Status', dataIndex: 'isActive', key: 'isActive',
-      render: (v: boolean) => v ? <Tag color="success">Active</Tag> : <Tag color="default">Inactive</Tag>,
+      title: t('common.status'), dataIndex: 'isActive', key: 'isActive',
+      render: (v: boolean) => v ? <Tag color="success">{t('common.active')}</Tag> : <Tag color="default">{t('common.inactive')}</Tag>,
     },
     {
-      title: 'Actions', key: 'actions',
+      title: t('common.actions'), key: 'actions',
       render: (_: unknown, u: SubUser) => (
         u.role === 'ADMIN' ? null : (
           <Space>
-            <Button size="small" onClick={() => setEditingUser(u)}>Edit</Button>
+            <Button size="small" onClick={() => setEditingUser(u)}>{t('common.edit')}</Button>
             <Button
               size="small"
               danger={u.isActive}
               onClick={() => updateMut.mutate({ id: u.id, data: { isActive: !u.isActive } })}
             >
-              {u.isActive ? 'Deactivate' : 'Reactivate'}
+              {u.isActive ? t('admin.users.deactivate') : t('admin.users.reactivate')}
             </Button>
           </Space>
         )
@@ -102,8 +104,8 @@ export default function AdminUsersPage() {
 
   return (
     <Card
-      title="Sub-accounts"
-      extra={<Button type="primary" onClick={() => setCreateOpen(true)}>+ New sub-account</Button>}
+      title={t('admin.users.title')}
+      extra={<Button type="primary" onClick={() => setCreateOpen(true)}>{t('admin.users.addNew')}</Button>}
     >
       <Table
         rowKey="id"
@@ -136,16 +138,18 @@ function CreateUserModal({
   onSubmit: (data: Record<string, unknown>) => void
   warehouses: Warehouse[]
 }) {
+  const { t } = useTranslation()
   const [form] = Form.useForm()
   const role = Form.useWatch('role', form)
 
   return (
     <Modal
       open={open}
-      title="Create sub-account"
+      title={t('admin.users.createTitle')}
       onCancel={() => { form.resetFields(); onClose() }}
       onOk={() => form.submit()}
-      okText="Create"
+      okText={t('common.create')}
+      cancelText={t('common.cancel')}
     >
       <Form
         form={form}
@@ -168,48 +172,48 @@ function CreateUserModal({
           }
         }}
       >
-        <Form.Item label="Role" name="role" rules={[{ required: true }]}>
+        <Form.Item label={t('common.role')} name="role" rules={[{ required: true }]}>
           <Select options={[
-            { value: 'WAREHOUSE_STAFF', label: 'Warehouse staff' },
-            { value: 'MERCHANT', label: 'Merchant' },
+            { value: 'WAREHOUSE_STAFF', label: t('admin.users.roleWarehouseStaff') },
+            { value: 'MERCHANT', label: t('admin.users.roleMerchant') },
           ]} />
         </Form.Item>
-        <Form.Item label="Name" name="name" rules={[{ required: true }]}>
+        <Form.Item label={t('common.name')} name="name" rules={[{ required: true }]}>
           <Input />
         </Form.Item>
-        <Form.Item label="Email" name="email" rules={[{ required: true, type: 'email' }]}>
+        <Form.Item label={t('common.email')} name="email" rules={[{ required: true, type: 'email' }]}>
           <Input />
         </Form.Item>
-        <Form.Item label="Password" name="password" rules={[{ required: true, min: 8 }]}>
+        <Form.Item label={t('common.password')} name="password" rules={[{ required: true, min: 8 }]}>
           <Input.Password />
         </Form.Item>
         {role === 'WAREHOUSE_STAFF' && (
           <>
             <Form.Item
-              label="Capabilities"
+              label={t('admin.users.capabilities')}
               name="capabilities"
-              rules={[{ required: true, message: 'Select at least one capability' }, {
+              rules={[{ required: true, message: t('admin.users.atLeastOneCap') }, {
                 validator: (_, v) => Array.isArray(v) && v.length > 0
-                  ? Promise.resolve() : Promise.reject(new Error('At least one capability required')),
+                  ? Promise.resolve() : Promise.reject(new Error(t('admin.users.atLeastOneCap'))),
               }]}
             >
               <Select
                 mode="multiple"
-                placeholder="Select capabilities"
+                placeholder={t('admin.users.selectCapabilities')}
                 options={ALL_CAPABILITIES.map((c) => ({ value: c, label: c }))}
               />
             </Form.Item>
-            <Form.Item label="Warehouse scope (empty = all)" name="warehouseScope">
+            <Form.Item label={t('admin.users.warehouseScope')} name="warehouseScope">
               <Select
                 mode="multiple"
-                placeholder="All warehouses"
+                placeholder={t('inventory.allWarehouses')}
                 options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
               />
             </Form.Item>
           </>
         )}
         {role === 'MERCHANT' && (
-          <Form.Item label="Auto-confirm hours" name="autoConfirmHours" tooltip="Orders auto-confirm after this many hours if merchant doesn't act">
+          <Form.Item label={t('admin.users.autoConfirmHours')} name="autoConfirmHours" tooltip={t('admin.users.autoConfirmTooltip')}>
             <InputNumber min={1} max={168} />
           </Form.Item>
         )}
@@ -226,15 +230,17 @@ function EditUserModal({
   onSubmit: (data: Record<string, unknown>) => void
   warehouses: Warehouse[]
 }) {
+  const { t } = useTranslation()
   const [form] = Form.useForm()
   if (!user) return null
   return (
     <Modal
       open={!!user}
-      title={`Edit ${user.name}`}
+      title={t('admin.users.editTitle', { name: user.name })}
       onCancel={() => { form.resetFields(); onClose() }}
       onOk={() => form.submit()}
-      okText="Save"
+      okText={t('common.save')}
+      cancelText={t('common.cancel')}
       destroyOnClose
     >
       <Form
@@ -258,35 +264,35 @@ function EditUserModal({
           onSubmit(data)
         }}
       >
-        <Form.Item label="Name" name="name" rules={[{ required: true }]}>
+        <Form.Item label={t('common.name')} name="name" rules={[{ required: true }]}>
           <Input />
         </Form.Item>
-        <Form.Item label="Active" name="isActive" valuePropName="checked">
+        <Form.Item label={t('common.active')} name="isActive" valuePropName="checked">
           <Switch />
         </Form.Item>
         {user.role === 'WAREHOUSE_STAFF' && (
           <>
             <Form.Item
-              label="Capabilities"
+              label={t('admin.users.capabilities')}
               name="capabilities"
               rules={[{
                 validator: (_, v) => Array.isArray(v) && v.length > 0
-                  ? Promise.resolve() : Promise.reject(new Error('At least one capability required')),
+                  ? Promise.resolve() : Promise.reject(new Error(t('admin.users.atLeastOneCap'))),
               }]}
             >
               <Select mode="multiple" options={ALL_CAPABILITIES.map((c) => ({ value: c, label: c }))} />
             </Form.Item>
-            <Form.Item label="Warehouse scope (empty = all)" name="warehouseScope">
+            <Form.Item label={t('admin.users.warehouseScope')} name="warehouseScope">
               <Select
                 mode="multiple"
-                placeholder="All warehouses"
+                placeholder={t('inventory.allWarehouses')}
                 options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
               />
             </Form.Item>
           </>
         )}
         {user.role === 'MERCHANT' && (
-          <Form.Item label="Auto-confirm hours" name="autoConfirmHours">
+          <Form.Item label={t('admin.users.autoConfirmHours')} name="autoConfirmHours">
             <InputNumber min={1} max={168} />
           </Form.Item>
         )}

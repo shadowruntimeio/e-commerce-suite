@@ -100,10 +100,10 @@ export default function OrdersPage() {
     mutationFn: ({ id, action }: { id: string; action: 'confirm' | 'cancel' }) =>
       api.post(`/orders/${id}/merchant-${action}`),
     onSuccess: () => {
-      message.success('Updated')
+      message.success(t('common.updated'))
       queryClient.invalidateQueries({ queryKey: ['orders'] })
     },
-    onError: (err: any) => message.error(err?.response?.data?.error ?? 'Failed'),
+    onError: (err: any) => message.error(err?.response?.data?.error ?? t('returns.failed')),
   })
 
   function toggleStatus(key: string) {
@@ -441,11 +441,21 @@ export default function OrdersPage() {
           <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             {canMerchantAct && (
               <>
-                <Popconfirm title="Confirm order?" onConfirm={() => confirmMut.mutate({ id: record.id, action: 'confirm' })}>
-                  <Button type="text" size="small" icon={<CheckOutlined />} style={{ color: 'var(--success-color, #16a34a)' }} title="Confirm" />
+                <Popconfirm
+                  title={t('orders.popconfirmConfirm')}
+                  okText={t('common.confirm')}
+                  cancelText={t('common.cancel')}
+                  onConfirm={() => confirmMut.mutate({ id: record.id, action: 'confirm' })}
+                >
+                  <Button type="text" size="small" icon={<CheckOutlined />} style={{ color: 'var(--success-color, #16a34a)' }} title={t('orders.confirmTitle')} />
                 </Popconfirm>
-                <Popconfirm title="Cancel order?" onConfirm={() => confirmMut.mutate({ id: record.id, action: 'cancel' })}>
-                  <Button type="text" size="small" icon={<CloseOutlined />} danger title="Cancel" />
+                <Popconfirm
+                  title={t('orders.popconfirmCancel')}
+                  okText={t('common.confirm')}
+                  cancelText={t('common.cancel')}
+                  onConfirm={() => confirmMut.mutate({ id: record.id, action: 'cancel' })}
+                >
+                  <Button type="text" size="small" icon={<CloseOutlined />} danger title={t('orders.cancelTitle')} />
                 </Popconfirm>
               </>
             )}

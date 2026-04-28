@@ -441,11 +441,14 @@ export function AppLayout() {
                 }],
               }}
               placement="bottomRight"
+              trigger={['click']}
             >
               <div style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '4px 10px 4px 4px', borderRadius: 8, cursor: 'pointer',
-                border: '1px solid var(--header-btn-border)', background: 'var(--header-btn-bg)',
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                padding: '4px 12px 4px 4px', borderRadius: 999, cursor: 'pointer',
+                background: 'transparent',
+                maxWidth: 200,
+                userSelect: 'none',
               }}>
                 <Avatar
                   size={28}
@@ -453,11 +456,20 @@ export function AppLayout() {
                     background: 'var(--accent-gradient)',
                     fontSize: 11,
                     fontWeight: 700,
+                    flexShrink: 0,
                   }}
                 >
                   {initials}
                 </Avatar>
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--header-text)' }}>
+                <span style={{
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: 'var(--header-text)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: 140,
+                }}>
                   {user?.name}
                 </span>
               </div>

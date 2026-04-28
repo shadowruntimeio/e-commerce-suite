@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Card, Table, Tag, Input, Space } from 'antd'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import dayjs from 'dayjs'
 
@@ -16,6 +17,7 @@ interface AuditEntry {
 }
 
 export default function AuditPage() {
+  const { t } = useTranslation()
   const [page, setPage] = useState(1)
   const pageSize = 30
   const [actionFilter, setActionFilter] = useState('')
@@ -32,42 +34,42 @@ export default function AuditPage() {
 
   const columns = [
     {
-      title: 'Time', dataIndex: 'createdAt', key: 'createdAt',
+      title: t('audit.time'), dataIndex: 'createdAt', key: 'createdAt',
       render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm:ss'),
       width: 180,
     },
     {
-      title: 'Actor', key: 'actor',
+      title: t('audit.actor'), key: 'actor',
       render: (_: unknown, e: AuditEntry) =>
         e.actor ? (
           <Space>
             <span>{e.actor.name}</span>
-            <Tag>{e.actor.role}</Tag>
+            <Tag>{t(`nav.role.${e.actor.role}`)}</Tag>
           </Space>
-        ) : <Tag color="default">system</Tag>,
+        ) : <Tag color="default">{t('audit.system')}</Tag>,
     },
-    { title: 'Action', dataIndex: 'action', key: 'action', render: (v: string) => <Tag color="blue">{v}</Tag> },
-    { title: 'Target', key: 'target',
+    { title: t('audit.action'), dataIndex: 'action', key: 'action', render: (v: string) => <Tag color="blue">{v}</Tag> },
+    { title: t('audit.target'), key: 'target',
       render: (_: unknown, e: AuditEntry) =>
         e.targetType ? <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{e.targetType}: {e.targetId?.slice(-8)}</span> : '—',
     },
     {
-      title: 'Payload', dataIndex: 'payload', key: 'payload',
+      title: t('audit.payload'), dataIndex: 'payload', key: 'payload',
       render: (p: Record<string, unknown>) => (
         <pre style={{ margin: 0, fontSize: 11, maxWidth: 480, overflow: 'auto' }}>
           {JSON.stringify(p, null, 0)}
         </pre>
       ),
     },
-    { title: 'IP', dataIndex: 'ip', key: 'ip', width: 120 },
+    { title: t('audit.ip'), dataIndex: 'ip', key: 'ip', width: 120 },
   ]
 
   return (
     <Card
-      title="Audit Log"
+      title={t('audit.title')}
       extra={
         <Input.Search
-          placeholder="Filter by action (e.g. order.merchant_confirm)"
+          placeholder={t('audit.filterPlaceholder')}
           onSearch={(v) => { setActionFilter(v); setPage(1) }}
           allowClear
           style={{ width: 320 }}
