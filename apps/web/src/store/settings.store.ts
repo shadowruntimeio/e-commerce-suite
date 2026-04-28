@@ -20,8 +20,8 @@ function applyTheme(isDark: boolean) {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
-      isDark: true,
-      lang: 'en',
+      isDark: false,
+      lang: 'zh',
       toggleDark: () => {
         const next = !get().isDark
         applyTheme(next)

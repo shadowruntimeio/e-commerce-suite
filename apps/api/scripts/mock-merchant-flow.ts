@@ -176,6 +176,46 @@ async function main() {
         },
       })
     }
+
+    // One AFTER_SALES order per merchant + auto-created return ticket (PENDING_REVIEW)
+    const afterSalesOrderId = `mock-${shop.externalShopId}-as-${Date.now()}`
+    const afterSalesOrder = await prisma.order.create({
+      data: {
+        shopId: shop.id,
+        tenantId: tenant.id,
+        platformOrderId: afterSalesOrderId,
+        status: 'AFTER_SALES',
+        buyerName: 'Returning Buyer',
+        buyerPhone: '13800009999',
+        shippingAddress: { line1: '456 Return Ln', city: 'Demo City' },
+        currency: 'USD',
+        subtotal: 75,
+        totalRevenue: 75,
+        merchantConfirmStatus: 'CONFIRMED',
+        merchantConfirmedAt: new Date(),
+        firstSellerSku: sku.skuCode,
+        items: {
+          create: [{
+            platformSkuId: `${sku.skuCode}-platform`,
+            sellerSku: sku.skuCode,
+            productName: 'Mock Item',
+            quantity: 3,
+            unitPrice: 25,
+            systemSkuId: sku.id,
+          }],
+        },
+      },
+    })
+    await prisma.afterSalesTicket.create({
+      data: {
+        orderId: afterSalesOrder.id,
+        type: 'RETURN',
+        status: 'OPEN',
+        reviewStatus: 'PENDING_REVIEW',
+        expectedQty: 3,
+        notes: 'Buyer requested return via TK platform',
+      },
+    })
   }
 
   console.log('Mock data seeded:')

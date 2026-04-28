@@ -1,10 +1,10 @@
 import React from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Avatar, Dropdown, Badge, Tooltip } from 'antd'
+import { Layout, Avatar, Dropdown, Tooltip } from 'antd'
 import {
   DashboardOutlined, ShoppingCartOutlined, AppstoreOutlined,
   InboxOutlined, ShopOutlined, LogoutOutlined, BankOutlined,
-  BarChartOutlined, TruckOutlined, BellOutlined,
+  BarChartOutlined, TruckOutlined,
   MoonOutlined, SunOutlined, TranslationOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined,
   TeamOutlined, AuditOutlined, RollbackOutlined,
@@ -427,19 +427,6 @@ export function AppLayout() {
                 {isDark ? <SunOutlined style={{ fontSize: 16 }} /> : <MoonOutlined style={{ fontSize: 16 }} />}
               </button>
             </Tooltip>
-
-            {/* Notifications */}
-            <Badge count={3} size="small" offset={[-2, 2]}>
-              <button style={{
-                width: 36, height: 36, borderRadius: 8,
-                border: '1px solid var(--header-btn-border)', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', background: 'var(--header-btn-bg)',
-                color: 'var(--header-btn-color)',
-              }}>
-                <BellOutlined style={{ fontSize: 16 }} />
-              </button>
-            </Badge>
 
             <div style={{ width: 1, height: 24, background: 'var(--divider)', margin: '0 4px' }} />
 
