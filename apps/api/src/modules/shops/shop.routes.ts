@@ -31,25 +31,28 @@ export async function shopRoutes(app: FastifyInstance) {
           refreshToken: tokens.refreshToken,
         })
 
-        let tenantId: string | undefined
+        let stateObj: { tenantId?: string; userId?: string } = {}
         if (state) {
           try {
-            tenantId = Buffer.from(state, 'base64').toString('utf8')
+            stateObj = JSON.parse(Buffer.from(state, 'base64').toString('utf8'))
           } catch {
             // ignore malformed state
           }
         }
+        let tenantId = stateObj.tenantId
+        let ownerUserId = stateObj.userId
 
-        if (!tenantId) {
+        if (!tenantId || !ownerUserId) {
           const existing = await prisma.shop.findFirst({
             where: { externalShopId: tokens.shopId, platform: 'SHOPEE' },
-            select: { tenantId: true },
+            select: { tenantId: true, ownerUserId: true },
           })
-          tenantId = existing?.tenantId
+          tenantId ??= existing?.tenantId
+          ownerUserId ??= existing?.ownerUserId
         }
 
-        if (!tenantId) {
-          return reply.status(400).send({ success: false, error: 'Could not determine tenant from OAuth state' })
+        if (!tenantId || !ownerUserId) {
+          return reply.status(400).send({ success: false, error: 'Could not determine merchant from OAuth state' })
         }
 
         const shop = await prisma.shop.upsert({
@@ -69,6 +72,7 @@ export async function shopRoutes(app: FastifyInstance) {
           },
           create: {
             tenantId,
+            ownerUserId,
             platform: 'SHOPEE',
             externalShopId: tokens.shopId,
             name: tokens.shopName,
@@ -128,33 +132,35 @@ export async function shopRoutes(app: FastifyInstance) {
         })
         console.log('[tiktok/callback] step 2 ok')
 
-        console.log('[tiktok/callback] step 3: resolving tenantId. state present:', !!state)
-        let tenantId: string | undefined
+        console.log('[tiktok/callback] step 3: resolving merchant from state. state present:', !!state)
+        let stateObj: { tenantId?: string; userId?: string } = {}
         if (state) {
           try {
-            tenantId = Buffer.from(state, 'base64').toString('utf8')
-            console.log('[tiktok/callback] decoded tenantId from state:', tenantId)
+            stateObj = JSON.parse(Buffer.from(state, 'base64').toString('utf8'))
+            console.log('[tiktok/callback] decoded state:', stateObj)
           } catch (e) {
             console.warn('[tiktok/callback] malformed state, could not decode:', (e as Error).message)
           }
         }
+        let tenantId = stateObj.tenantId
+        let ownerUserId = stateObj.userId
 
-        if (!tenantId) {
+        if (!tenantId || !ownerUserId) {
           console.log('[tiktok/callback] falling back to existing shop lookup by externalShopId:', tokens.shopId)
           const existing = await prisma.shop.findFirst({
             where: { externalShopId: tokens.shopId, platform: 'TIKTOK' },
-            select: { tenantId: true },
+            select: { tenantId: true, ownerUserId: true },
           })
-          tenantId = existing?.tenantId
-          console.log('[tiktok/callback] fallback tenantId:', tenantId)
+          tenantId ??= existing?.tenantId
+          ownerUserId ??= existing?.ownerUserId
         }
 
-        if (!tenantId) {
-          console.error('[tiktok/callback] no tenantId resolved')
-          return reply.status(400).send({ success: false, error: 'Could not determine tenant from OAuth state' })
+        if (!tenantId || !ownerUserId) {
+          console.error('[tiktok/callback] no merchant resolved')
+          return reply.status(400).send({ success: false, error: 'Could not determine merchant from OAuth state' })
         }
 
-        console.log('[tiktok/callback] step 4: upserting shop. tenantId:', tenantId, 'externalShopId:', tokens.shopId)
+        console.log('[tiktok/callback] step 4: upserting shop. tenantId:', tenantId, 'ownerUserId:', ownerUserId, 'externalShopId:', tokens.shopId)
         const shop = await prisma.shop.upsert({
           where: {
             tenantId_platform_externalShopId: {
@@ -172,6 +178,7 @@ export async function shopRoutes(app: FastifyInstance) {
           },
           create: {
             tenantId,
+            ownerUserId,
             platform: 'TIKTOK',
             externalShopId: tokens.shopId,
             name: tokens.shopName,
@@ -211,25 +218,46 @@ export async function shopRoutes(app: FastifyInstance) {
     auth.addHook('preHandler', authenticate)
 
     auth.get('/', async (request) => {
+      const where: Record<string, unknown> = {
+        tenantId: request.user.tenantId,
+        status: { not: 'INACTIVE' },
+      }
+      // MERCHANT only sees own shops
+      if (request.user.role === 'MERCHANT') {
+        where.ownerUserId = request.user.userId
+      }
       const shops = await prisma.shop.findMany({
-        where: { tenantId: request.user.tenantId, status: { not: 'INACTIVE' } },
+        where,
         orderBy: { createdAt: 'asc' },
+        include: { owner: { select: { id: true, name: true, email: true } } },
       })
       return { success: true, data: shops }
     })
 
-    // GET /tiktok/connect — returns TikTok OAuth URL
+    // GET /tiktok/connect — returns TikTok OAuth URL (merchant only)
     auth.get('/tiktok/connect', async (request, reply) => {
+      if (request.user.role !== 'MERCHANT') {
+        return reply.status(403).send({ success: false, error: 'Only merchants can connect shops' })
+      }
       const adapter = new TikTokAdapter()
-      const state = Buffer.from(request.user.tenantId).toString('base64')
+      const state = Buffer.from(JSON.stringify({
+        tenantId: request.user.tenantId,
+        userId: request.user.userId,
+      })).toString('base64')
       const url = adapter.getAuthUrl(TIKTOK_REDIRECT_URI, state)
       return reply.send({ success: true, data: { url } })
     })
 
-    // GET /shopee/connect — returns the Shopee OAuth URL
+    // GET /shopee/connect — returns the Shopee OAuth URL (merchant only)
     auth.get('/shopee/connect', async (request, reply) => {
+      if (request.user.role !== 'MERCHANT') {
+        return reply.status(403).send({ success: false, error: 'Only merchants can connect shops' })
+      }
       const adapter = new ShopeeAdapter()
-      const state = Buffer.from(request.user.tenantId).toString('base64')
+      const state = Buffer.from(JSON.stringify({
+        tenantId: request.user.tenantId,
+        userId: request.user.userId,
+      })).toString('base64')
       const url = adapter.getAuthUrl(SHOPEE_REDIRECT_URI, state)
       return reply.send({ success: true, data: { url } })
     })
@@ -240,9 +268,9 @@ export async function shopRoutes(app: FastifyInstance) {
     // retries or page mount after a fresh action).
     auth.post('/:id/sync', async (request, reply) => {
       const { id } = request.params as { id: string }
-      const shop = await prisma.shop.findFirst({
-        where: { id, tenantId: request.user.tenantId },
-      })
+      const where: Record<string, unknown> = { id, tenantId: request.user.tenantId }
+      if (request.user.role === 'MERCHANT') where.ownerUserId = request.user.userId
+      const shop = await prisma.shop.findFirst({ where })
       if (!shop) {
         return reply.status(404).send({ success: false, error: 'Shop not found' })
       }
@@ -265,8 +293,10 @@ export async function shopRoutes(app: FastifyInstance) {
     // POST /sync-all — enqueue order + product sync for every active shop in
     // this tenant. Used by the web app on page navigation and post-action refresh.
     auth.post('/sync-all', async (request) => {
+      const where: Record<string, unknown> = { tenantId: request.user.tenantId, status: 'ACTIVE' }
+      if (request.user.role === 'MERCHANT') where.ownerUserId = request.user.userId
       const shops = await prisma.shop.findMany({
-        where: { tenantId: request.user.tenantId, status: 'ACTIVE' },
+        where,
         select: { id: true, tenantId: true },
       })
       const bucket = Math.floor(Date.now() / 5000)
@@ -288,9 +318,9 @@ export async function shopRoutes(app: FastifyInstance) {
     // DELETE /:id — soft-delete a shop
     auth.delete('/:id', async (request, reply) => {
       const { id } = request.params as { id: string }
-      const shop = await prisma.shop.findFirst({
-        where: { id, tenantId: request.user.tenantId },
-      })
+      const where: Record<string, unknown> = { id, tenantId: request.user.tenantId }
+      if (request.user.role === 'MERCHANT') where.ownerUserId = request.user.userId
+      const shop = await prisma.shop.findFirst({ where })
       if (!shop) {
         return reply.status(404).send({ success: false, error: 'Shop not found' })
       }

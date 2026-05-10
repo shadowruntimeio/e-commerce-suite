@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Table, Button, Spin } from 'antd'
 import { SyncOutlined, FundOutlined, DollarOutlined, LineChartOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import type { ColumnsType } from 'antd/es/table'
 
@@ -67,6 +68,7 @@ function KpiCard({ title, value, accent, icon }: { title: string; value: string;
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function AdsPage() {
+  const { t } = useTranslation()
   const [syncing, setSyncing] = useState(false)
   const queryClient = useQueryClient()
 
@@ -104,7 +106,7 @@ export default function AdsPage() {
 
   const columns: ColumnsType<Campaign> = [
     {
-      title: 'Campaign',
+      title: t('ads.campaign'),
       dataIndex: 'campaignName',
       ellipsis: true,
       render: (v, r) => (
@@ -112,27 +114,27 @@ export default function AdsPage() {
       ),
     },
     {
-      title: 'Shop',
+      title: t('orders.shop'),
       dataIndex: 'shopId',
       width: 140,
       ellipsis: true,
       render: (v) => <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{v}</span>,
     },
     {
-      title: 'Platform',
+      title: t('ads.platform'),
       dataIndex: 'platform',
       width: 100,
       render: (v) => <PlatformBadge platform={v} />,
     },
     {
-      title: 'Impressions',
+      title: t('ads.impressions'),
       dataIndex: 'impressions',
       width: 120,
       align: 'right',
       render: (v: number) => <span style={{ color: 'var(--text-primary)' }}>{v.toLocaleString()}</span>,
     },
     {
-      title: 'Clicks',
+      title: t('ads.clicks'),
       dataIndex: 'clicks',
       width: 90,
       align: 'right',
@@ -146,21 +148,21 @@ export default function AdsPage() {
       render: (v: number) => <span style={{ color: 'var(--text-primary)' }}>{v.toFixed(2)}%</span>,
     },
     {
-      title: 'Spend',
+      title: t('ads.spend'),
       dataIndex: 'spend',
       width: 110,
       align: 'right',
       render: (v: number) => <span style={{ fontWeight: 600, color: '#EF4444' }}>${v.toFixed(2)}</span>,
     },
     {
-      title: 'Revenue',
+      title: t('ads.revenue'),
       dataIndex: 'revenueAttributed',
       width: 110,
       align: 'right',
       render: (v: number) => <span style={{ fontWeight: 600, color: '#10B981' }}>${v.toFixed(2)}</span>,
     },
     {
-      title: 'ROAS',
+      title: t('ads.roas'),
       dataIndex: 'roas',
       width: 100,
       align: 'right',
@@ -175,8 +177,8 @@ export default function AdsPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Ads Performance</h1>
-            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Campaign metrics across all connected platforms</p>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{t('ads.title')}</h1>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>{t('ads.subtitle')}</p>
           </div>
           <Button
             icon={<SyncOutlined spin={syncing} />}
@@ -184,7 +186,7 @@ export default function AdsPage() {
             onClick={() => syncMutation.mutate()}
             style={{ background: 'var(--accent-gradient)', color: '#fff', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
           >
-            Sync Ads
+            {t('ads.sync')}
           </Button>
         </div>
       </div>
@@ -194,8 +196,8 @@ export default function AdsPage() {
         <div style={{ background: 'var(--badge-purple-bg)', border: '1px solid rgba(var(--accent-primary-raw, 204,151,255),0.3)', borderRadius: 12, padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
           <FundOutlined style={{ color: 'var(--accent-primary)', fontSize: 18, flexShrink: 0 }} />
           <div style={{ color: 'var(--text-primary)', fontSize: 14 }}>
-            <span style={{ fontWeight: 600 }}>Connect ad accounts to see performance data.</span>
-            {' '}Link your Shopee or TikTok ad accounts and sync to view campaign metrics here.
+            <span style={{ fontWeight: 600 }}>{t('ads.noData')}</span>
+            {' '}{t('ads.noDataHint')}
           </div>
         </div>
       )}
@@ -206,15 +208,15 @@ export default function AdsPage() {
         <>
           {/* KPI Cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 20 }}>
-            <KpiCard title="Total Spend" value={`$${(summary?.totalSpend ?? 0).toFixed(2)}`} accent="#EF4444" icon={<DollarOutlined />} />
-            <KpiCard title="Revenue Attributed" value={`$${(summary?.totalRevenue ?? 0).toFixed(2)}`} accent="#10B981" icon={<DollarOutlined />} />
-            <KpiCard title="Overall ROAS" value={`${(summary?.overallROAS ?? 0).toFixed(2)}x`} accent="#6366F1" icon={<LineChartOutlined />} />
+            <KpiCard title={t('ads.totalSpend')} value={`$${(summary?.totalSpend ?? 0).toFixed(2)}`} accent="#EF4444" icon={<DollarOutlined />} />
+            <KpiCard title={t('ads.revenueAttributed')} value={`$${(summary?.totalRevenue ?? 0).toFixed(2)}`} accent="#10B981" icon={<DollarOutlined />} />
+            <KpiCard title={t('ads.overallROAS')} value={`${(summary?.overallROAS ?? 0).toFixed(2)}x`} accent="#6366F1" icon={<LineChartOutlined />} />
           </div>
 
           {/* Table */}
           <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-light)' }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Campaigns</span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{t('ads.campaigns')}</span>
             </div>
             <Table
               rowKey="campaignId"
@@ -225,7 +227,7 @@ export default function AdsPage() {
               pagination={{
                 pageSize: 20,
                 showSizeChanger: false,
-                showTotal: (total) => `${total.toLocaleString()} records`,
+                showTotal: (total) => t('common.records', { count: total }),
                 style: { padding: '12px 20px' },
               }}
               scroll={{ x: 'max-content' }}

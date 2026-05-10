@@ -1,10 +1,12 @@
 import { prisma } from '@ems/db'
 import { syncOrdersQueue, syncProductsQueue, refreshTokensQueue, restockingQueue, etlQueue } from '../lib/queues'
+import { recordAudit, AuditAction } from '../lib/audit'
 
 const SYNC_INTERVAL_MS = 60 * 1000              // 1 minute
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000     // 30 minutes
 const RESTOCKING_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 const ETL_INTERVAL_MS = 24 * 60 * 60 * 1000    // 24 hours
+const AUTO_CONFIRM_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
 
 async function scheduleOrderSyncs() {
   try {
@@ -66,6 +68,45 @@ async function scheduleRestocking() {
   }
 }
 
+// Auto-confirm orders whose merchantConfirmExpiresAt has passed.
+async function autoConfirmExpiredOrders() {
+  try {
+    const expired = await prisma.order.findMany({
+      where: {
+        merchantConfirmStatus: 'PENDING_CONFIRM',
+        merchantConfirmExpiresAt: { lt: new Date() },
+      },
+      select: { id: true, tenantId: true, shop: { select: { ownerUserId: true } } },
+      take: 200,
+    })
+    if (expired.length === 0) return
+    console.log(`[scheduler] auto-confirming ${expired.length} expired orders`)
+    for (const o of expired) {
+      try {
+        await prisma.order.update({
+          where: { id: o.id },
+          data: {
+            merchantConfirmStatus: 'AUTO_CONFIRMED',
+            merchantConfirmedAt: new Date(),
+          },
+        })
+        await recordAudit({
+          tenantId: o.tenantId,
+          actorUserId: null,
+          action: AuditAction.ORDER_AUTO_CONFIRM,
+          targetType: 'order',
+          targetId: o.id,
+          payload: { ownerUserId: o.shop.ownerUserId, system: true },
+        })
+      } catch (err) {
+        console.warn(`[scheduler] failed to auto-confirm order ${o.id}:`, (err as Error).message)
+      }
+    }
+  } catch (err) {
+    console.error('[scheduler] auto-confirm sweep failed:', err)
+  }
+}
+
 async function scheduleEtl() {
   try {
     console.log('[scheduler] Scheduling nightly ETL run')
@@ -80,13 +121,14 @@ async function scheduleEtl() {
 }
 
 export function startScheduler() {
-  console.log('[scheduler] Starting — sync interval: 1m, refresh interval: 30m, restocking interval: 24h, etl interval: 24h')
+  console.log('[scheduler] Starting — sync interval: 1m, refresh interval: 30m, restocking interval: 24h, etl interval: 24h, auto-confirm: 5m')
 
   // Run immediately on startup, then on interval
   void scheduleOrderSyncs()
   void scheduleTokenRefreshes()
   void scheduleRestocking()
   void scheduleEtl()
+  void autoConfirmExpiredOrders()
 
   const syncInterval = setInterval(() => {
     void scheduleOrderSyncs()
@@ -104,11 +146,16 @@ export function startScheduler() {
     void scheduleEtl()
   }, ETL_INTERVAL_MS)
 
+  const autoConfirmInterval = setInterval(() => {
+    void autoConfirmExpiredOrders()
+  }, AUTO_CONFIRM_INTERVAL_MS)
+
   // Allow the process to exit cleanly (unref intervals)
   syncInterval.unref()
   refreshInterval.unref()
   restockingInterval.unref()
   etlInterval.unref()
+  autoConfirmInterval.unref()
 
   return {
     stop() {
@@ -116,6 +163,7 @@ export function startScheduler() {
       clearInterval(refreshInterval)
       clearInterval(restockingInterval)
       clearInterval(etlInterval)
+      clearInterval(autoConfirmInterval)
       console.log('[scheduler] Stopped')
     },
   }

@@ -29,7 +29,7 @@ export async function warehouseRoutes(app: FastifyInstance) {
     return { success: true, data: warehouses }
   })
 
-  app.post('/', { preHandler: requireRoles(['ADMIN', 'MANAGER']) }, async (request, reply) => {
+  app.post('/', { preHandler: requireRoles(['ADMIN']) }, async (request, reply) => {
     const body = createWarehouseSchema.parse(request.body)
     const warehouse = await prisma.warehouse.create({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,7 +38,7 @@ export async function warehouseRoutes(app: FastifyInstance) {
     return reply.status(201).send({ success: true, data: warehouse })
   })
 
-  app.patch('/:id', { preHandler: requireRoles(['ADMIN', 'MANAGER']) }, async (request, reply) => {
+  app.patch('/:id', { preHandler: requireRoles(['ADMIN']) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const body = updateWarehouseSchema.parse(request.body)
     const existing = await prisma.warehouse.findFirst({

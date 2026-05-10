@@ -159,6 +159,14 @@ async function upsertOrder(
   // Denormalize the first seller_sku onto the order for sort-by-SKU.
   const firstSellerSku = platformOrder.items.find((i) => i.sellerSku)?.sellerSku ?? null
 
+  // Compute auto-confirm expiry from the merchant's settings (default 24h).
+  const merchant = await prisma.user.findFirst({
+    where: { ownedShops: { some: { id: shopId } } },
+    select: { settings: true },
+  })
+  const autoConfirmHours = (merchant?.settings as { autoConfirmHours?: number })?.autoConfirmHours ?? 24
+  const merchantConfirmExpiresAt = new Date(Date.now() + autoConfirmHours * 60 * 60 * 1000)
+
   // Wrap upsert + items rebuild in a transaction with a per-order advisory
   // lock. Without this, two concurrent sync workers (e.g. scheduled + webhook)
   // could each run deleteMany while the other had not yet inserted, then both
@@ -209,6 +217,8 @@ async function upsertOrder(
         platformMetadata: platformOrder.platformMetadata as any,
         platformCreatedAt: platformOrder.platformCreatedAt,
         firstSellerSku,
+        merchantConfirmStatus: 'PENDING_CONFIRM',
+        merchantConfirmExpiresAt,
       },
     })
 
@@ -227,11 +237,14 @@ async function upsertOrder(
       // seller-provided sku_code directly (same-merchant-same-SKU convention).
       let systemSkuId = onlineSku?.systemSkuId ?? null
       if (!systemSkuId && item.sellerSku) {
-        const sysSku = await tx.systemSku.findUnique({
-          where: { skuCode: item.sellerSku },
-          select: { id: true, systemProduct: { select: { tenantId: true } } },
+        const sysSku = await tx.systemSku.findFirst({
+          where: {
+            skuCode: item.sellerSku,
+            systemProduct: { tenantId },
+          },
+          select: { id: true },
         })
-        if (sysSku && sysSku.systemProduct.tenantId === tenantId) systemSkuId = sysSku.id
+        if (sysSku) systemSkuId = sysSku.id
       }
 
       await tx.orderItem.create({
@@ -268,6 +281,25 @@ async function upsertOrder(
   // exists for this order.
   if (shouldDeductForStatus(platformOrder.status)) {
     await deductInventoryForOrder(order.id, tenantId, platformOrder.platformMetadata, 'TIKTOK')
+  }
+
+  // Auto-create AfterSalesTicket the first time an order shows up in AFTER_SALES.
+  // Tickets land in PENDING_REVIEW and require merchant confirmation before
+  // they're visible to the warehouse.
+  if (platformOrder.status === 'AFTER_SALES') {
+    const totalQty = platformOrder.items.reduce((sum, it) => sum + (it.quantity ?? 0), 0)
+    await prisma.afterSalesTicket.upsert({
+      where: { orderId: order.id },
+      update: {},
+      create: {
+        orderId: order.id,
+        type: 'RETURN',
+        status: 'OPEN',
+        reviewStatus: 'PENDING_REVIEW',
+        expectedQty: totalQty || null,
+        notes: 'Auto-created from platform AFTER_SALES status',
+      },
+    })
   }
 }
 
@@ -315,12 +347,14 @@ async function resolveDeductionWarehouse(
 // Look up a SystemSku by its code, scoped to the tenant (SystemProduct carries
 // the tenant). Returns the SystemSku id or null.
 async function resolveSystemSkuByCode(skuCode: string, tenantId: string): Promise<string | null> {
-  const sku = await prisma.systemSku.findUnique({
-    where: { skuCode },
-    select: { id: true, systemProduct: { select: { tenantId: true } } },
+  const sku = await prisma.systemSku.findFirst({
+    where: {
+      skuCode,
+      systemProduct: { tenantId },
+    },
+    select: { id: true },
   })
-  if (!sku || sku.systemProduct.tenantId !== tenantId) return null
-  return sku.id
+  return sku?.id ?? null
 }
 
 async function deductInventoryForOrder(

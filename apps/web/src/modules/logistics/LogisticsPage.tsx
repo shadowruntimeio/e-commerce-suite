@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Table, Button, Form, Input, InputNumber, Modal, Select, Space } from 'antd'
 import { PlusOutlined, EditOutlined, TruckOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import dayjs from 'dayjs'
 import type { ColumnsType } from 'antd/es/table'
@@ -34,17 +35,21 @@ interface Warehouse {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; color: string; label: string }> = {
-    PENDING:    { bg: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)', label: 'Pending' },
-    IN_TRANSIT: { bg: 'var(--badge-info-bg)',    color: 'var(--badge-info-fg)',    label: 'In Transit' },
-    ARRIVED:    { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', label: 'Arrived' },
-    CLEARED:    { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', label: 'Cleared' },
-    CANCELLED:  { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: 'Cancelled' },
+  const { t } = useTranslation()
+  const map: Record<string, { bg: string; color: string; key: string }> = {
+    PENDING:    { bg: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)', key: 'logistics.statusPending' },
+    IN_TRANSIT: { bg: 'var(--badge-info-bg)',    color: 'var(--badge-info-fg)',    key: 'logistics.statusInTransit' },
+    ARRIVED:    { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', key: 'logistics.statusArrived' },
+    CLEARED:    { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', key: 'logistics.statusCleared' },
+    CANCELLED:  { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', key: 'logistics.statusCancelled' },
   }
-  const s = map[status] ?? { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: status }
+  const s = map[status]
+  const label = s ? t(s.key) : status
+  const bg = s?.bg ?? 'var(--badge-neutral-bg)'
+  const color = s?.color ?? 'var(--badge-neutral-fg)'
   return (
-    <span style={{ background: s.bg, color: s.color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
-      {s.label}
+    <span style={{ background: bg, color, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
+      {label}
     </span>
   )
 }
@@ -65,23 +70,24 @@ function TypeBadge({ type }: { type: string }) {
 
 // ─── Status tabs ─────────────────────────────────────────────────────────────
 
-const STATUS_TABS = [
-  { key: '', label: 'All' },
-  { key: 'PENDING', label: 'Pending' },
-  { key: 'IN_TRANSIT', label: 'In Transit' },
-  { key: 'ARRIVED', label: 'Arrived' },
-  { key: 'CLEARED', label: 'Cleared' },
-  { key: 'CANCELLED', label: 'Cancelled' },
-]
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function LogisticsPage() {
+  const { t } = useTranslation()
   const [modalOpen, setModalOpen] = useState(false)
   const [editingShipment, setEditingShipment] = useState<Shipment | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const [form] = Form.useForm()
   const queryClient = useQueryClient()
+
+  const STATUS_TABS = [
+    { key: '', label: t('common.all') },
+    { key: 'PENDING', label: t('logistics.statusPending') },
+    { key: 'IN_TRANSIT', label: t('logistics.statusInTransit') },
+    { key: 'ARRIVED', label: t('logistics.statusArrived') },
+    { key: 'CLEARED', label: t('logistics.statusCleared') },
+    { key: 'CANCELLED', label: t('logistics.statusCancelled') },
+  ]
 
   const { data, isLoading } = useQuery<{ items: Shipment[]; total: number }>({
     queryKey: ['shipments'],
@@ -160,7 +166,7 @@ export default function LogisticsPage() {
 
   const columns: ColumnsType<Shipment> = [
     {
-      title: 'Tracking #',
+      title: t('logistics.trackingNumber'),
       dataIndex: 'trackingNumber',
       width: 160,
       render: (v) => v
@@ -168,38 +174,38 @@ export default function LogisticsPage() {
         : <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
-      title: 'Carrier',
+      title: t('logistics.carrier'),
       dataIndex: 'carrier',
       width: 110,
       render: (v) => v ?? <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
-      title: 'Type',
+      title: t('logistics.type'),
       dataIndex: 'shipmentType',
       width: 90,
       render: (v) => <TypeBadge type={v} />,
     },
     {
-      title: 'Destination',
+      title: t('logistics.destination'),
       dataIndex: 'destination',
       width: 140,
       render: (v) => v ?? <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
-      title: 'Status',
+      title: t('common.status'),
       dataIndex: 'status',
       width: 120,
       render: (v: string) => <StatusBadge status={v} />,
     },
     {
-      title: 'Weight (kg)',
+      title: t('logistics.weight'),
       dataIndex: 'weightKg',
       width: 110,
       align: 'right',
       render: (v) => v != null ? Number(v).toFixed(2) : <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
-      title: 'Cost',
+      title: t('logistics.cost'),
       dataIndex: 'cost',
       width: 110,
       align: 'right',
@@ -208,13 +214,13 @@ export default function LogisticsPage() {
         : <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
-      title: 'ETA',
+      title: t('logistics.eta'),
       dataIndex: 'estimatedArrival',
       width: 120,
       render: (v) => v ? dayjs(v).format('MMM D, YYYY') : <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
-      title: 'Warehouse',
+      title: t('logistics.warehouse'),
       dataIndex: ['warehouse', 'name'],
       width: 130,
       render: (v, r) => (
@@ -248,8 +254,8 @@ export default function LogisticsPage() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>First-Leg Shipments</h1>
-            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Track inbound logistics from suppliers</p>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{t('logistics.title')}</h1>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>{t('logistics.subtitle')}</p>
           </div>
           <Button
             type="primary"
@@ -257,7 +263,7 @@ export default function LogisticsPage() {
             onClick={openCreate}
             style={{ background: 'var(--accent-gradient)', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
           >
-            New Shipment
+            {t('logistics.newShipment')}
           </Button>
         </div>
       </div>
@@ -300,7 +306,7 @@ export default function LogisticsPage() {
           pagination={{
             pageSize: 20,
             showSizeChanger: false,
-            showTotal: (total) => `${total.toLocaleString()} records`,
+            showTotal: (total) => t('common.records', { count: total }),
             style: { padding: '12px 20px' },
           }}
           scroll={{ x: 'max-content' }}
@@ -308,8 +314,8 @@ export default function LogisticsPage() {
             emptyText: (
               <div style={{ padding: '48px 0', textAlign: 'center' }}>
                 <TruckOutlined style={{ fontSize: 40, color: 'var(--text-muted)', display: 'block', margin: '0 auto 12px' }} />
-                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>No shipments</div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>Create your first shipment to track inbound logistics</div>
+                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-secondary)' }}>{t('logistics.noShipments')}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>{t('logistics.noShipmentsHint')}</div>
               </div>
             ),
           }}
@@ -320,7 +326,7 @@ export default function LogisticsPage() {
       <Modal
         title={
           <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
-            {editingShipment ? 'Edit Shipment' : 'New Shipment'}
+            {editingShipment ? t('logistics.editShipment') : t('logistics.newShipment')}
           </span>
         }
         open={modalOpen}
@@ -332,61 +338,63 @@ export default function LogisticsPage() {
         onOk={handleSubmit}
         confirmLoading={createMutation.isPending || updateMutation.isPending}
         okButtonProps={{ style: { background: 'var(--accent-gradient)', border: 'none', borderRadius: 8 } }}
+        cancelText={t('common.cancel')}
+        okText={editingShipment ? t('common.save') : t('common.create')}
         width={600}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           {!editingShipment && (
-            <Form.Item name="warehouseId" label="Warehouse" rules={[{ required: true }]}>
+            <Form.Item name="warehouseId" label={t('logistics.warehouse')} rules={[{ required: true }]}>
               <Select
                 options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
-                placeholder="Select warehouse"
+                placeholder={t('inventory.selectWarehouse')}
               />
             </Form.Item>
           )}
           <Space style={{ width: '100%' }} size={12}>
-            <Form.Item name="trackingNumber" label="Tracking Number" style={{ flex: 1 }}>
+            <Form.Item name="trackingNumber" label={t('logistics.trackingNumber')} style={{ flex: 1 }}>
               <Input style={{ fontFamily: 'monospace' }} />
             </Form.Item>
-            <Form.Item name="carrier" label="Carrier" style={{ flex: 1 }}>
+            <Form.Item name="carrier" label={t('logistics.carrier')} style={{ flex: 1 }}>
               <Input />
             </Form.Item>
           </Space>
           <Space style={{ width: '100%' }} size={12}>
-            <Form.Item name="shipmentType" label="Type" style={{ flex: 1 }}>
+            <Form.Item name="shipmentType" label={t('logistics.type')} style={{ flex: 1 }}>
               <Select options={[
-                { value: 'SEA', label: 'Sea' },
-                { value: 'AIR', label: 'Air' },
-                { value: 'RAIL', label: 'Rail' },
+                { value: 'SEA', label: t('logistics.typeSea') },
+                { value: 'AIR', label: t('logistics.typeAir') },
+                { value: 'RAIL', label: t('logistics.typeRail') },
               ]} />
             </Form.Item>
-            <Form.Item name="destination" label="Destination" style={{ flex: 1 }}>
+            <Form.Item name="destination" label={t('logistics.destination')} style={{ flex: 1 }}>
               <Input />
             </Form.Item>
           </Space>
           {editingShipment && (
-            <Form.Item name="status" label="Status">
+            <Form.Item name="status" label={t('common.status')}>
               <Select options={[
-                { value: 'PENDING', label: 'Pending' },
-                { value: 'IN_TRANSIT', label: 'In Transit' },
-                { value: 'ARRIVED', label: 'Arrived' },
-                { value: 'CLEARED', label: 'Cleared' },
-                { value: 'CANCELLED', label: 'Cancelled' },
+                { value: 'PENDING', label: t('logistics.statusPending') },
+                { value: 'IN_TRANSIT', label: t('logistics.statusInTransit') },
+                { value: 'ARRIVED', label: t('logistics.statusArrived') },
+                { value: 'CLEARED', label: t('logistics.statusCleared') },
+                { value: 'CANCELLED', label: t('logistics.statusCancelled') },
               ]} />
             </Form.Item>
           )}
           <Space style={{ width: '100%' }} size={12}>
-            <Form.Item name="weightKg" label="Weight (kg)" style={{ flex: 1 }}>
+            <Form.Item name="weightKg" label={t('logistics.weight')} style={{ flex: 1 }}>
               <InputNumber min={0} precision={3} style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item name="volumeCbm" label="Volume (CBM)" style={{ flex: 1 }}>
+            <Form.Item name="volumeCbm" label={t('logistics.volume')} style={{ flex: 1 }}>
               <InputNumber min={0} precision={4} style={{ width: '100%' }} />
             </Form.Item>
           </Space>
           <Space style={{ width: '100%' }} size={12}>
-            <Form.Item name="cost" label="Cost" style={{ flex: 1 }}>
+            <Form.Item name="cost" label={t('logistics.cost')} style={{ flex: 1 }}>
               <InputNumber min={0} precision={2} style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item name="currency" label="Currency" initialValue="USD" style={{ flex: 1 }}>
+            <Form.Item name="currency" label={t('logistics.currency')} initialValue="USD" style={{ flex: 1 }}>
               <Select options={[
                 { value: 'USD', label: 'USD' },
                 { value: 'CNY', label: 'CNY' },
@@ -394,7 +402,7 @@ export default function LogisticsPage() {
               ]} />
             </Form.Item>
           </Space>
-          <Form.Item name="notes" label="Notes">
+          <Form.Item name="notes" label={t('logistics.notes')}>
             <Input.TextArea rows={3} />
           </Form.Item>
         </Form>

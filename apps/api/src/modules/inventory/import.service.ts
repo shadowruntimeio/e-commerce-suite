@@ -249,7 +249,7 @@ export async function parseWorkbook(buffer: Buffer, mode: ImportMode): Promise<{
 // apply endpoint looks up the token + reruns writes in a single transaction.
 // 10-minute TTL is long enough for a user to review the diff and confirm, short
 // enough that memory doesn't bloat if they walk away.
-const previewCache = new Map<string, { tenantId: string; userId: string; mode: ImportMode; rows: any[]; expiresAt: number }>()
+const previewCache = new Map<string, { tenantId: string; userId: string; ownerUserId: string; mode: ImportMode; rows: any[]; expiresAt: number }>()
 
 function cleanPreviewCache() {
   const now = Date.now()
@@ -265,6 +265,7 @@ function randomToken(): string {
 export async function previewImport(opts: {
   tenantId: string
   userId: string
+  ownerUserId: string
   mode: ImportMode
   buffer: Buffer
 }): Promise<PreviewResult> {
@@ -282,7 +283,10 @@ export async function previewImport(opts: {
   const warehouseMap = new Map(warehouses.map((w) => [w.name, w.id]))
 
   const skus = await prisma.systemSku.findMany({
-    where: { skuCode: { in: skuCodes }, systemProduct: { tenantId: opts.tenantId } },
+    where: {
+      skuCode: { in: skuCodes },
+      systemProduct: { tenantId: opts.tenantId, ownerUserId: opts.ownerUserId },
+    },
     include: {
       systemProduct: { include: { category: { select: { name: true } } } },
     },
@@ -390,6 +394,7 @@ export async function previewImport(opts: {
   previewCache.set(token, {
     tenantId: opts.tenantId,
     userId: opts.userId,
+    ownerUserId: opts.ownerUserId,
     mode: opts.mode,
     rows: previewRows,
     expiresAt,
@@ -432,15 +437,19 @@ export async function applyImport(opts: { tenantId: string; userId: string; toke
       categoryId = cat.id
     }
 
-    // Find or create SystemProduct + SystemSku
-    let sku = await prisma.systemSku.findUnique({
-      where: { skuCode: row.skuCode },
+    // Find or create SystemProduct + SystemSku (scoped to merchant)
+    let sku = await prisma.systemSku.findFirst({
+      where: {
+        skuCode: row.skuCode,
+        systemProduct: { tenantId: opts.tenantId, ownerUserId: session.ownerUserId },
+      },
       include: { systemProduct: true },
     })
     if (!sku) {
       const product = await prisma.systemProduct.create({
         data: {
           tenantId: opts.tenantId,
+          ownerUserId: session.ownerUserId,
           spuCode: row.skuCode,
           name: row.productName ?? row.skuCode,
           categoryId,
@@ -471,7 +480,11 @@ export async function applyImport(opts: { tenantId: string; userId: string; toke
     })
     if (!wsku) {
       wsku = await prisma.warehouseSku.create({
-        data: { systemSkuId: sku.id, warehouseId: row.warehouseId },
+        data: {
+          systemSkuId: sku.id,
+          warehouseId: row.warehouseId,
+          ownerUserId: session.ownerUserId,
+        },
       })
     }
 

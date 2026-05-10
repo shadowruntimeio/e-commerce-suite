@@ -2,39 +2,17 @@ import { prisma, Prisma } from '@ems/db'
 import type { InventoryEventType, AdjustmentReason, StockRow } from '@ems/shared'
 
 export async function getCurrentStock(warehouseSkuId: string) {
-  // Get latest snapshot
-  const snapshot = await prisma.inventorySnapshot.findFirst({
-    where: { warehouseSkuId },
-    orderBy: { snapshotAt: 'desc' },
+  // Read denormalized counters directly from WarehouseSku (kept in sync by
+  // createInventoryEvent). Snapshot table is no longer the primary source.
+  const wsku = await prisma.warehouseSku.findUnique({
+    where: { id: warehouseSkuId },
+    select: { quantityOnHand: true, quantityReserved: true },
   })
-
-  if (!snapshot) {
-    // No snapshot yet — compute from all events
-    const events = await prisma.inventoryEvent.findMany({ where: { warehouseSkuId } })
-    const onHand = events.reduce((sum: number, e: { quantityDelta: number }) => sum + e.quantityDelta, 0)
-    return { quantityOnHand: onHand, quantityReserved: 0, quantityAvailable: onHand }
-  }
-
-  // Sum events since the snapshot
-  const eventsSince = await prisma.inventoryEvent.findMany({
-    where: { warehouseSkuId, createdAt: { gt: snapshot.snapshotAt } },
-  })
-
-  type EventRow = { eventType: string; quantityDelta: number }
-  const deltaOnHand = (eventsSince as EventRow[])
-    .filter((e) => ['INBOUND', 'OUTBOUND', 'TRANSFER_IN', 'TRANSFER_OUT', 'ADJUSTMENT', 'RETURN'].includes(e.eventType))
-    .reduce((sum, e) => sum + e.quantityDelta, 0)
-
-  const deltaReserved = (eventsSince as EventRow[])
-    .filter((e) => ['RESERVED', 'UNRESERVED'].includes(e.eventType))
-    .reduce((sum, e) => sum + e.quantityDelta, 0)
-
-  const onHand = snapshot.quantityOnHand + deltaOnHand
-  const reserved = snapshot.quantityReserved + deltaReserved
+  if (!wsku) return { quantityOnHand: 0, quantityReserved: 0, quantityAvailable: 0 }
   return {
-    quantityOnHand: onHand,
-    quantityReserved: reserved,
-    quantityAvailable: onHand - reserved,
+    quantityOnHand: wsku.quantityOnHand,
+    quantityReserved: wsku.quantityReserved,
+    quantityAvailable: wsku.quantityOnHand - wsku.quantityReserved,
   }
 }
 
@@ -50,7 +28,95 @@ export async function createInventoryEvent(data: {
   notes?: string
   createdBy?: string
 }) {
-  return prisma.inventoryEvent.create({ data })
+  // Append event AND update the denormalized counters on WarehouseSku in one tx
+  return prisma.$transaction(async (tx) => {
+    const event = await tx.inventoryEvent.create({ data })
+    if (['INBOUND', 'OUTBOUND', 'TRANSFER_IN', 'TRANSFER_OUT', 'ADJUSTMENT', 'RETURN'].includes(data.eventType)) {
+      await tx.warehouseSku.update({
+        where: { id: data.warehouseSkuId },
+        data: { quantityOnHand: { increment: data.quantityDelta } },
+      })
+    } else if (data.eventType === 'RESERVED') {
+      // delta is negative (stock reserved away from available)
+      await tx.warehouseSku.update({
+        where: { id: data.warehouseSkuId },
+        data: { quantityReserved: { increment: -data.quantityDelta } },
+      })
+    } else if (data.eventType === 'UNRESERVED') {
+      await tx.warehouseSku.update({
+        where: { id: data.warehouseSkuId },
+        data: { quantityReserved: { increment: -data.quantityDelta } }, // delta positive → reserved decreases
+      })
+    }
+    return event
+  })
+}
+
+// Reserve stock for each order item for a merchant. Best-effort: if SKU is not
+// in the warehouse's catalog yet, log and skip (warehouse staff will resolve it
+// when picking).
+export async function reserveStockForOrder(orderId: string, tenantId: string, actorUserId: string) {
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, tenantId },
+    include: {
+      shop: { select: { ownerUserId: true } },
+      items: {
+        select: {
+          id: true, systemSkuId: true, sellerSku: true, quantity: true,
+        },
+      },
+    },
+  })
+  if (!order) return
+  const ownerUserId = order.shop.ownerUserId
+
+  for (const item of order.items) {
+    const sysSkuId = item.systemSkuId
+    if (!sysSkuId) continue
+
+    const warehouseSku = await prisma.warehouseSku.findFirst({
+      where: { systemSkuId: sysSkuId, ownerUserId },
+      select: { id: true, warehouseId: true },
+    })
+    if (!warehouseSku) continue
+
+    // Don't fail if reservation pushes into negative — warehouse should still
+    // see the order. Just track the intent.
+    await createInventoryEvent({
+      tenantId,
+      warehouseSkuId: warehouseSku.id,
+      warehouseId: warehouseSku.warehouseId,
+      eventType: 'RESERVED',
+      quantityDelta: -item.quantity,
+      referenceType: 'order',
+      referenceId: orderId,
+      createdBy: actorUserId,
+    })
+  }
+}
+
+export async function releaseStockForOrder(orderId: string, tenantId: string, actorUserId: string) {
+  const events = await prisma.inventoryEvent.findMany({
+    where: {
+      tenantId,
+      referenceType: 'order',
+      referenceId: orderId,
+      eventType: 'RESERVED',
+    },
+    select: { warehouseSkuId: true, warehouseId: true, quantityDelta: true },
+  })
+  for (const e of events) {
+    await createInventoryEvent({
+      tenantId,
+      warehouseSkuId: e.warehouseSkuId,
+      warehouseId: e.warehouseId,
+      eventType: 'UNRESERVED',
+      quantityDelta: -e.quantityDelta, // sign-flip: reserved was negative, unreserve is positive
+      referenceType: 'order',
+      referenceId: orderId,
+      createdBy: actorUserId,
+    })
+  }
 }
 
 export interface StockListFilters {
@@ -59,16 +125,18 @@ export interface StockListFilters {
   categoryId?: string
   skuSearch?: string
   lowStockOnly?: boolean
+  ownerUserId?: string  // optional merchant filter
   page: number
   pageSize: number
 }
 
 export async function getStockList(filters: StockListFilters): Promise<{ items: StockRow[]; total: number }> {
-  const { tenantId, warehouseId, categoryId, skuSearch, lowStockOnly, page, pageSize } = filters
+  const { tenantId, warehouseId, categoryId, skuSearch, lowStockOnly, ownerUserId, page, pageSize } = filters
 
   const where: Prisma.WarehouseSkuWhereInput = {
     warehouse: { tenantId, isActive: true },
     ...(warehouseId ? { warehouseId } : {}),
+    ...(ownerUserId ? { ownerUserId } : {}),
     ...(categoryId ? { systemSku: { systemProduct: { categoryId } } } : {}),
     ...(skuSearch
       ? {
@@ -92,6 +160,7 @@ export async function getStockList(filters: StockListFilters): Promise<{ items: 
     where,
     include: {
       warehouse: { select: { id: true, name: true } },
+      owner: { select: { id: true, name: true, email: true } },
       systemSku: {
         select: {
           id: true,
@@ -127,6 +196,8 @@ export async function getStockList(filters: StockListFilters): Promise<{ items: 
         warehouseSkuId: row.id,
         warehouseId: row.warehouseId,
         warehouseName: row.warehouse.name,
+        ownerUserId: row.ownerUserId,
+        ownerName: row.owner?.name ?? null,
         systemSkuId: row.systemSku.id,
         skuCode: row.systemSku.skuCode,
         productName: row.systemSku.systemProduct.name,
@@ -137,7 +208,7 @@ export async function getStockList(filters: StockListFilters): Promise<{ items: 
         quantityAvailable: stock.quantityAvailable,
         reorderPoint: row.reorderPoint,
         lastEventAt: lastEvent?.createdAt.toISOString() ?? null,
-      } satisfies StockRow
+      } as StockRow
     })
   )
 

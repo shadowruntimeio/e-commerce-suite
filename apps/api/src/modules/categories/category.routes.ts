@@ -19,7 +19,7 @@ export async function categoryRoutes(app: FastifyInstance) {
     return { success: true, data: categories }
   })
 
-  app.post('/', { preHandler: requireRoles(['ADMIN', 'MANAGER', 'OPERATOR']) }, async (request, reply) => {
+  app.post('/', { preHandler: requireRoles(['ADMIN', 'WAREHOUSE_STAFF']) }, async (request, reply) => {
     const body = createCategorySchema.parse(request.body)
     const existing = await prisma.productCategory.findUnique({
       where: { tenantId_name: { tenantId: request.user.tenantId, name: body.name } },

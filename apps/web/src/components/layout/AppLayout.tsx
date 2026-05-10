@@ -1,14 +1,15 @@
 import React from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Avatar, Dropdown, Badge, Tooltip } from 'antd'
+import { Layout, Avatar, Dropdown, Tooltip } from 'antd'
 import {
   DashboardOutlined, ShoppingCartOutlined, AppstoreOutlined,
   InboxOutlined, ShopOutlined, LogoutOutlined, BankOutlined,
-  BarChartOutlined, TruckOutlined, BellOutlined,
+  BarChartOutlined, TruckOutlined,
   MoonOutlined, SunOutlined, TranslationOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined,
+  TeamOutlined, AuditOutlined, RollbackOutlined,
 } from '@ant-design/icons'
-import { useAuthStore } from '../../store/auth.store'
+import { useAuthStore, hasCapability, type UserRole, type Capability } from '../../store/auth.store'
 import { useSettingsStore } from '../../store/settings.store'
 import { useTranslation } from 'react-i18next'
 
@@ -18,8 +19,16 @@ const { Content, Header } = Layout
 const SIDEBAR_COLLAPSED_W = 80
 const SIDEBAR_EXPANDED_W = 256
 
-interface NavItem { key: string; icon: React.ReactNode; labelKey: string }
-interface NavGroup { groupKey: string; items: NavItem[] }
+interface NavItem {
+  key: string
+  icon: React.ReactNode
+  labelKey: string
+  // Visible if the user is in `roles` AND (no `caps` OR has at least one cap).
+  // ADMIN always passes.
+  roles?: UserRole[]
+  caps?: Capability[]
+}
+interface NavGroup { groupKey: string; items: NavItem[]; roles?: UserRole[] }
 
 const navGroups: NavGroup[] = [
   {
@@ -29,20 +38,21 @@ const navGroups: NavGroup[] = [
   {
     groupKey: 'sales',
     items: [
-      { key: '/orders', icon: <ShoppingCartOutlined />, labelKey: 'nav.orders' },
+      { key: '/orders', icon: <ShoppingCartOutlined />, labelKey: 'nav.orders', caps: ['ORDER_VIEW'] },
+      { key: '/returns', icon: <RollbackOutlined />, labelKey: 'nav.returns' },
     ],
   },
   {
     groupKey: 'products',
     items: [
       { key: '/products', icon: <AppstoreOutlined />, labelKey: 'nav.productsMenu' },
-      { key: '/inventory', icon: <InboxOutlined />, labelKey: 'nav.inventory' },
+      { key: '/inventory', icon: <InboxOutlined />, labelKey: 'nav.inventory', caps: ['INVENTORY_VIEW'] },
     ],
   },
   {
     groupKey: 'analytics',
     items: [
-      { key: '/reports/sales', icon: <BarChartOutlined />, labelKey: 'nav.salesReport' },
+      { key: '/reports/sales', icon: <BarChartOutlined />, labelKey: 'nav.salesReport', roles: ['ADMIN', 'WAREHOUSE_STAFF'] },
     ],
   },
   {
@@ -54,8 +64,16 @@ const navGroups: NavGroup[] = [
   {
     groupKey: 'operations',
     items: [
-      { key: '/warehouses', icon: <BankOutlined />, labelKey: 'nav.warehouses' },
-      { key: '/logistics', icon: <TruckOutlined />, labelKey: 'nav.logistics' },
+      { key: '/warehouses', icon: <BankOutlined />, labelKey: 'nav.warehouses', roles: ['ADMIN', 'WAREHOUSE_STAFF'] },
+      { key: '/logistics', icon: <TruckOutlined />, labelKey: 'nav.logistics', roles: ['ADMIN', 'WAREHOUSE_STAFF'] },
+    ],
+  },
+  {
+    groupKey: 'admin',
+    roles: ['ADMIN'],
+    items: [
+      { key: '/admin/users', icon: <TeamOutlined />, labelKey: 'nav.adminUsers', roles: ['ADMIN'] },
+      { key: '/admin/audit', icon: <AuditOutlined />, labelKey: 'nav.adminAudit', roles: ['ADMIN'] },
     ],
   },
 ]
@@ -69,6 +87,9 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   '/shops': 'pageTitles.shops',
   '/logistics': 'pageTitles.logistics',
   '/warehouses': 'pageTitles.warehouses',
+  '/admin/users': 'pageTitles.adminUsers',
+  '/admin/audit': 'pageTitles.adminAudit',
+  '/returns': 'pageTitles.returns',
 }
 
 // ─── SideNavItem ──────────────────────────────────────────────────────────────
@@ -237,35 +258,49 @@ export function AppLayout() {
 
         {/* Nav groups */}
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 0' }}>
-          {navGroups.map((group) => (
-            <div key={group.groupKey}>
-              <div style={{
-                padding: isExpanded ? '14px 20px 4px' : '14px 0 4px',
-                fontSize: 9,
-                fontWeight: 700,
-                letterSpacing: '0.1em',
-                color: 'var(--sidebar-group-label)',
-                userSelect: 'none',
-                textAlign: isExpanded ? 'left' : 'center',
-                textTransform: 'uppercase',
-                overflow: 'hidden',
-                whiteSpace: 'nowrap',
-                transition: 'padding 0.2s, text-align 0.2s',
-              }}>
-                {isExpanded ? t(`nav.${group.groupKey}`) : '·'}
+          {navGroups.map((group) => {
+            // Filter group by role
+            if (group.roles && user && !group.roles.includes(user.role)) return null
+            const items = group.items.filter((item) => {
+              if (!user) return false
+              if (user.role === 'ADMIN') return true
+              if (item.roles && !item.roles.includes(user.role)) return false
+              // Merchants always pass cap checks — they're scoped to own resources at API.
+              if (user.role === 'MERCHANT') return true
+              if (item.caps && !item.caps.some((c) => hasCapability(user, c))) return false
+              return true
+            })
+            if (items.length === 0) return null
+            return (
+              <div key={group.groupKey}>
+                <div style={{
+                  padding: isExpanded ? '14px 20px 4px' : '14px 0 4px',
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: '0.1em',
+                  color: 'var(--sidebar-group-label)',
+                  userSelect: 'none',
+                  textAlign: isExpanded ? 'left' : 'center',
+                  textTransform: 'uppercase',
+                  overflow: 'hidden',
+                  whiteSpace: 'nowrap',
+                  transition: 'padding 0.2s, text-align 0.2s',
+                }}>
+                  {isExpanded ? t(`nav.${group.groupKey}`) : '·'}
+                </div>
+                {items.map((item) => (
+                  <SideNavItem
+                    key={item.key}
+                    icon={item.icon}
+                    label={t(item.labelKey)}
+                    isActive={location.pathname === item.key}
+                    onClick={() => navigate(item.key)}
+                    isExpanded={isExpanded}
+                  />
+                ))}
               </div>
-              {group.items.map((item) => (
-                <SideNavItem
-                  key={item.key}
-                  icon={item.icon}
-                  label={t(item.labelKey)}
-                  isActive={location.pathname === item.key}
-                  onClick={() => navigate(item.key)}
-                  isExpanded={isExpanded}
-                />
-              ))}
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         {/* User section */}
@@ -309,7 +344,7 @@ export function AppLayout() {
               <div style={{ color: 'var(--sidebar-title-color)', fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
                 {user?.name ?? 'User'}
               </div>
-              <div style={{ color: 'var(--sidebar-muted-color)', fontSize: 11, lineHeight: 1.3 }}>{t('nav.administrator')}</div>
+              <div style={{ color: 'var(--sidebar-muted-color)', fontSize: 11, lineHeight: 1.3 }}>{user?.role ? t(`nav.role.${user.role}`) : t('nav.administrator')}</div>
             </div>
             {isExpanded && (
               <span
@@ -393,19 +428,6 @@ export function AppLayout() {
               </button>
             </Tooltip>
 
-            {/* Notifications */}
-            <Badge count={3} size="small" offset={[-2, 2]}>
-              <button style={{
-                width: 36, height: 36, borderRadius: 8,
-                border: '1px solid var(--header-btn-border)', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', background: 'var(--header-btn-bg)',
-                color: 'var(--header-btn-color)',
-              }}>
-                <BellOutlined style={{ fontSize: 16 }} />
-              </button>
-            </Badge>
-
             <div style={{ width: 1, height: 24, background: 'var(--divider)', margin: '0 4px' }} />
 
             {/* User chip */}
@@ -419,11 +441,14 @@ export function AppLayout() {
                 }],
               }}
               placement="bottomRight"
+              trigger={['click']}
             >
               <div style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '4px 10px 4px 4px', borderRadius: 8, cursor: 'pointer',
-                border: '1px solid var(--header-btn-border)', background: 'var(--header-btn-bg)',
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                padding: '4px 12px 4px 4px', borderRadius: 999, cursor: 'pointer',
+                background: 'transparent',
+                maxWidth: 200,
+                userSelect: 'none',
               }}>
                 <Avatar
                   size={28}
@@ -431,11 +456,20 @@ export function AppLayout() {
                     background: 'var(--accent-gradient)',
                     fontSize: 11,
                     fontWeight: 700,
+                    flexShrink: 0,
                   }}
                 >
                   {initials}
                 </Avatar>
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--header-text)' }}>
+                <span style={{
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: 'var(--header-text)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: 140,
+                }}>
                   {user?.name}
                 </span>
               </div>
