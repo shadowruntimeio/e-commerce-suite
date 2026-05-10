@@ -154,6 +154,8 @@ model Tenant {
   orderRules       OrderRule[]
   restockingSuggestions RestockingSuggestion[]
   auditLogs        AuditLog[]
+  inboundShipments InboundShipment[]
+  notifications    MerchantNotification[]
 
   @@map("tenants")
 }
@@ -182,6 +184,9 @@ model User {
   ownedProducts       SystemProduct[]     @relation("ProductOwner")
   ownedWarehouseSkus  WarehouseSku[]      @relation("WhSkuOwner")
   auditLogs           AuditLog[]
+  ownedShipments      InboundShipment[]   @relation("ShipmentOwner")
+  reviewedShipments   InboundShipment[]   @relation("ShipmentReviewer")
+  notifications       MerchantNotification[] @relation("UserNotifications")
 
   @@unique([tenantId, email])
   @@map("users")
@@ -287,6 +292,7 @@ model SystemSku {
   orderItems          OrderItem[]
   purchaseOrderItems  PurchaseOrderItem[]
   restockingSuggestions RestockingSuggestion[]
+  inboundShipmentItems InboundShipmentItem[]
 
   @@unique([systemProductId, skuCode])
   @@map("system_skus")
@@ -350,6 +356,7 @@ model Warehouse {
   inventoryEvents     InventoryEvent[]
   inventorySnapshots  InventorySnapshot[]
   inboundOrders       InboundOrder[]
+  inboundShipments    InboundShipment[]
   purchaseOrders      PurchaseOrder[]
   outboundWaves       OutboundWave[]
   firstLegShipments   FirstLegShipment[]
@@ -805,6 +812,91 @@ model FirstLegShipment {
 
   @@index([tenantId, status])
   @@map("first_leg_shipments")
+}
+
+// ─── Merchant inbound shipments ────────────────────────────────────────────
+// A MERCHANT submits inventory through an Inbound Shipment: they upload an
+// Excel of SKU + qty, fill in carrier/tracking + ship date, submit. The
+// shipment lands in PENDING_REVIEW. Warehouse staff confirm on arrival,
+// optionally adjusting per-SKU quantities. Inventory is only written when
+// a shipment is CONFIRMED. WAREHOUSE_STAFF / ADMIN keep the direct-write
+// import path (no shipment created).
+
+enum InboundShipmentStatus {
+  PENDING_REVIEW
+  CONFIRMED
+  REJECTED
+}
+
+model InboundShipment {
+  id               String                @id @default(cuid())
+  tenantId         String
+  ownerUserId      String                // submitting merchant
+  warehouseId      String                // destination warehouse
+  status           InboundShipmentStatus @default(PENDING_REVIEW)
+  shippedAt        DateTime              // 货物发出日期
+  carrier          String                // 快递公司
+  trackingNumber   String                // 快递单号
+  notes            String?
+  rejectReason     String?
+  submittedAt      DateTime              @default(now())
+  reviewedAt       DateTime?
+  reviewedByUserId String?
+
+  tenant    Tenant                @relation(fields: [tenantId], references: [id])
+  owner     User                  @relation("ShipmentOwner", fields: [ownerUserId], references: [id])
+  warehouse Warehouse             @relation(fields: [warehouseId], references: [id])
+  reviewer  User?                 @relation("ShipmentReviewer", fields: [reviewedByUserId], references: [id])
+  items     InboundShipmentItem[]
+
+  @@index([tenantId, status, submittedAt(sort: Desc)])
+  @@index([ownerUserId, submittedAt(sort: Desc)])
+  @@map("inbound_shipments")
+}
+
+model InboundShipmentItem {
+  id                String   @id @default(cuid())
+  inboundShipmentId String
+  systemSkuId       String
+  expectedQuantity  Int                   // merchant's claim
+  confirmedQuantity Int?                  // warehouse's actual count, set on confirm
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  shipment  InboundShipment @relation(fields: [inboundShipmentId], references: [id], onDelete: Cascade)
+  systemSku SystemSku       @relation(fields: [systemSkuId], references: [id])
+
+  @@index([inboundShipmentId])
+  @@map("inbound_shipment_items")
+}
+
+// ─── Merchant notifications ───────────────────────────────────────────────
+// Lightweight inbox for events targeted at a specific merchant — first user
+// is the SHIPMENT_QUANTITY_ADJUSTED case (warehouse confirmed but with a
+// different qty than declared) and SHIPMENT_REJECTED.
+
+enum MerchantNotificationType {
+  SHIPMENT_QUANTITY_ADJUSTED
+  SHIPMENT_REJECTED
+}
+
+model MerchantNotification {
+  id        String                   @id @default(cuid())
+  tenantId  String
+  userId    String                   // recipient (the merchant)
+  type      MerchantNotificationType
+  title     String
+  body      String?
+  payload   Json                     @default("{}")
+  readAt    DateTime?
+  createdAt DateTime                 @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation("UserNotifications", fields: [userId], references: [id])
+
+  @@index([userId, readAt, createdAt(sort: Desc)])
+  @@map("merchant_notifications")
 }
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────

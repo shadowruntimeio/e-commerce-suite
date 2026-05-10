@@ -8,6 +8,8 @@ import { categoryRoutes } from './modules/categories/category.routes'
 import { orderRoutes } from './modules/orders/order.routes'
 import { rulesRoutes } from './modules/orders/rules.routes'
 import { inventoryRoutes } from './modules/inventory/inventory.routes'
+import { inboundShipmentRoutes } from './modules/inventory/inbound-shipments.routes'
+import { notificationRoutes } from './modules/notifications/notifications.routes'
 import { warehouseRoutes } from './modules/warehouses/warehouse.routes'
 import { purchaseRoutes } from './modules/purchase/purchase.routes'
 import { restockingRoutes } from './modules/purchase/restocking.routes'
@@ -49,6 +51,8 @@ export async function buildApp() {
   await app.register(orderRoutes, { prefix: '/api/v1/orders' })
   await app.register(rulesRoutes, { prefix: '/api/v1/orders/rules' })
   await app.register(inventoryRoutes, { prefix: '/api/v1/inventory' })
+  await app.register(inboundShipmentRoutes, { prefix: '/api/v1/inventory/inbound-shipments' })
+  await app.register(notificationRoutes, { prefix: '/api/v1/notifications' })
   await app.register(warehouseRoutes, { prefix: '/api/v1/warehouses' })
   await app.register(purchaseRoutes, { prefix: '/api/v1/purchase' })
   await app.register(restockingRoutes, { prefix: '/api/v1/purchase/suggestions' })

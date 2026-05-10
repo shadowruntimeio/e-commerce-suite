@@ -19,6 +19,11 @@ export const AuditAction = {
   INVENTORY_RELEASE: 'inventory.release',
   INVENTORY_INBOUND: 'inventory.inbound',
   INVENTORY_OUTBOUND: 'inventory.outbound',
+  INVENTORY_ADJUSTED: 'inventory.adjusted',
+  INVENTORY_IMPORT_APPLIED: 'inventory.import_applied',
+  INBOUND_SHIPMENT_SUBMIT: 'inbound_shipment.submit',
+  INBOUND_SHIPMENT_CONFIRM: 'inbound_shipment.confirm',
+  INBOUND_SHIPMENT_REJECT: 'inbound_shipment.reject',
   // PO
   PO_CREATE: 'po.create',
   PO_APPROVE: 'po.approve',

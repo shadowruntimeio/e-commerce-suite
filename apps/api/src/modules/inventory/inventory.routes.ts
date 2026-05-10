@@ -274,6 +274,8 @@ export async function inventoryRoutes(app: FastifyInstance) {
       mode,
       warehouseNames: warehouses.map((w) => w.name),
       categoryNames: categories.map((c) => c.name),
+      // Merchants get a simplified template — every row is treated as INBOUND.
+      hideEventType: request.user.role === 'MERCHANT',
     })
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     reply.header('Content-Disposition', `attachment; filename="inventory-${mode}-template.xlsx"`)

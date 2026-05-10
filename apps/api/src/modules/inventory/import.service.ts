@@ -76,13 +76,19 @@ export async function generateTemplate(opts: {
   mode: ImportMode
   warehouseNames: string[]
   categoryNames: string[]
+  // When true (merchant accounts), drop the event_type column from the delta
+  // template — uploads default to INBOUND. Has no effect in absolute mode.
+  hideEventType?: boolean
 }): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook()
   workbook.creator = 'EMS'
   workbook.created = new Date()
 
   const sheet = workbook.addWorksheet(opts.mode === 'absolute' ? 'Stocktake' : 'Adjustment')
-  const headers = opts.mode === 'absolute' ? ABSOLUTE_COLUMNS : DELTA_COLUMNS
+  const deltaHeaders = opts.hideEventType
+    ? DELTA_COLUMNS.filter((c) => c !== 'event_type')
+    : DELTA_COLUMNS
+  const headers = opts.mode === 'absolute' ? ABSOLUTE_COLUMNS : deltaHeaders
   sheet.addRow(headers)
   sheet.getRow(1).font = { bold: true }
   sheet.columns.forEach((col) => { col.width = 18 })
@@ -113,6 +119,11 @@ export async function generateTemplate(opts: {
 
   if (opts.mode === 'absolute') {
     // warehouse_name=A, sku_code=B, product_name=C, category=D, counted_quantity=E, reason=F, notes=G
+    applyValidation('A', 'A', opts.warehouseNames.length)
+    applyValidation('D', 'B', opts.categoryNames.length)
+    applyValidation('F', 'D', ADJUSTMENT_REASONS.length)
+  } else if (opts.hideEventType) {
+    // warehouse_name=A, sku_code=B, product_name=C, category=D, quantity=E, reason=F, notes=G
     applyValidation('A', 'A', opts.warehouseNames.length)
     applyValidation('D', 'B', opts.categoryNames.length)
     applyValidation('F', 'D', ADJUSTMENT_REASONS.length)
@@ -171,7 +182,12 @@ export async function parseWorkbook(buffer: Buffer, mode: ImportMode): Promise<{
   const colIdx: Record<string, number> = {}
   for (const col of expected) {
     const idx = headers.indexOf(col)
-    if (idx === -1) throw new Error(`Missing required column: ${col}`)
+    if (idx === -1) {
+      // event_type is optional in delta mode — merchant templates omit it and
+      // we default the row to INBOUND below.
+      if (mode === 'delta' && col === 'event_type') continue
+      throw new Error(`Missing required column: ${col}`)
+    }
     colIdx[col] = idx
   }
 
@@ -216,9 +232,12 @@ export async function parseWorkbook(buffer: Buffer, mode: ImportMode): Promise<{
         notes,
       } satisfies ParsedRowAbsolute)
     } else {
-      const eventType = cellString(row.getCell(colIdx.event_type).value).toUpperCase() as InventoryEventType
+      const hasEventTypeCol = colIdx.event_type !== undefined
+      const eventType: InventoryEventType = hasEventTypeCol
+        ? (cellString(row.getCell(colIdx.event_type).value).toUpperCase() as InventoryEventType)
+        : 'INBOUND'
       const qty = cellNumber(row.getCell(colIdx.quantity).value)
-      if (!eventType || !EVENT_TYPES.includes(eventType)) {
+      if (hasEventTypeCol && (!eventType || !EVENT_TYPES.includes(eventType))) {
         errors.push({ row: r, error: `invalid event_type "${eventType}"` })
         continue
       }
