@@ -158,6 +158,8 @@ export default {
     cfCancelled: 'Cancelled by merchant',
     noOrders: 'No orders yet',
     noOrdersHint: 'Sync your shops to import orders',
+    footerOrders: 'Total orders:',
+    footerItems: 'Total items:',
     labelFailed: 'Failed to fetch shipping label',
     printing: 'Preparing shipping label…',
     printOpened: 'Label opened',

@@ -66,7 +66,7 @@ export async function orderRoutes(app: FastifyInstance) {
       // Sort by SKU first, then by creation date as a secondary key so rows
       // with the same SKU appear newest-first.
       : [{ firstSellerSku: { sort: dir as any, nulls: 'last' as const } }, { platformCreatedAt: 'desc' as const }]
-    const [items, total] = await Promise.all([
+    const [items, total, itemAgg] = await Promise.all([
       prisma.order.findMany({
         where,
         include: {
@@ -85,8 +85,15 @@ export async function orderRoutes(app: FastifyInstance) {
         orderBy,
       }),
       prisma.order.count({ where }),
+      // Sum of order item quantities across the entire filtered set (not just
+      // the current page) — drives the footer count alongside `total`.
+      prisma.orderItem.aggregate({
+        where: { order: where },
+        _sum: { quantity: true },
+      }),
     ])
-    return { success: true, data: { items, total, page: Number(page), pageSize: Number(pageSize), totalPages: Math.ceil(total / Number(pageSize)) } }
+    const totalItems = itemAgg._sum.quantity ?? 0
+    return { success: true, data: { items, total, totalItems, page: Number(page), pageSize: Number(pageSize), totalPages: Math.ceil(total / Number(pageSize)) } }
   })
 
   app.get('/:id', async (request, reply) => {

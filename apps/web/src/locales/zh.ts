@@ -158,6 +158,8 @@ export default {
     cfCancelled: '商家已取消',
     noOrders: '暂无订单',
     noOrdersHint: '请同步店铺以导入订单',
+    footerOrders: '订单总数：',
+    footerItems: '商品总数：',
     labelFailed: '获取运单失败',
     printing: '正在生成运单…',
     printOpened: '运单已打开',
