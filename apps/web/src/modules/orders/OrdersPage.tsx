@@ -1,7 +1,7 @@
 import { Table, Input, Select, Space, DatePicker, Button, Modal, Tag, Popconfirm } from 'antd'
 import {
   SyncOutlined, DownloadOutlined, EyeOutlined, ShoppingCartOutlined,
-  PrinterOutlined, CheckOutlined, CloseOutlined,
+  PrinterOutlined, CheckOutlined, CloseOutlined, SearchOutlined,
 } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
@@ -94,6 +94,8 @@ export default function OrdersPage() {
   const user = useAuthStore((s) => s.user)
   const merchantUser = isMerchant(user)
   const [statuses, setStatuses] = useState<string[]>(merchantUser ? [] : ['TO_SHIP'])
+  const [searchInput, setSearchInput] = useState('')
+  const [skuInput, setSkuInput] = useState('')
   const [search, setSearch] = useState('')
   const [sku, setSku] = useState('')
   const [shopId, setShopId] = useState<string | undefined>(undefined)
@@ -130,6 +132,12 @@ export default function OrdersPage() {
     setPage(1)
     if (key === '') { setStatuses([]); return }
     setStatuses((prev) => prev.includes(key) ? prev.filter((s) => s !== key) : [...prev, key])
+  }
+
+  function applyFilters() {
+    setSearch(searchInput.trim())
+    setSku(skuInput.trim())
+    setPage(1)
   }
 
   // Quiet sync: fire-and-forget trigger for all active shops, no UI. Used on
@@ -523,9 +531,23 @@ export default function OrdersPage() {
               icon={<SyncOutlined spin={syncing} />}
               loading={syncing}
               onClick={handleSyncNow}
-              style={{ background: 'var(--accent-gradient)', color: '#fff', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
+              style={{ background: 'var(--header-btn-bg)', color: 'var(--header-btn-color)', border: 'var(--header-btn-border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
             >
               {t('common.syncNow')}
+            </Button>
+            <Button
+              icon={<DownloadOutlined />}
+              style={{ background: 'var(--header-btn-bg)', color: 'var(--header-btn-color)', border: 'var(--header-btn-border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+            >
+              {t('common.export')}
+            </Button>
+            <Button
+              icon={<PrinterOutlined />}
+              loading={bulkPrinting}
+              onClick={handlePrintAll}
+              style={{ background: 'var(--accent-gradient)', color: '#fff', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
+            >
+              {t('orders.printAll')}
             </Button>
           </Space>
         </div>
@@ -559,16 +581,20 @@ export default function OrdersPage() {
 
       {/* Filter Bar */}
       <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', padding: '16px 20px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Input.Search
+        <Input
           placeholder={t('orders.searchPlaceholder')}
           allowClear
-          onSearch={(v) => { setSearch(v); setPage(1) }}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onPressEnter={applyFilters}
           style={{ width: 260 }}
         />
-        <Input.Search
+        <Input
           placeholder={t('orders.skuFilterPlaceholder')}
           allowClear
-          onSearch={(v) => { setSku(v); setPage(1) }}
+          value={skuInput}
+          onChange={(e) => setSkuInput(e.target.value)}
+          onPressEnter={applyFilters}
           style={{ width: 160 }}
         />
         {!merchantUser && (
@@ -603,22 +629,13 @@ export default function OrdersPage() {
           ]}
         />
         <DatePicker.RangePicker style={{ borderRadius: 8 }} />
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <Button
-            icon={<PrinterOutlined />}
-            loading={bulkPrinting}
-            onClick={handlePrintAll}
-            style={{ background: 'var(--accent-gradient)', color: '#fff', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
-          >
-            {t('orders.printAll')}
-          </Button>
-          <Button
-            icon={<DownloadOutlined />}
-            style={{ background: 'var(--header-btn-bg)', color: 'var(--header-btn-color)', border: 'var(--header-btn-border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
-          >
-            {t('common.export')}
-          </Button>
-        </div>
+        <Button
+          icon={<SearchOutlined />}
+          onClick={applyFilters}
+          style={{ background: 'var(--accent-gradient)', color: '#fff', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
+        >
+          {t('common.search')}
+        </Button>
       </div>
 
       {/* Filter totals — counts span the entire filtered set, not just the current page. */}
