@@ -590,6 +590,22 @@ export default function OrdersPage() {
         </div>
       </div>
 
+      {/* Filter totals — counts span the entire filtered set, not just the current page. */}
+      <div style={{
+        display: 'flex',
+        gap: 24,
+        marginBottom: 12,
+        padding: '10px 20px',
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+        borderRadius: 12,
+        fontSize: 13,
+        color: 'var(--text-secondary)',
+      }}>
+        <span>{t('orders.footerOrders')}<strong style={{ color: 'var(--text-primary)', marginLeft: 6 }}>{data?.total ?? 0}</strong></span>
+        <span>{t('orders.footerItems')}<strong style={{ color: 'var(--text-primary)', marginLeft: 6 }}>{data?.totalItems ?? 0}</strong></span>
+      </div>
+
       {/* Table */}
       <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
         <Table
@@ -631,19 +647,6 @@ export default function OrdersPage() {
             ),
           }}
         />
-        {/* Filter totals — counts span the entire filtered set, not just the current page. */}
-        <div style={{
-          padding: '12px 20px',
-          borderTop: '1px solid var(--border-light)',
-          display: 'flex',
-          gap: 24,
-          fontSize: 13,
-          color: 'var(--text-secondary)',
-          background: 'var(--bg-surface)',
-        }}>
-          <span>{t('orders.footerOrders')}<strong style={{ color: 'var(--text-primary)', marginLeft: 6 }}>{data?.total ?? 0}</strong></span>
-          <span>{t('orders.footerItems')}<strong style={{ color: 'var(--text-primary)', marginLeft: 6 }}>{data?.totalItems ?? 0}</strong></span>
-        </div>
       </div>
 
       <OrderDetailModal id={detailId} onClose={() => setDetailId(null)} />
