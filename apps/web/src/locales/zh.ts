@@ -256,6 +256,7 @@ export default {
     productName: '商品名称',
     category: '类别',
     onHand: '在手',
+    stock: '库存',
     reserved: '预留',
     available: '可用',
     reorderPoint: '补货点',

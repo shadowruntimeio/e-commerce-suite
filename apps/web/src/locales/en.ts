@@ -256,6 +256,7 @@ export default {
     productName: 'Product',
     category: 'Category',
     onHand: 'On Hand',
+    stock: 'Stock',
     reserved: 'Reserved',
     available: 'Available',
     reorderPoint: 'Reorder Pt.',

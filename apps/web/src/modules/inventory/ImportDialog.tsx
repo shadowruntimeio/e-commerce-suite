@@ -1,4 +1,4 @@
-import { Modal, Radio, Upload, Button, message, Table, Alert, Space, Tag } from 'antd'
+import { Modal, Upload, Button, message, Table, Alert, Space, Tag } from 'antd'
 import { InboxOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -6,8 +6,12 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { ColumnsType } from 'antd/es/table'
 import { api } from '../../lib/api'
 
-type Mode = 'absolute' | 'delta'
 type Step = 'select' | 'preview'
+
+// Only one import mode is exposed in the UI: delta (+/- adjustment). Absolute
+// "stocktake" mode is still wired on the backend but hidden — it's destructive
+// to invariants if a buyer ships during the upload window.
+const MODE = 'delta'
 
 type PreviewRow = {
   rowNumber: number
@@ -28,7 +32,7 @@ type PreviewRow = {
 }
 
 type PreviewResult = {
-  mode: Mode
+  mode: 'absolute' | 'delta'
   totalRows: number
   validRows: number
   errorRows: number
@@ -41,7 +45,6 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [step, setStep] = useState<Step>('select')
-  const [mode, setMode] = useState<Mode>('absolute')
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -63,7 +66,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
   async function downloadTemplate() {
     try {
       const res = await api.get('/inventory/import-template', {
-        params: { mode },
+        params: { mode: MODE },
         responseType: 'blob',
       })
       const blob = new Blob([res.data], {
@@ -72,7 +75,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `inventory-${mode}-template.xlsx`
+      a.download = `inventory-${MODE}-template.xlsx`
       a.click()
       URL.revokeObjectURL(url)
     } catch {
@@ -86,7 +89,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     try {
       const fd = new FormData()
       fd.append('file', file)
-      fd.append('mode', mode)
+      fd.append('mode', MODE)
       const res = await api.post('/inventory/import/preview', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
@@ -218,33 +221,27 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     >
       {step === 'select' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginTop: 12 }}>
-          <div>
-            <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: 8 }}>
-              {t('inventory.importMode')}
-            </label>
-            <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)}>
-              <Space direction="vertical">
-                <Radio value="absolute">
-                  <div style={{ fontWeight: 500 }}>{t('inventory.modeAbsoluteTitle')}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    {t('inventory.modeAbsoluteDesc')}
-                  </div>
-                </Radio>
-                <Radio value="delta">
-                  <div style={{ fontWeight: 500 }}>{t('inventory.modeDeltaTitle')}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                    {t('inventory.modeDeltaDesc')}
-                  </div>
-                </Radio>
-              </Space>
-            </Radio.Group>
-          </div>
-
-          <div>
-            <Button icon={<DownloadOutlined />} onClick={downloadTemplate}>
+          {/* Template download is the recommended first step — most users
+              don't have the right column layout off the cuff. Highlight it
+              with the accent gradient so it's the obvious next click. */}
+          <div style={{
+            background: 'rgba(204,151,255,0.08)',
+            border: '1px solid rgba(204,151,255,0.4)',
+            borderRadius: 10,
+            padding: '12px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}>
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={downloadTemplate}
+              style={{ background: 'var(--accent-gradient)', border: 'none', fontWeight: 600 }}
+            >
               {t('inventory.downloadTemplate')}
             </Button>
-            <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--text-secondary)' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', flex: 1 }}>
               {t('inventory.templateHint')}
             </span>
           </div>

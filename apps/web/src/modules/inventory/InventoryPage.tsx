@@ -1,5 +1,5 @@
-import { Table, Input, Select, Button, Space, Switch, Tooltip, message } from 'antd'
-import { InboxOutlined, UploadOutlined, EditOutlined, HistoryOutlined, DownloadOutlined } from '@ant-design/icons'
+import { Table, Input, Select, Button, Space, Switch, Tooltip } from 'antd'
+import { InboxOutlined, UploadOutlined, EditOutlined, HistoryOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -48,35 +48,6 @@ export default function InventoryPage() {
 
   const [editingRow, setEditingRow] = useState<string | null>(null)
   const [showImportDialog, setShowImportDialog] = useState(false)
-  const [exporting, setExporting] = useState(false)
-
-  async function handleExport() {
-    setExporting(true)
-    try {
-      const res = await api.get('/inventory/export', {
-        params: {
-          warehouseId: warehouseId || undefined,
-          categoryId: categoryId || undefined,
-          skuSearch: skuSearch.trim() || undefined,
-          lowStockOnly: lowStockOnly ? 'true' : undefined,
-        },
-        responseType: 'blob',
-      })
-      const blob = new Blob([res.data], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `stock-${dayjs().format('YYYY-MM-DD')}.xlsx`
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      void message.error(t('inventory.exportFailed'))
-    } finally {
-      setExporting(false)
-    }
-  }
 
   const { data: warehouses } = useQuery({
     queryKey: ['warehouses'],
@@ -142,7 +113,7 @@ export default function InventoryPage() {
       render: (v) => v ?? <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
-      title: t('inventory.onHand'),
+      title: t('inventory.stock'),
       dataIndex: 'quantityOnHand',
       align: 'right',
       render: (v, row) => {
@@ -158,24 +129,6 @@ export default function InventoryPage() {
           </span>
         )
       },
-    },
-    {
-      title: t('inventory.reserved'),
-      dataIndex: 'quantityReserved',
-      align: 'right',
-      render: (v) => <span style={{ color: 'var(--text-secondary)' }}>{v}</span>,
-    },
-    {
-      title: t('inventory.available'),
-      dataIndex: 'quantityAvailable',
-      align: 'right',
-      render: (v) => <span style={{ fontWeight: 500, color: v > 0 ? '#10B981' : 'var(--text-muted)' }}>{v}</span>,
-    },
-    {
-      title: t('inventory.reorderPoint'),
-      dataIndex: 'reorderPoint',
-      align: 'right',
-      render: (v) => <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{v}</span>,
     },
     {
       title: t('inventory.lastUpdated'),
@@ -213,14 +166,8 @@ export default function InventoryPage() {
               {t('inventory.history')}
             </Button>
           </Link>
-          <Button
-            icon={<DownloadOutlined />}
-            onClick={handleExport}
-            loading={exporting}
-            style={{ borderRadius: 8, height: 36, fontWeight: 500 }}
-          >
-            {t('inventory.export')}
-          </Button>
+          {/* Export hidden for now — re-enable when there's a clear use case
+              beyond debugging. Logic + endpoint kept intact. */}
           <Button
             type="primary"
             icon={<UploadOutlined />}

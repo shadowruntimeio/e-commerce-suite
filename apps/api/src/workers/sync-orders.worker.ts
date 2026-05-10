@@ -277,11 +277,11 @@ async function upsertOrder(
     return upserted
   })
 
-  // Deduct inventory once the order is "committed" — i.e. seller is on the
-  // hook for fulfillment. With statuses 1:1 to TikTok, that's everything from
-  // ON_HOLD onward. UNPAID, CANCELLED and the EXCEPTION/AFTER_SALES grab-bag
-  // never deduct. Idempotent — re-syncs are safe because
-  // deductInventoryForOrder skips when an OUTBOUND event already exists.
+  // Deduct inventory at courier pickup — the moment the package physically
+  // leaves the warehouse. That's the AWAITING_COLLECTION → IN_TRANSIT
+  // transition on TikTok. Earlier statuses (AWAITING_SHIPMENT, ON_HOLD…) only
+  // mean "label generated / waiting"; the goods haven't moved yet.
+  // Idempotent — re-syncs skip when an OUTBOUND event already exists.
   if (shouldDeductForStatus(platformOrder.status)) {
     await deductInventoryForOrder(order.id, tenantId, platformOrder.platformMetadata, 'TIKTOK')
   }
@@ -306,13 +306,13 @@ async function upsertOrder(
   }
 }
 
+// Deduct only after pickup — the goods have actually left the warehouse.
+// PARTIALLY_SHIPPING means at least one package was picked up, so it counts.
+// SHIPPED is the legacy bucket value (= IN_TRANSIT/DELIVERED) — kept so old
+// rows still trigger if they're seen again.
 const DEDUCTION_STATUSES = new Set([
-  // Legacy bucket statuses kept for backwards-compat with rows synced before
-  // the 1:1 mapping landed.
-  'PENDING', 'TO_SHIP', 'SHIPPED',
-  // 1:1 statuses where the seller is committed to fulfillment.
-  'ON_HOLD', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION', 'PARTIALLY_SHIPPING',
-  'IN_TRANSIT', 'DELIVERED', 'COMPLETED',
+  'PARTIALLY_SHIPPING', 'IN_TRANSIT', 'DELIVERED', 'COMPLETED',
+  'SHIPPED',
 ])
 
 function shouldDeductForStatus(status: string): boolean {
