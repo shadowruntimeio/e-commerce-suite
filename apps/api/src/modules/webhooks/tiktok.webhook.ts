@@ -23,19 +23,13 @@ const EVENT_ORDER_SHIPMENT = 4
 const EVENT_PRODUCT_STATUS_CHANGE = 5
 const EVENT_RETURN_STATUS_CHANGE = 10
 
+const TIKTOK_STATUSES = new Set([
+  'UNPAID', 'ON_HOLD', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION',
+  'PARTIALLY_SHIPPING', 'IN_TRANSIT', 'DELIVERED', 'COMPLETED', 'CANCELLED',
+])
+
 function mapOrderStatus(tiktokStatus: string): string {
-  switch (tiktokStatus) {
-    case 'UNPAID': return 'UNPAID'
-    case 'ON_HOLD':
-    case 'AWAITING_SHIPMENT':
-    case 'AWAITING_COLLECTION':
-    case 'PARTIALLY_SHIPPING': return 'TO_SHIP'
-    case 'IN_TRANSIT':
-    case 'DELIVERED': return 'SHIPPED'
-    case 'COMPLETED': return 'COMPLETED'
-    case 'CANCELLED': return 'CANCELLED'
-    default: return 'PENDING'
-  }
+  return TIKTOK_STATUSES.has(tiktokStatus) ? tiktokStatus : 'PENDING'
 }
 
 export async function tiktokWebhookRoutes(app: FastifyInstance) {

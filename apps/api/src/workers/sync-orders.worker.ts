@@ -277,12 +277,11 @@ async function upsertOrder(
     return upserted
   })
 
-  // Deduct inventory once the order reaches a "committed" status. PENDING is
-  // the first commit point (label / fulfillment arranged), SHIPPED is out the
-  // door, COMPLETED is delivered-and-closed. TO_SHIP is not yet committed;
-  // UNPAID / CANCELLED / EXCEPTION never deduct. Idempotent — re-syncs are
-  // safe because deductInventoryForOrder skips when an OUTBOUND event already
-  // exists for this order.
+  // Deduct inventory once the order is "committed" — i.e. seller is on the
+  // hook for fulfillment. With statuses 1:1 to TikTok, that's everything from
+  // ON_HOLD onward. UNPAID, CANCELLED and the EXCEPTION/AFTER_SALES grab-bag
+  // never deduct. Idempotent — re-syncs are safe because
+  // deductInventoryForOrder skips when an OUTBOUND event already exists.
   if (shouldDeductForStatus(platformOrder.status)) {
     await deductInventoryForOrder(order.id, tenantId, platformOrder.platformMetadata, 'TIKTOK')
   }
@@ -307,7 +306,14 @@ async function upsertOrder(
   }
 }
 
-const DEDUCTION_STATUSES = new Set(['PENDING', 'SHIPPED', 'COMPLETED'])
+const DEDUCTION_STATUSES = new Set([
+  // Legacy bucket statuses kept for backwards-compat with rows synced before
+  // the 1:1 mapping landed.
+  'PENDING', 'TO_SHIP', 'SHIPPED',
+  // 1:1 statuses where the seller is committed to fulfillment.
+  'ON_HOLD', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION', 'PARTIALLY_SHIPPING',
+  'IN_TRANSIT', 'DELIVERED', 'COMPLETED',
+])
 
 function shouldDeductForStatus(status: string): boolean {
   return DEDUCTION_STATUSES.has(status)

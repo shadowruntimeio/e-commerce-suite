@@ -12,10 +12,22 @@ import { useAuthStore, isMerchant } from '../../store/auth.store'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 
-// Statuses whose labels TikTok will actually return. Anything else
-// (SHIPPED, COMPLETED, CANCELLED, UNPAID, AFTER_SALES) is filtered out of
-// bulk print to avoid pointless API calls.
-const PRINTABLE_STATUSES = new Set(['TO_SHIP', 'PENDING'])
+// Statuses for which TikTok will return a printable shipping label. Anything
+// past IN_TRANSIT (already shipped) is excluded so bulk print skips them.
+const PRINTABLE_STATUSES = new Set([
+  'TO_SHIP', 'PENDING',  // legacy bucket statuses
+  'ON_HOLD', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION', 'PARTIALLY_SHIPPING',
+])
+
+// Status groups that drive the top-level filter tabs. Each tab filters by ALL
+// listed statuses; the badge in the row still shows the precise status.
+const STATUS_GROUPS = {
+  TO_SHIP: ['ON_HOLD', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION', 'PARTIALLY_SHIPPING', 'TO_SHIP', 'PENDING'],
+  SHIPPED: ['IN_TRANSIT', 'DELIVERED', 'SHIPPED'],
+  COMPLETED: ['COMPLETED'],
+  CANCELLED: ['CANCELLED'],
+  UNPAID: ['UNPAID'],
+} as const
 
 // An order may be split into multiple packages (TikTok assigns one package_id
 // per line_item, but multiple items can share a package). Return the distinct
@@ -38,13 +50,19 @@ function packageIdsForOrder(order: { platformMetadata?: any }): string[] {
 function StatusBadge({ status }: { status: string }) {
   const { t } = useTranslation()
   const map: Record<string, { bg: string; color: string; label: string }> = {
-    PENDING:     { bg: 'var(--badge-warning-bg)',  color: 'var(--badge-warning-fg)',  label: t('orders.pending') },
-    TO_SHIP:     { bg: 'var(--badge-info-bg)',     color: 'var(--badge-info-fg)',     label: t('orders.toShip') },
-    SHIPPED:     { bg: 'var(--badge-success-bg)',  color: 'var(--badge-success-fg)',  label: t('orders.shipped') },
-    COMPLETED:   { bg: 'var(--badge-success-bg)',  color: 'var(--badge-success-fg)',  label: t('orders.completed') },
-    CANCELLED:   { bg: 'var(--badge-neutral-bg)',  color: 'var(--badge-neutral-fg)',  label: t('orders.cancelled') },
-    AFTER_SALES: { bg: 'var(--badge-purple-bg)',   color: 'var(--badge-purple-fg)',   label: t('orders.afterSales') },
-    UNPAID:      { bg: 'var(--badge-error-bg)',    color: 'var(--badge-error-fg)',    label: t('orders.unpaid') },
+    UNPAID:              { bg: 'var(--badge-error-bg)',   color: 'var(--badge-error-fg)',   label: t('orders.unpaid') },
+    PENDING:             { bg: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)', label: t('orders.pending') },
+    ON_HOLD:             { bg: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)', label: t('orders.onHold') },
+    AWAITING_SHIPMENT:   { bg: 'var(--badge-info-bg)',    color: 'var(--badge-info-fg)',    label: t('orders.awaitingShipment') },
+    AWAITING_COLLECTION: { bg: 'var(--badge-info-bg)',    color: 'var(--badge-info-fg)',    label: t('orders.awaitingCollection') },
+    PARTIALLY_SHIPPING:  { bg: 'var(--badge-info-bg)',    color: 'var(--badge-info-fg)',    label: t('orders.partiallyShipping') },
+    TO_SHIP:             { bg: 'var(--badge-info-bg)',    color: 'var(--badge-info-fg)',    label: t('orders.toShip') },
+    IN_TRANSIT:          { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', label: t('orders.inTransit') },
+    DELIVERED:           { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', label: t('orders.delivered') },
+    SHIPPED:             { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', label: t('orders.shipped') },
+    COMPLETED:           { bg: 'var(--badge-success-bg)', color: 'var(--badge-success-fg)', label: t('orders.completed') },
+    CANCELLED:           { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: t('orders.cancelled') },
+    AFTER_SALES:         { bg: 'var(--badge-purple-bg)',  color: 'var(--badge-purple-fg)',  label: t('orders.afterSales') },
   }
   const s = map[status] ?? { bg: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', label: status }
   return (
@@ -206,22 +224,26 @@ export default function OrdersPage() {
     }
   }
 
+  // Tabs filter by status group, not by single value — each key is expanded
+  // before the API call. Drops the standalone "PENDING" tab; orders with that
+  // value are now a fallback bucket and surface under "待发货" if any exist.
   const statusTabs = [
     { key: '', label: t('orders.all') },
     { key: 'UNPAID', label: t('orders.unpaid') },
-    { key: 'PENDING', label: t('orders.pending') },
     { key: 'TO_SHIP', label: t('orders.toShip') },
     { key: 'SHIPPED', label: t('orders.shipped') },
     { key: 'COMPLETED', label: t('orders.completed') },
     { key: 'CANCELLED', label: t('orders.cancelled') },
   ]
 
+  const expandedStatuses = statuses.flatMap((key) => (STATUS_GROUPS as any)[key] ?? [key])
+
   const { data, isLoading } = useQuery({
     queryKey: ['orders', { statuses, search, sku, shopId, merchantId, confirmStatus, page, sortBy, sortOrder }],
     queryFn: () =>
       api.get('/orders', {
         params: {
-          status: statuses.length ? statuses.join(',') : undefined,
+          status: expandedStatuses.length ? expandedStatuses.join(',') : undefined,
           search: search || undefined,
           sku: sku || undefined,
           shopId: shopId || undefined,
@@ -244,7 +266,7 @@ export default function OrdersPage() {
     // statuses server-side filtering gave us.
     const res = await api.get('/orders', {
       params: {
-        status: statuses.length ? statuses.join(',') : undefined,
+        status: expandedStatuses.length ? expandedStatuses.join(',') : undefined,
         search: search || undefined,
         sku: sku || undefined,
         shopId: shopId || undefined,

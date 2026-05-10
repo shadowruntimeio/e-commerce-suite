@@ -212,25 +212,23 @@ function getCredentials(shop: ShopRecord): {
 
 // ─── Status mapping ────────────────────────────────────────────────────────────
 
+// 1:1 with TikTok's V202309 status taxonomy — UI can group these into broader
+// tabs but storage keeps the precise platform status. PENDING is reserved as
+// the fallback for genuinely-unknown values.
+const TIKTOK_STATUSES = new Set([
+  'UNPAID',
+  'ON_HOLD',
+  'AWAITING_SHIPMENT',
+  'AWAITING_COLLECTION',
+  'PARTIALLY_SHIPPING',
+  'IN_TRANSIT',
+  'DELIVERED',
+  'COMPLETED',
+  'CANCELLED',
+])
+
 function mapOrderStatus(tiktokStatus: string): string {
-  switch (tiktokStatus) {
-    case 'UNPAID':
-      return 'UNPAID'
-    case 'ON_HOLD':
-    case 'AWAITING_SHIPMENT':
-    case 'AWAITING_COLLECTION':  // label printed, waiting for courier pickup — still "to ship" from our POV
-    case 'PARTIALLY_SHIPPING':
-      return 'TO_SHIP'
-    case 'IN_TRANSIT':
-    case 'DELIVERED':
-      return 'SHIPPED'
-    case 'COMPLETED':
-      return 'COMPLETED'
-    case 'CANCELLED':
-      return 'CANCELLED'
-    default:
-      return 'PENDING'
-  }
+  return TIKTOK_STATUSES.has(tiktokStatus) ? tiktokStatus : 'PENDING'
 }
 
 // ─── TikTok V202309 API response types ────────────────────────────────────────
