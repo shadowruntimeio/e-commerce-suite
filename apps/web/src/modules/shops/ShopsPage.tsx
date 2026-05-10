@@ -249,15 +249,22 @@ function TikTokAppCard() {
             />
           </Form.Item>
           <Space>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={saveMutation.isPending}
-              disabled={!appKey.trim() || (!configured && !appSecret.trim())}
-              style={{ background: 'var(--accent-gradient)', border: 'none' }}
-            >
-              {t('common.save')}
-            </Button>
+            {(() => {
+              const disabled = !appKey.trim() || (!configured && !appSecret.trim())
+              return (
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  loading={saveMutation.isPending}
+                  disabled={disabled}
+                  // When disabled, fall back to antd's default styling so the
+                  // text doesn't render dark-on-dark against the gradient.
+                  style={disabled ? undefined : { background: 'var(--accent-gradient)', border: 'none', color: '#fff' }}
+                >
+                  {t('common.save')}
+                </Button>
+              )
+            })()}
             <Button onClick={() => { setEditing(false); setAppSecret(''); setAppKey(data?.appKey ?? '') }}>{t('common.cancel')}</Button>
           </Space>
         </Form>
