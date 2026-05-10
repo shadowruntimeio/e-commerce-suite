@@ -4,6 +4,7 @@ import { authenticate } from '../../middleware/authenticate'
 import { requireCapabilities } from '../../middleware/authorize'
 import { runRulesForOrder } from './rules-engine'
 import { TikTokAdapter } from '../../platform/tiktok/tiktok.adapter'
+import { getShopTikTokAppCreds } from '../../platform/tiktok/tiktok-app-creds'
 import { recordAudit, AuditAction } from '../../lib/audit'
 import { reserveStockForOrder, releaseStockForOrder } from '../inventory/inventory.service'
 
@@ -235,7 +236,8 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
 
     if (order.shop.platform === 'TIKTOK') {
-      const adapter = new TikTokAdapter()
+      const appCreds = await getShopTikTokAppCreds(order.shop.id)
+      const adapter = new TikTokAdapter(appCreds)
       // Prefer explicit packageId from caller; else fall back to the first
       // package_id on the stored line_items.
       const meta = (order.platformMetadata ?? {}) as { line_items?: Array<{ package_id?: string }> }

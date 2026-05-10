@@ -15,9 +15,14 @@ function tkLog(line: string) {
   console.log(line)
 }
 
-function getAppKey() { return process.env.TIKTOK_APP_KEY ?? '' }
-function getAppSecret() { return process.env.TIKTOK_APP_SECRET ?? '' }
+function getEnvAppKey() { return process.env.TIKTOK_APP_KEY ?? '' }
+function getEnvAppSecret() { return process.env.TIKTOK_APP_SECRET ?? '' }
 function getRedirectUri() { return process.env.TIKTOK_REDIRECT_URI ?? '' }
+
+export interface TikTokAppCreds {
+  appKey: string
+  appSecret: string
+}
 
 const AUTH_BASE = 'https://auth.tiktok-shops.com'
 const API_BASE = 'https://open-api.tiktokglobalshop.com'
@@ -37,7 +42,8 @@ function now(): number {
 function buildSignV2(
   path: string,
   queryParams: Record<string, string>,
-  body?: string,
+  body: string | undefined,
+  appSecret: string,
 ): string {
   const excluded = new Set(['sign', 'access_token'])
   const sorted = Object.entries(queryParams)
@@ -46,9 +52,8 @@ function buildSignV2(
     .map(([k, v]) => `${k}${v}`)
     .join('')
 
-  const secret = getAppSecret()
-  const base = `${secret}${path}${sorted}${body ?? ''}${secret}`
-  return createHmac('sha256', secret).update(base).digest('hex')
+  const base = `${appSecret}${path}${sorted}${body ?? ''}${appSecret}`
+  return createHmac('sha256', appSecret).update(base).digest('hex')
 }
 
 // ─── HTTP helpers (V202309) ──────────────────────────────────────────────────
@@ -60,15 +65,15 @@ async function tiktokRequestOnce<T>(
   method: 'GET' | 'POST',
   path: string,
   accessToken: string,
-  shopCipher?: string,
-  queryParams: Record<string, string> = {},
-  body?: Record<string, unknown>,
+  shopCipher: string | undefined,
+  queryParams: Record<string, string>,
+  body: Record<string, unknown> | undefined,
+  appCreds: TikTokAppCreds,
 ): Promise<T> {
   const timestamp = String(now())
-  const appKey = getAppKey()
   const allQuery: Record<string, string> = {
     ...queryParams,
-    app_key: appKey,
+    app_key: appCreds.appKey,
     timestamp,
   }
   if (shopCipher) {
@@ -76,7 +81,7 @@ async function tiktokRequestOnce<T>(
   }
 
   const bodyStr = method === 'POST' ? (body ? JSON.stringify(body) : '{}') : undefined
-  const sign = buildSignV2(path, allQuery, bodyStr)
+  const sign = buildSignV2(path, allQuery, bodyStr, appCreds.appSecret)
 
   const qs = new URLSearchParams({
     ...allQuery,
@@ -119,9 +124,10 @@ async function tiktokRequest<T>(
   method: 'GET' | 'POST',
   path: string,
   accessToken: string,
-  shopCipher?: string,
-  queryParams: Record<string, string> = {},
-  body?: Record<string, unknown>,
+  shopCipher: string | undefined,
+  queryParams: Record<string, string>,
+  body: Record<string, unknown> | undefined,
+  appCreds: TikTokAppCreds,
 ): Promise<T> {
   const delays = [0, 800, 2000]
   let lastErr: unknown
@@ -131,7 +137,7 @@ async function tiktokRequest<T>(
       console.log(`[tiktok] retry ${attempt}/${delays.length - 1} on ${path}`)
     }
     try {
-      return await tiktokRequestOnce<T>(method, path, accessToken, shopCipher, queryParams, body)
+      return await tiktokRequestOnce<T>(method, path, accessToken, shopCipher, queryParams, body, appCreds)
     } catch (err) {
       lastErr = err
       const msg = err instanceof Error ? err.message : String(err)
@@ -337,10 +343,21 @@ interface TikTokProductSearchResponse {
 
 export class TikTokAdapter implements PlatformAdapter {
   readonly platform = 'TIKTOK' as const
+  private readonly appCreds: TikTokAppCreds
+
+  /**
+   * Construct an adapter scoped to a merchant's TikTok app credentials.
+   * If omitted, falls back to TIKTOK_APP_KEY / TIKTOK_APP_SECRET env vars
+   * (kept for backwards compat with shops created before per-merchant
+   * apps were configurable).
+   */
+  constructor(appCreds?: TikTokAppCreds) {
+    this.appCreds = appCreds ?? { appKey: getEnvAppKey(), appSecret: getEnvAppSecret() }
+  }
 
   getAuthUrl(_redirectUri: string, state: string): string {
     const qs = new URLSearchParams({
-      app_key: getAppKey(),
+      app_key: this.appCreds.appKey,
       state,
       redirect_uri: getRedirectUri(),
     })
@@ -354,8 +371,8 @@ export class TikTokAdapter implements PlatformAdapter {
   async exchangeCode(code: string, _shopId?: string): Promise<OAuthTokens & { shopCipher?: string }> {
     // Step 1: Exchange code for access token
     const qs = new URLSearchParams({
-      app_key: getAppKey(),
-      app_secret: getAppSecret(),
+      app_key: this.appCreds.appKey,
+      app_secret: this.appCreds.appSecret,
       auth_code: code,
       grant_type: 'authorized_code',
     })
@@ -425,9 +442,8 @@ export class TikTokAdapter implements PlatformAdapter {
   private async getAuthorizedShops(accessToken: string): Promise<TikTokShopInfo[]> {
     const path = '/authorization/202309/shops'
     const timestamp = String(now())
-    const appKey = getAppKey()
-    const queryParams: Record<string, string> = { app_key: appKey, timestamp }
-    const sign = buildSignV2(path, queryParams)
+    const queryParams: Record<string, string> = { app_key: this.appCreds.appKey, timestamp }
+    const sign = buildSignV2(path, queryParams, undefined, this.appCreds.appSecret)
 
     const qs = new URLSearchParams({
       ...queryParams,
@@ -462,8 +478,8 @@ export class TikTokAdapter implements PlatformAdapter {
     const { refreshToken } = decryptCredentials(creds)
 
     const qs = new URLSearchParams({
-      app_key: getAppKey(),
-      app_secret: getAppSecret(),
+      app_key: this.appCreds.appKey,
+      app_secret: this.appCreds.appSecret,
       refresh_token: refreshToken,
       grant_type: 'refresh_token',
     })
@@ -529,6 +545,7 @@ export class TikTokAdapter implements PlatformAdapter {
         shopCipher,
         queryParams,
         body,
+        this.appCreds,
       )
 
       const orderList = resp.data?.orders ?? []
@@ -616,6 +633,8 @@ export class TikTokAdapter implements PlatformAdapter {
         accessToken,
         shopCipher,
         queryParams,
+        undefined,
+        this.appCreds,
       )
 
       const productList = resp.data?.products ?? []
@@ -630,6 +649,9 @@ export class TikTokAdapter implements PlatformAdapter {
             `/product/202309/products/${p.id}`,
             accessToken,
             shopCipher,
+            {},
+            undefined,
+            this.appCreds,
           )
           const images = (detail.data as any)?.main_images as Array<{ urls?: string[] }> | undefined
           imageUrl = images?.[0]?.urls?.[0]
@@ -727,6 +749,8 @@ export class TikTokAdapter implements PlatformAdapter {
       `/fulfillment/202309/packages/${packageId}/shipping_documents`,
       accessToken, shopCipher,
       { document_type: documentType, document_size: documentSize },
+      undefined,
+      this.appCreds,
     )
     const docUrl = resp.data?.doc_url ?? resp.data?.document_url
     if (!docUrl) throw new Error('No shipping document URL returned from TikTok')
@@ -755,6 +779,7 @@ export class TikTokAdapter implements PlatformAdapter {
       const dropResp = await tiktokRequest<{ code: number; data: unknown }>(
         'POST', shipPath, accessToken, shopCipher, {},
         { handover_method: 'DROP_OFF' },
+        this.appCreds,
       )
       tkLog(`[tiktok] DROP_OFF ship ok for package ${knownPackageId}: ${JSON.stringify(dropResp).slice(0, 300)}`)
       return { packageId: knownPackageId }
@@ -768,7 +793,7 @@ export class TikTokAdapter implements PlatformAdapter {
       data: { pickup_slots?: Array<{ start_time?: number; end_time?: number; slot_id?: string }> }
     }>(
       'GET', `/fulfillment/202309/packages/${knownPackageId}/handover_time_slots`,
-      accessToken, shopCipher,
+      accessToken, shopCipher, {}, undefined, this.appCreds,
     )
     const slot = slotsResp.data?.pickup_slots?.[0]
     if (!slot) throw new Error('No pickup slot available and DROP_OFF was rejected — check shop pickup settings')
@@ -784,6 +809,7 @@ export class TikTokAdapter implements PlatformAdapter {
           ...(slot.slot_id ? { slot_id: slot.slot_id } : {}),
         },
       },
+      this.appCreds,
     )
     tkLog(`[tiktok] PICKUP ship ok for package ${knownPackageId}: ${JSON.stringify(pickupResp).slice(0, 300)}`)
     return { packageId: knownPackageId }
