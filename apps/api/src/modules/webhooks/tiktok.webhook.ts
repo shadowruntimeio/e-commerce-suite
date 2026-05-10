@@ -2,16 +2,18 @@ import { createHmac } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@ems/db'
 import { syncOrdersQueue } from '../../lib/queues'
-
-function getAppSecret() { return process.env.TIKTOK_APP_SECRET ?? '' }
+import { decryptUserTikTokCreds } from '../../platform/tiktok/tiktok-app-creds'
 
 /**
  * Verify TikTok webhook signature.
  * sign = HMAC-SHA256(app_secret, path + timestamp + data)
+ *
+ * The app_secret comes from whichever app the merchant configured for this
+ * shop's owner; falls back to env if the merchant hasn't set one.
  */
-function verifySignature(path: string, timestamp: string, data: string, signature: string): boolean {
+function verifySignature(path: string, timestamp: string, data: string, signature: string, appSecret: string): boolean {
   const base = `${path}${timestamp}${data}`
-  const expected = createHmac('sha256', getAppSecret()).update(base).digest('hex')
+  const expected = createHmac('sha256', appSecret).update(base).digest('hex')
   return expected === signature
 }
 
@@ -47,13 +49,28 @@ export async function tiktokWebhookRoutes(app: FastifyInstance) {
 
     console.log(`[webhook/tiktok] Received event type=${body.type} shop_id=${body.shop_id}`)
 
-    // Verify signature
+    // Look up the shop first so we can verify the signature with that
+    // merchant's app_secret. If unknown shop, fall back to env secret —
+    // unknown shop will be rejected later anyway.
+    const shop = await prisma.shop.findFirst({
+      where: {
+        platform: 'TIKTOK',
+        status: 'ACTIVE',
+        externalShopId: body.shop_id,
+      },
+      include: { owner: { select: { settings: true } } },
+    })
+
+    const appSecret = (shop && decryptUserTikTokCreds(shop.owner.settings)?.appSecret)
+      ?? process.env.TIKTOK_APP_SECRET ?? ''
+
     const signature = (request.headers['authorization'] as string) ?? ''
     const isValid = verifySignature(
       '/api/v1/webhooks/tiktok',
       String(body.timestamp),
       body.data,
       signature,
+      appSecret,
     )
 
     if (!isValid) {
@@ -71,15 +88,6 @@ export async function tiktokWebhookRoutes(app: FastifyInstance) {
     }
 
     console.log(`[webhook/tiktok] Event data:`, JSON.stringify(eventData))
-
-    // Find the shop
-    const shop = await prisma.shop.findFirst({
-      where: {
-        platform: 'TIKTOK',
-        status: 'ACTIVE',
-        externalShopId: body.shop_id,
-      },
-    })
 
     if (!shop) {
       console.warn(`[webhook/tiktok] No active shop found for shop_id=${body.shop_id}`)

@@ -2,6 +2,7 @@ import type { Job } from 'bullmq'
 import { prisma } from '@ems/db'
 import { TikTokAdapter, encryptCredentials as encryptTikTokCredentials, decryptCredentials as decryptTikTokCredentials } from '../platform/tiktok/tiktok.adapter'
 import type { TikTokCredentials } from '../platform/tiktok/tiktok.adapter'
+import { getShopTikTokAppCreds } from '../platform/tiktok/tiktok-app-creds'
 import type { PlatformAdapter, PlatformProduct } from '../platform/adapter.interface'
 
 interface SyncProductsJob {
@@ -9,10 +10,13 @@ interface SyncProductsJob {
   tenantId: string
 }
 
-function getAdapter(platform: string): PlatformAdapter {
-  switch (platform) {
-    case 'TIKTOK': return new TikTokAdapter()
-    default: throw new Error(`Product sync not supported for platform: ${platform}`)
+async function getAdapter(shop: { id: string; platform: string }): Promise<PlatformAdapter> {
+  switch (shop.platform) {
+    case 'TIKTOK': {
+      const appCreds = await getShopTikTokAppCreds(shop.id)
+      return new TikTokAdapter(appCreds)
+    }
+    default: throw new Error(`Product sync not supported for platform: ${shop.platform}`)
   }
 }
 
@@ -30,7 +34,7 @@ export async function syncProductsProcessor(job: Job<SyncProductsJob>) {
 
   console.log(`[sync-products] Starting product sync for shop ${shop.name} (${shop.platform})`)
 
-  const adapter = getAdapter(shop.platform)
+  const adapter = await getAdapter(shop)
 
   // Backfill shop_cipher for TikTok shops where it's missing
   if (shop.platform === 'TIKTOK') {

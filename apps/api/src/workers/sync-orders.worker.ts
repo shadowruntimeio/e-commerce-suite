@@ -4,6 +4,7 @@ import type { OrderStatus } from '@ems/shared'
 import { ShopeeAdapter, encryptCredentials } from '../platform/shopee/shopee.adapter'
 import { TikTokAdapter, encryptCredentials as encryptTikTokCredentials, decryptCredentials as decryptTikTokCredentials } from '../platform/tiktok/tiktok.adapter'
 import type { TikTokCredentials } from '../platform/tiktok/tiktok.adapter'
+import { getShopTikTokAppCreds } from '../platform/tiktok/tiktok-app-creds'
 import type { PlatformAdapter, PlatformOrder } from '../platform/adapter.interface'
 
 interface SyncOrdersJob {
@@ -13,11 +14,14 @@ interface SyncOrdersJob {
 
 const LOOKBACK_SECONDS = 24 * 60 * 60 // 24 hours as first-sync default
 
-function getAdapter(platform: string): PlatformAdapter {
-  switch (platform) {
+async function getAdapter(shop: { id: string; platform: string }): Promise<PlatformAdapter> {
+  switch (shop.platform) {
     case 'SHOPEE': return new ShopeeAdapter()
-    case 'TIKTOK': return new TikTokAdapter()
-    default: throw new Error(`Unsupported platform: ${platform}`)
+    case 'TIKTOK': {
+      const appCreds = await getShopTikTokAppCreds(shop.id)
+      return new TikTokAdapter(appCreds)
+    }
+    default: throw new Error(`Unsupported platform: ${shop.platform}`)
   }
 }
 
@@ -36,7 +40,7 @@ export async function syncOrdersProcessor(job: Job<SyncOrdersJob>) {
 
   console.log(`[sync-orders] Starting sync for shop ${shop.name} (${shop.platform})`)
 
-  const adapter = getAdapter(shop.platform)
+  const adapter = await getAdapter(shop)
 
   // ─── Refresh token if expired ────────────────────────────────────────────────
   if (shop.tokenExpiresAt && shop.tokenExpiresAt <= new Date()) {

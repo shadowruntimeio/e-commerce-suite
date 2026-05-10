@@ -5,6 +5,11 @@ import { ShopeeAdapter } from '../../platform/shopee/shopee.adapter'
 import { encryptCredentials } from '../../platform/shopee/shopee.adapter'
 import { TikTokAdapter } from '../../platform/tiktok/tiktok.adapter'
 import { encryptCredentials as encryptTikTokCredentials } from '../../platform/tiktok/tiktok.adapter'
+import {
+  getMerchantTikTokAppCreds,
+  buildUserTikTokSettings,
+} from '../../platform/tiktok/tiktok-app-creds'
+import { z } from 'zod'
 import { syncOrdersQueue, syncProductsQueue } from '../../lib/queues'
 
 const SHOPEE_REDIRECT_URI =
@@ -64,6 +69,8 @@ export async function shopRoutes(app: FastifyInstance) {
             },
           },
           update: {
+            // The merchant authorizing the shop becomes its owner.
+            ownerUserId,
             name: tokens.shopName,
             status: 'ACTIVE',
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -111,10 +118,21 @@ export async function shopRoutes(app: FastifyInstance) {
         return reply.status(400).send({ success: false, error: 'Missing code' })
       }
 
-      const adapter = new TikTokAdapter()
-
       try {
-        console.log('[tiktok/callback] step 1: exchanging code for tokens')
+        // Resolve which merchant initiated this OAuth so we can use their
+        // app credentials for the code exchange. State carries userId.
+        let stateObj: { tenantId?: string; userId?: string } = {}
+        if (state) {
+          try { stateObj = JSON.parse(Buffer.from(state, 'base64').toString('utf8')) }
+          catch (e) { console.warn('[tiktok/callback] malformed state:', (e as Error).message) }
+        }
+
+        const appCreds = stateObj.userId
+          ? await getMerchantTikTokAppCreds(stateObj.userId)
+          : { appKey: process.env.TIKTOK_APP_KEY ?? '', appSecret: process.env.TIKTOK_APP_SECRET ?? '' }
+        const adapter = new TikTokAdapter(appCreds)
+
+        console.log('[tiktok/callback] step 1: exchanging code for tokens (app=%s)', appCreds.appKey.slice(0, 6))
         const tokens = await adapter.exchangeCode(code)
         console.log('[tiktok/callback] step 1 ok. tokens:', {
           shopId: tokens.shopId,
@@ -132,16 +150,7 @@ export async function shopRoutes(app: FastifyInstance) {
         })
         console.log('[tiktok/callback] step 2 ok')
 
-        console.log('[tiktok/callback] step 3: resolving merchant from state. state present:', !!state)
-        let stateObj: { tenantId?: string; userId?: string } = {}
-        if (state) {
-          try {
-            stateObj = JSON.parse(Buffer.from(state, 'base64').toString('utf8'))
-            console.log('[tiktok/callback] decoded state:', stateObj)
-          } catch (e) {
-            console.warn('[tiktok/callback] malformed state, could not decode:', (e as Error).message)
-          }
-        }
+        console.log('[tiktok/callback] step 3: resolving merchant. state present:', !!state)
         let tenantId = stateObj.tenantId
         let ownerUserId = stateObj.userId
 
@@ -170,6 +179,11 @@ export async function shopRoutes(app: FastifyInstance) {
             },
           },
           update: {
+            // The merchant authorizing the shop becomes its owner. If they're
+            // reconnecting their own shop, this is a no-op; if they're claiming
+            // a shop previously assigned to another user (e.g. via backfill),
+            // ownership transfers to them.
+            ownerUserId,
             name: tokens.shopName,
             status: 'ACTIVE',
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -234,18 +248,90 @@ export async function shopRoutes(app: FastifyInstance) {
       return { success: true, data: shops }
     })
 
-    // GET /tiktok/connect — returns TikTok OAuth URL (merchant only)
+    // GET /tiktok/connect — returns TikTok OAuth URL (merchant only).
+    // Uses the merchant's own app_key configured under settings.tiktok; if
+    // they haven't set one, falls back to the env app (legacy mode).
     auth.get('/tiktok/connect', async (request, reply) => {
       if (request.user.role !== 'MERCHANT') {
         return reply.status(403).send({ success: false, error: 'Only merchants can connect shops' })
       }
-      const adapter = new TikTokAdapter()
+      const appCreds = await getMerchantTikTokAppCreds(request.user.userId)
+      if (!appCreds.appKey || !appCreds.appSecret) {
+        return reply.status(400).send({
+          success: false,
+          error: 'TIKTOK_APP_NOT_CONFIGURED',
+        })
+      }
+      const adapter = new TikTokAdapter(appCreds)
       const state = Buffer.from(JSON.stringify({
         tenantId: request.user.tenantId,
         userId: request.user.userId,
       })).toString('base64')
       const url = adapter.getAuthUrl(TIKTOK_REDIRECT_URI, state)
       return reply.send({ success: true, data: { url } })
+    })
+
+    // ─── Per-merchant TikTok app credentials ─────────────────────────────────
+    // The secret is stored encrypted in user.settings.tiktok.appSecretEncrypted
+    // and never returned in plaintext. GET returns only the key + a boolean.
+
+    auth.get('/tiktok/app', async (request, reply) => {
+      if (request.user.role !== 'MERCHANT') {
+        return reply.status(403).send({ success: false, error: 'Only merchants can manage app credentials' })
+      }
+      const user = await prisma.user.findUnique({
+        where: { id: request.user.userId },
+        select: { settings: true },
+      })
+      const tt = (user?.settings as { tiktok?: { appKey?: string; appSecretEncrypted?: string } } | null)?.tiktok
+      return {
+        success: true,
+        data: {
+          appKey: tt?.appKey ?? '',
+          hasAppSecret: !!tt?.appSecretEncrypted,
+        },
+      }
+    })
+
+    auth.put('/tiktok/app', async (request, reply) => {
+      if (request.user.role !== 'MERCHANT') {
+        return reply.status(403).send({ success: false, error: 'Only merchants can manage app credentials' })
+      }
+      const schema = z.object({
+        appKey: z.string().trim().min(1, 'appKey required'),
+        // Allow blank to mean "keep existing secret" so the merchant can edit
+        // the key without re-entering the secret.
+        appSecret: z.string().optional(),
+      })
+      const parsed = schema.safeParse(request.body)
+      if (!parsed.success) {
+        return reply.status(400).send({ success: false, error: parsed.error.message })
+      }
+      const { appKey, appSecret } = parsed.data
+
+      const user = await prisma.user.findUnique({
+        where: { id: request.user.userId },
+        select: { settings: true },
+      })
+      const existing = (user?.settings as { tiktok?: { appSecretEncrypted?: string } } | null)?.tiktok ?? {}
+      const newTiktok = appSecret
+        ? buildUserTikTokSettings(appKey, appSecret)
+        : { appKey, appSecretEncrypted: existing.appSecretEncrypted }
+
+      if (!newTiktok.appSecretEncrypted) {
+        return reply.status(400).send({ success: false, error: 'appSecret required (no existing secret to keep)' })
+      }
+
+      const merged = { ...((user?.settings as Record<string, unknown>) ?? {}), tiktok: newTiktok }
+      await prisma.user.update({
+        where: { id: request.user.userId },
+        data: { settings: merged as object },
+      })
+
+      return {
+        success: true,
+        data: { appKey: newTiktok.appKey, hasAppSecret: true },
+      }
     })
 
     // GET /shopee/connect — returns the Shopee OAuth URL (merchant only)

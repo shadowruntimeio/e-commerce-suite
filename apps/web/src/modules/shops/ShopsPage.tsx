@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Button, Dropdown, Space, message, Spin } from 'antd'
+import { Button, Dropdown, Space, message, Spin, Input, Form } from 'antd'
 import {
   SyncOutlined, ShopOutlined, DownOutlined, MoreOutlined,
-  ThunderboltOutlined,
+  ThunderboltOutlined, KeyOutlined,
 } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
+import { useAuthStore, isMerchant } from '../../store/auth.store'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
@@ -154,11 +155,123 @@ function EmptyState({ onConnectShopee, onConnectTikTok }: { onConnectShopee: () 
   )
 }
 
+// ─── TikTok app credentials card (merchant-only) ─────────────────────────────
+// Each merchant owns their own TikTok partner app and configures its key/secret
+// here. Stored on user.settings.tiktok; secret encrypted server-side.
+
+function TikTokAppCard() {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [editing, setEditing] = useState(false)
+  const [appKey, setAppKey] = useState('')
+  const [appSecret, setAppSecret] = useState('')
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['tiktok-app'],
+    queryFn: () => api.get('/shops/tiktok/app').then((r) => r.data.data as { appKey: string; hasAppSecret: boolean }),
+  })
+
+  useEffect(() => {
+    if (data) {
+      setAppKey(data.appKey ?? '')
+      setAppSecret('') // never prefill the secret
+    }
+  }, [data])
+
+  const saveMutation = useMutation({
+    mutationFn: (body: { appKey: string; appSecret?: string }) => api.put('/shops/tiktok/app', body),
+    onSuccess: () => {
+      void message.success(t('shops.tiktokAppSaved'))
+      queryClient.invalidateQueries({ queryKey: ['tiktok-app'] })
+      setEditing(false)
+      setAppSecret('')
+    },
+    onError: (err: any) => {
+      void message.error(err?.response?.data?.error ?? t('shops.tiktokAppSaveFailed'))
+    },
+  })
+
+  const configured = !!data?.appKey && !!data?.hasAppSecret
+
+  return (
+    <div style={{
+      background: 'var(--bg-card)',
+      border: '1px solid var(--border)',
+      borderRadius: 12,
+      padding: '16px 20px',
+      marginBottom: 20,
+      boxShadow: 'var(--card-shadow)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(204,151,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <KeyOutlined style={{ fontSize: 18, color: '#cc97ff' }} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{t('shops.tiktokAppTitle')}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+              {isLoading ? '…' : configured
+                ? t('shops.tiktokAppConfigured', { appKey: data!.appKey })
+                : t('shops.tiktokAppNotConfigured')}
+            </div>
+          </div>
+        </div>
+        {!editing && (
+          <Button size="small" onClick={() => setEditing(true)} style={{ borderRadius: 8 }}>
+            {configured ? t('common.edit') : t('shops.tiktokAppConfigure')}
+          </Button>
+        )}
+      </div>
+
+      {editing && (
+        <Form
+          layout="vertical"
+          onFinish={() => {
+            const body: { appKey: string; appSecret?: string } = { appKey: appKey.trim() }
+            if (appSecret.trim()) body.appSecret = appSecret.trim()
+            saveMutation.mutate(body)
+          }}
+          style={{ marginTop: 16 }}
+        >
+          <Form.Item label={t('shops.tiktokAppKey')} required>
+            <Input value={appKey} onChange={(e) => setAppKey(e.target.value)} placeholder="e.g. 6jo845bnqg9jg" autoComplete="off" />
+          </Form.Item>
+          <Form.Item
+            label={t('shops.tiktokAppSecret')}
+            help={configured ? t('shops.tiktokAppSecretHelp') : undefined}
+            required={!configured}
+          >
+            <Input.Password
+              value={appSecret}
+              onChange={(e) => setAppSecret(e.target.value)}
+              placeholder={configured ? '••••••••' : t('shops.tiktokAppSecretPlaceholder')}
+              autoComplete="new-password"
+            />
+          </Form.Item>
+          <Space>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={saveMutation.isPending}
+              disabled={!appKey.trim() || (!configured && !appSecret.trim())}
+              style={{ background: 'var(--accent-gradient)', border: 'none' }}
+            >
+              {t('common.save')}
+            </Button>
+            <Button onClick={() => { setEditing(false); setAppSecret(''); setAppKey(data?.appKey ?? '') }}>{t('common.cancel')}</Button>
+          </Space>
+        </Form>
+      )}
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ShopsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const user = useAuthStore((s) => s.user)
   const [connectingShopee, setConnectingShopee] = useState(false)
   const [connectingTikTok, setConnectingTikTok] = useState(false)
 
@@ -212,8 +325,13 @@ export default function ShopsPage() {
       const res = await api.get('/shops/tiktok/connect')
       const url: string = res.data.data.url
       window.location.href = url
-    } catch {
-      void message.error(t('shops.connectTiktokError'))
+    } catch (err: any) {
+      const code = err?.response?.data?.error
+      if (code === 'TIKTOK_APP_NOT_CONFIGURED') {
+        void message.error(t('shops.tiktokAppRequired'))
+      } else {
+        void message.error(t('shops.connectTiktokError'))
+      }
       setConnectingTikTok(false)
     }
   }
@@ -249,6 +367,9 @@ export default function ShopsPage() {
           </Space>
         </div>
       </div>
+
+      {/* Per-merchant TikTok app config */}
+      {isMerchant(user) && <TikTokAppCard />}
 
       {/* Content */}
       {isLoading ? (
