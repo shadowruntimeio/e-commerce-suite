@@ -64,6 +64,8 @@ export async function shopRoutes(app: FastifyInstance) {
             },
           },
           update: {
+            // The merchant authorizing the shop becomes its owner.
+            ownerUserId,
             name: tokens.shopName,
             status: 'ACTIVE',
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -170,6 +172,11 @@ export async function shopRoutes(app: FastifyInstance) {
             },
           },
           update: {
+            // The merchant authorizing the shop becomes its owner. If they're
+            // reconnecting their own shop, this is a no-op; if they're claiming
+            // a shop previously assigned to another user (e.g. via backfill),
+            // ownership transfers to them.
+            ownerUserId,
             name: tokens.shopName,
             status: 'ACTIVE',
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
