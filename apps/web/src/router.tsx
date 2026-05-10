@@ -1,30 +1,32 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 import { AppLayout } from './components/layout/AppLayout'
 import { AuthLayout } from './components/layout/AuthLayout'
 import { AuthGuard } from './components/auth/AuthGuard'
+import { RouteErrorBoundary } from './components/RouteErrorBoundary'
+import { lazyWithRetry } from './lib/lazy-with-retry'
 import { Spin } from 'antd'
 
-const LoginPage = lazy(() => import('./modules/auth/LoginPage'))
-const RegisterPage = lazy(() => import('./modules/auth/RegisterPage'))
-const DashboardPage = lazy(() => import('./modules/dashboard/DashboardPage'))
-const OrdersPage = lazy(() => import('./modules/orders/OrdersPage'))
-const RulesPage = lazy(() => import('./modules/orders/RulesPage'))
-const ProductsPage = lazy(() => import('./modules/products/ProductsPage'))
-const InventoryPage = lazy(() => import('./modules/inventory/InventoryPage'))
-const InventoryHistoryPage = lazy(() => import('./modules/inventory/HistoryPage'))
-const PurchasePage = lazy(() => import('./modules/purchase/PurchasePage'))
-const RestockingPage = lazy(() => import('./modules/purchase/RestockingPage'))
-const WarehousesPage = lazy(() => import('./modules/warehouses/WarehousesPage'))
-const ShopsPage = lazy(() => import('./modules/shops/ShopsPage'))
-const SalesReportPage = lazy(() => import('./modules/reports/SalesReportPage'))
-const ProfitReportPage = lazy(() => import('./modules/reports/ProfitReportPage'))
-const AdsPage = lazy(() => import('./modules/ads/AdsPage'))
-const InboxPage = lazy(() => import('./modules/cs/InboxPage'))
-const LogisticsPage = lazy(() => import('./modules/logistics/LogisticsPage'))
-const AdminUsersPage = lazy(() => import('./modules/admin/UsersPage'))
-const AdminAuditPage = lazy(() => import('./modules/admin/AuditPage'))
-const ReturnsPage = lazy(() => import('./modules/returns/ReturnsPage'))
+const LoginPage = lazyWithRetry(() => import('./modules/auth/LoginPage'))
+const RegisterPage = lazyWithRetry(() => import('./modules/auth/RegisterPage'))
+const DashboardPage = lazyWithRetry(() => import('./modules/dashboard/DashboardPage'))
+const OrdersPage = lazyWithRetry(() => import('./modules/orders/OrdersPage'))
+const RulesPage = lazyWithRetry(() => import('./modules/orders/RulesPage'))
+const ProductsPage = lazyWithRetry(() => import('./modules/products/ProductsPage'))
+const InventoryPage = lazyWithRetry(() => import('./modules/inventory/InventoryPage'))
+const InventoryHistoryPage = lazyWithRetry(() => import('./modules/inventory/HistoryPage'))
+const PurchasePage = lazyWithRetry(() => import('./modules/purchase/PurchasePage'))
+const RestockingPage = lazyWithRetry(() => import('./modules/purchase/RestockingPage'))
+const WarehousesPage = lazyWithRetry(() => import('./modules/warehouses/WarehousesPage'))
+const ShopsPage = lazyWithRetry(() => import('./modules/shops/ShopsPage'))
+const SalesReportPage = lazyWithRetry(() => import('./modules/reports/SalesReportPage'))
+const ProfitReportPage = lazyWithRetry(() => import('./modules/reports/ProfitReportPage'))
+const AdsPage = lazyWithRetry(() => import('./modules/ads/AdsPage'))
+const InboxPage = lazyWithRetry(() => import('./modules/cs/InboxPage'))
+const LogisticsPage = lazyWithRetry(() => import('./modules/logistics/LogisticsPage'))
+const AdminUsersPage = lazyWithRetry(() => import('./modules/admin/UsersPage'))
+const AdminAuditPage = lazyWithRetry(() => import('./modules/admin/AuditPage'))
+const ReturnsPage = lazyWithRetry(() => import('./modules/returns/ReturnsPage'))
 
 const Loading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -36,6 +38,7 @@ export const router = createBrowserRouter([
   {
     path: '/auth',
     element: <AuthLayout />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       { path: 'login', element: <Suspense fallback={<Loading />}><LoginPage /></Suspense> },
       { path: 'register', element: <Suspense fallback={<Loading />}><RegisterPage /></Suspense> },
@@ -44,6 +47,7 @@ export const router = createBrowserRouter([
   {
     path: '/',
     element: <AuthGuard><AppLayout /></AuthGuard>,
+    errorElement: <RouteErrorBoundary />,
     children: [
       { index: true, element: <Navigate to="/dashboard" replace /> },
       { path: 'dashboard', element: <Suspense fallback={<Loading />}><DashboardPage /></Suspense> },
