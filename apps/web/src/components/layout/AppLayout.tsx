@@ -1,6 +1,6 @@
 import React from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Avatar, Dropdown, Tooltip } from 'antd'
+import { Layout, Avatar, Dropdown, Tooltip, Badge, List, Button, Empty } from 'antd'
 import {
   DashboardOutlined, ShoppingCartOutlined, AppstoreOutlined,
   InboxOutlined, ShopOutlined, LogoutOutlined, BankOutlined,
@@ -8,7 +8,11 @@ import {
   MoonOutlined, SunOutlined, TranslationOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined,
   TeamOutlined, AuditOutlined, RollbackOutlined,
+  BellOutlined,
 } from '@ant-design/icons'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '../../lib/api'
+import dayjs from 'dayjs'
 import { useAuthStore, hasCapability, type UserRole, type Capability } from '../../store/auth.store'
 import { useSettingsStore } from '../../store/settings.store'
 import { useTranslation } from 'react-i18next'
@@ -428,6 +432,12 @@ export function AppLayout() {
               </button>
             </Tooltip>
 
+            {/* Notification bell — currently only merchants receive
+                notifications (warehouse-driven shipment events), but the
+                endpoint returns an empty list for other roles so it's safe
+                to render unconditionally. */}
+            <NotificationBell />
+
             <div style={{ width: 1, height: 24, background: 'var(--divider)', margin: '0 4px' }} />
 
             {/* User chip */}
@@ -483,5 +493,129 @@ export function AppLayout() {
         </Content>
       </Layout>
     </Layout>
+  )
+}
+
+// ─── Notification bell ──────────────────────────────────────────────────────
+
+interface NotificationItem {
+  id: string
+  type: 'SHIPMENT_QUANTITY_ADJUSTED' | 'SHIPMENT_REJECTED'
+  title: string
+  body: string | null
+  payload: Record<string, unknown>
+  readAt: string | null
+  createdAt: string
+}
+
+function NotificationBell() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+
+  const { data } = useQuery({
+    queryKey: ['notifications'],
+    queryFn: async () => {
+      const r = await api.get('/notifications')
+      return r.data.data as { items: NotificationItem[]; unreadCount: number }
+    },
+    refetchInterval: 60_000,
+  })
+
+  const markRead = useMutation({
+    mutationFn: (id: string) => api.post(`/notifications/${id}/read`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+  })
+  const markAllRead = useMutation({
+    mutationFn: () => api.post('/notifications/read-all'),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+  })
+
+  function clickItem(item: NotificationItem) {
+    if (!item.readAt) markRead.mutate(item.id)
+    const shipmentId = (item.payload as { shipmentId?: string })?.shipmentId
+    if (shipmentId) navigate('/inventory/inbound-shipments')
+  }
+
+  const items = data?.items ?? []
+  const unread = data?.unreadCount ?? 0
+
+  return (
+    <Dropdown
+      trigger={['click']}
+      placement="bottomRight"
+      dropdownRender={() => (
+        <div style={{
+          width: 380,
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          borderRadius: 12,
+          boxShadow: 'var(--card-shadow)',
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            padding: '12px 16px',
+            borderBottom: '1px solid var(--border-light)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}>
+            <span style={{ fontWeight: 600 }}>{t('notifications.title')}</span>
+            {unread > 0 && (
+              <Button size="small" type="link" onClick={() => markAllRead.mutate()}>
+                {t('notifications.markAllRead')}
+              </Button>
+            )}
+          </div>
+          {items.length === 0 ? (
+            <div style={{ padding: 24 }}>
+              <Empty description={t('notifications.empty')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            </div>
+          ) : (
+            <List<NotificationItem>
+              dataSource={items}
+              style={{ maxHeight: 420, overflowY: 'auto' }}
+              renderItem={(item) => (
+                <List.Item
+                  onClick={() => clickItem(item)}
+                  style={{
+                    padding: '12px 16px',
+                    cursor: 'pointer',
+                    background: item.readAt ? 'transparent' : 'rgba(204,151,255,0.06)',
+                  }}
+                >
+                  <div style={{ width: '100%' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {item.title}
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
+                        {dayjs(item.createdAt).fromNow()}
+                      </span>
+                    </div>
+                    {item.body && (
+                      <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>{item.body}</div>
+                    )}
+                  </div>
+                </List.Item>
+              )}
+            />
+          )}
+        </div>
+      )}
+    >
+      <button style={{
+        width: 36, height: 36, borderRadius: 8,
+        border: '1px solid var(--header-btn-border)', display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        cursor: 'pointer', background: 'var(--header-btn-bg)',
+        color: 'var(--header-btn-color)',
+        position: 'relative',
+      }}>
+        <Badge count={unread} offset={[6, -6]} size="small">
+          <BellOutlined style={{ fontSize: 16, color: 'var(--header-btn-color)' }} />
+        </Badge>
+      </button>
+    </Dropdown>
   )
 }

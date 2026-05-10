@@ -1,4 +1,4 @@
-import { Table, Input, Select, Button, Space, Switch, Tooltip } from 'antd'
+import { Table, Input, Select, Button, Space, Switch, Tooltip, Badge } from 'antd'
 import { InboxOutlined, UploadOutlined, EditOutlined, HistoryOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -53,6 +53,17 @@ export default function InventoryPage() {
     queryKey: ['warehouses'],
     queryFn: () => api.get('/warehouses').then((r) => r.data.data),
   })
+
+  // Drives the badge on the "Inbound shipments" button. Refresh every minute
+  // so the count stays roughly current without spamming the API.
+  const { data: pendingShipments } = useQuery({
+    queryKey: ['inbound-shipments-pending-count'],
+    queryFn: async () =>
+      (await api.get('/inventory/inbound-shipments', { params: { status: 'PENDING_REVIEW' } }))
+        .data.data as Array<{ id: string }>,
+    refetchInterval: 60_000,
+  })
+  const pendingShipmentsCount = pendingShipments?.length ?? 0
 
   const { data: categories } = useQuery({
     queryKey: ['categories'],
@@ -161,6 +172,13 @@ export default function InventoryPage() {
           <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>{t('inventory.subtitle')}</p>
         </div>
         <Space>
+          <Link to="/inventory/inbound-shipments">
+            <Badge count={pendingShipmentsCount} offset={[-4, 4]}>
+              <Button icon={<InboxOutlined />} style={{ borderRadius: 8, height: 36, fontWeight: 500 }}>
+                {t('inventory.inboundShipments')}
+              </Button>
+            </Badge>
+          </Link>
           <Link to="/inventory/history">
             <Button icon={<HistoryOutlined />} style={{ borderRadius: 8, height: 36, fontWeight: 500 }}>
               {t('inventory.history')}

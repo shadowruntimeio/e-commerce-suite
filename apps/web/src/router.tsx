@@ -15,6 +15,7 @@ const RulesPage = lazyWithRetry(() => import('./modules/orders/RulesPage'))
 const ProductsPage = lazyWithRetry(() => import('./modules/products/ProductsPage'))
 const InventoryPage = lazyWithRetry(() => import('./modules/inventory/InventoryPage'))
 const InventoryHistoryPage = lazyWithRetry(() => import('./modules/inventory/HistoryPage'))
+const InboundShipmentsPage = lazyWithRetry(() => import('./modules/inventory/InboundShipmentsPage'))
 const PurchasePage = lazyWithRetry(() => import('./modules/purchase/PurchasePage'))
 const RestockingPage = lazyWithRetry(() => import('./modules/purchase/RestockingPage'))
 const WarehousesPage = lazyWithRetry(() => import('./modules/warehouses/WarehousesPage'))
@@ -56,6 +57,7 @@ export const router = createBrowserRouter([
       { path: 'products', element: <Suspense fallback={<Loading />}><ProductsPage /></Suspense> },
       { path: 'inventory', element: <Suspense fallback={<Loading />}><InventoryPage /></Suspense> },
       { path: 'inventory/history', element: <Suspense fallback={<Loading />}><InventoryHistoryPage /></Suspense> },
+      { path: 'inventory/inbound-shipments', element: <Suspense fallback={<Loading />}><InboundShipmentsPage /></Suspense> },
       { path: 'purchase', element: <Suspense fallback={<Loading />}><PurchasePage /></Suspense> },
       { path: 'purchase/restocking', element: <Suspense fallback={<Loading />}><RestockingPage /></Suspense> },
       { path: 'warehouses', element: <Suspense fallback={<Loading />}><WarehousesPage /></Suspense> },
