@@ -28,6 +28,7 @@ function mapOrderStatus(tiktokStatus: string): string {
     case 'UNPAID': return 'UNPAID'
     case 'ON_HOLD':
     case 'AWAITING_SHIPMENT':
+    case 'AWAITING_COLLECTION':
     case 'PARTIALLY_SHIPPING': return 'TO_SHIP'
     case 'IN_TRANSIT':
     case 'DELIVERED': return 'SHIPPED'
