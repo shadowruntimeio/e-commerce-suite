@@ -532,14 +532,6 @@ export default function OrdersPage() {
           onSearch={(v) => { setSearch(v); setPage(1) }}
           style={{ width: 260 }}
         />
-        <Select
-          allowClear
-          placeholder={t('orders.allShops')}
-          style={{ width: 180 }}
-          value={shopId}
-          onChange={(v) => { setShopId(v); setPage(1) }}
-          options={(shops ?? []).map((s) => ({ value: s.id, label: s.name }))}
-        />
         {!merchantUser && (
           <Select
             allowClear
@@ -550,6 +542,14 @@ export default function OrdersPage() {
             options={(merchants ?? []).map((m) => ({ value: m.id, label: m.name }))}
           />
         )}
+        <Select
+          allowClear
+          placeholder={t('orders.allShops')}
+          style={{ width: 180 }}
+          value={shopId}
+          onChange={(v) => { setShopId(v); setPage(1) }}
+          options={(shops ?? []).map((s) => ({ value: s.id, label: s.name }))}
+        />
         <Select
           allowClear
           placeholder={t('orders.confirmFilter')}
