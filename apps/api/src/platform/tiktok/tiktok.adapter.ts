@@ -400,7 +400,9 @@ export class TikTokAdapter implements PlatformAdapter {
     return {
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
-      expiresAt: new Date(Date.now() + tokenData.access_token_expire_in * 1000),
+      // TikTok returns access_token_expire_in as a Unix timestamp (seconds),
+      // not a duration — convert directly to ms.
+      expiresAt: new Date(tokenData.access_token_expire_in * 1000),
       shopId,
       shopName,
       shopCipher,
@@ -484,7 +486,8 @@ export class TikTokAdapter implements PlatformAdapter {
     return {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
-      expiresAt: new Date(Date.now() + data.access_token_expire_in * 1000),
+      // access_token_expire_in is a Unix timestamp (seconds), not a duration.
+      expiresAt: new Date(data.access_token_expire_in * 1000),
       shopId: shop.externalShopId,
       shopName: shop.name,
     }
