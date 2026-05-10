@@ -8,16 +8,15 @@
 -- the new schema.prisma so `db push` becomes a no-op on deploy.
 --
 -- Run once against prod with the runner: pnpm --filter @ems/api migrate:sub-account
--- The whole thing is wrapped in a transaction; if anything fails it rolls back.
--- Each step is idempotent (uses IF NOT EXISTS / IF EXISTS guards) so it's
--- safe to retry after a failure.
+-- Each statement is auto-committed independently by the runner — required so
+-- ALTER TABLE doesn't pile up locks against the live sync worker. Every
+-- statement uses IF NOT EXISTS / EXCEPTION-handlers so partial completion
+-- can be re-run safely.
 --
 -- Pre-flight assumptions (verified against prod 2026-05-10):
 --   - 1 tenant, 1 user (role=ADMIN), 1 shop, 27 SKUs, 1466 orders, 0 returns
 --   - No duplicates in after_sales_tickets per orderId
 -- ============================================================================
-
-BEGIN;
 
 -- ─── 1. New enums (additive) ────────────────────────────────────────────────
 
@@ -94,45 +93,23 @@ DO $$ BEGIN
     FOREIGN KEY ("createdByUserId") REFERENCES users(id) ON DELETE SET NULL;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- ─── 4. Backfill: ensure each tenant has a MERCHANT user we can use as owner
--- The first ADMIN per tenant is promoted (kept as ADMIN, but reused as the
--- placeholder owner reference) so existing data has a valid ownerUserId.
--- For new tenants going forward, app code is responsible for creating a real
--- merchant user.
-
-CREATE TEMP TABLE _tenant_owner ON COMMIT DROP AS
-  SELECT DISTINCT ON ("tenantId")
-    id AS user_id,
-    "tenantId" AS tenant_id
-  FROM users
-  WHERE role = 'ADMIN'
-  ORDER BY "tenantId", "createdAt";
-
--- Sanity: every tenant that has shops/products/warehouse_skus must have a
--- candidate owner. If not, abort.
-DO $$
-DECLARE missing INT;
-BEGIN
-  SELECT COUNT(*) INTO missing
-  FROM tenants t
-  WHERE NOT EXISTS (SELECT 1 FROM _tenant_owner o WHERE o.tenant_id = t.id)
-    AND (
-      EXISTS (SELECT 1 FROM shops s WHERE s."tenantId" = t.id) OR
-      EXISTS (SELECT 1 FROM system_products p WHERE p."tenantId" = t.id) OR
-      EXISTS (SELECT 1 FROM warehouse_skus ws JOIN warehouses w ON ws."warehouseId"=w.id WHERE w."tenantId" = t.id)
-    );
-  IF missing > 0 THEN
-    RAISE EXCEPTION 'tenants with data but no ADMIN user: %, cannot backfill ownerUserId', missing;
-  END IF;
-END $$;
+-- ─── 4. Owner backfill strategy ─────────────────────────────────────────────
+-- The first ADMIN user per tenant is reused as the placeholder owner so
+-- existing rows have a valid ownerUserId. The backfill is inlined as a
+-- correlated subquery in each UPDATE — no temp table, so each step can run
+-- in its own auto-commit transaction (avoiding deadlocks vs. live writers).
+-- Pre-flight runner check confirms every tenant with data has an ADMIN.
 
 -- ─── 5. Shop.ownerUserId ────────────────────────────────────────────────────
 
 ALTER TABLE shops ADD COLUMN IF NOT EXISTS "ownerUserId" TEXT;
 
-UPDATE shops s SET "ownerUserId" = o.user_id
-FROM _tenant_owner o
-WHERE s."tenantId" = o.tenant_id AND s."ownerUserId" IS NULL;
+UPDATE shops s SET "ownerUserId" = (
+  SELECT u.id FROM users u
+  WHERE u."tenantId" = s."tenantId" AND u.role = 'ADMIN'
+  ORDER BY u."createdAt" LIMIT 1
+)
+WHERE s."ownerUserId" IS NULL;
 
 ALTER TABLE shops ALTER COLUMN "ownerUserId" SET NOT NULL;
 
@@ -148,9 +125,12 @@ CREATE INDEX IF NOT EXISTS shops_ownerUserId_idx ON shops("ownerUserId");
 
 ALTER TABLE system_products ADD COLUMN IF NOT EXISTS "ownerUserId" TEXT;
 
-UPDATE system_products sp SET "ownerUserId" = o.user_id
-FROM _tenant_owner o
-WHERE sp."tenantId" = o.tenant_id AND sp."ownerUserId" IS NULL;
+UPDATE system_products sp SET "ownerUserId" = (
+  SELECT u.id FROM users u
+  WHERE u."tenantId" = sp."tenantId" AND u.role = 'ADMIN'
+  ORDER BY u."createdAt" LIMIT 1
+)
+WHERE sp."ownerUserId" IS NULL;
 
 ALTER TABLE system_products ALTER COLUMN "ownerUserId" SET NOT NULL;
 
@@ -185,9 +165,13 @@ ALTER TABLE warehouse_skus
   ADD COLUMN IF NOT EXISTS "quantityOnHand"   INT NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS "quantityReserved" INT NOT NULL DEFAULT 0;
 
-UPDATE warehouse_skus ws SET "ownerUserId" = o.user_id
-FROM warehouses w, _tenant_owner o
-WHERE ws."warehouseId" = w.id AND w."tenantId" = o.tenant_id AND ws."ownerUserId" IS NULL;
+UPDATE warehouse_skus ws SET "ownerUserId" = (
+  SELECT u.id FROM users u
+  JOIN warehouses w ON w."tenantId" = u."tenantId"
+  WHERE w.id = ws."warehouseId" AND u.role = 'ADMIN'
+  ORDER BY u."createdAt" LIMIT 1
+)
+WHERE ws."ownerUserId" IS NULL;
 
 ALTER TABLE warehouse_skus ALTER COLUMN "ownerUserId" SET NOT NULL;
 
@@ -282,5 +266,3 @@ BEGIN
     RAISE EXCEPTION 'backfill incomplete — % rows still have NULL ownerUserId', null_owners;
   END IF;
 END $$;
-
-COMMIT;
