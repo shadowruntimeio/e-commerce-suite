@@ -85,6 +85,7 @@ export default function OrdersPage() {
   const [page, setPage] = useState(1)
   const [bulkPrinting, setBulkPrinting] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [detailId, setDetailId] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'sku' | 'date'>('sku')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const queryClient = useQueryClient()
@@ -459,7 +460,14 @@ export default function OrdersPage() {
                 </Popconfirm>
               </>
             )}
-            <Button type="text" size="small" icon={<EyeOutlined />} style={{ color: 'var(--text-secondary)' }} />
+            <Button
+              type="text"
+              size="small"
+              icon={<EyeOutlined />}
+              style={{ color: 'var(--text-secondary)' }}
+              title={t('orders.viewDetail')}
+              onClick={(e) => { e.stopPropagation(); setDetailId(record.id) }}
+            />
             <Button
               type="text"
               size="small"
@@ -637,6 +645,114 @@ export default function OrdersPage() {
           <span>{t('orders.footerItems')}<strong style={{ color: 'var(--text-primary)', marginLeft: 6 }}>{data?.totalItems ?? 0}</strong></span>
         </div>
       </div>
+
+      <OrderDetailModal id={detailId} onClose={() => setDetailId(null)} />
+    </div>
+  )
+}
+
+// ─── Order detail modal ─────────────────────────────────────────────────────
+
+function OrderDetailModal({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const { t } = useTranslation()
+  const { data, isLoading } = useQuery({
+    enabled: !!id,
+    queryKey: ['order-detail', id],
+    queryFn: () => api.get(`/orders/${id}`).then((r) => r.data.data),
+  })
+
+  const order = data
+  const addr = order?.shippingAddress as
+    | { full_address?: string; name?: string; phone_number?: string; region_code?: string }
+    | undefined
+
+  return (
+    <Modal
+      open={!!id}
+      onCancel={onClose}
+      footer={null}
+      width={760}
+      title={t('orders.detailTitle')}
+      destroyOnClose
+    >
+      {isLoading || !order ? (
+        <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>{t('common.loading')}</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Header */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: "'Courier New', monospace", fontSize: 14, fontWeight: 600 }}>{order.platformOrderId}</span>
+              <StatusBadge status={order.status} />
+              <Tag color={order.merchantConfirmStatus === 'CONFIRMED' ? 'green'
+                : order.merchantConfirmStatus === 'AUTO_CONFIRMED' ? 'blue'
+                : order.merchantConfirmStatus === 'CANCELLED_BY_MERCHANT' ? 'red'
+                : 'orange'}>
+                {order.merchantConfirmStatus}
+              </Tag>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+              {order.platformCreatedAt ? dayjs(order.platformCreatedAt).format('YYYY-MM-DD HH:mm') : '—'}
+            </div>
+          </div>
+
+          {/* Two-column metadata */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+            <DetailField label={t('orders.detailShop')} value={`${order.shop?.name ?? '—'} (${order.shop?.platform ?? '—'})`} />
+            <DetailField label={t('orders.detailMerchant')} value={order.shop?.owner?.name ?? order.shop?.owner?.email ?? '—'} />
+            <DetailField label={t('orders.detailBuyer')} value={order.buyerName ?? '—'} />
+            <DetailField label={t('orders.detailPhone')} value={order.buyerPhone ?? '—'} />
+            <DetailField
+              label={t('orders.detailAddress')}
+              value={addr?.full_address ?? '—'}
+              span={2}
+            />
+            <DetailField label={t('orders.detailTotal')} value={`${order.currency ?? ''} ${order.totalRevenue ?? 0}`} />
+            <DetailField label={t('orders.detailFirstSku')} value={order.firstSellerSku ?? '—'} />
+          </div>
+
+          {/* Items */}
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
+              {t('orders.detailItems')} ({order.items?.length ?? 0})
+            </div>
+            <Table
+              size="small"
+              rowKey="id"
+              pagination={false}
+              dataSource={order.items ?? []}
+              columns={[
+                { title: t('orders.detailItemSku'), dataIndex: 'sellerSku', key: 'sellerSku', render: (v: string | null) => v || <span style={{ color: 'var(--text-muted)' }}>—</span> },
+                { title: t('orders.detailItemName'), dataIndex: 'productName', key: 'productName', ellipsis: true },
+                { title: t('orders.detailItemVariant'), dataIndex: 'skuName', key: 'skuName', render: (v: string | null) => v || <span style={{ color: 'var(--text-muted)' }}>—</span> },
+                { title: t('orders.detailItemQty'), dataIndex: 'quantity', key: 'quantity', width: 70, align: 'right' as const },
+                { title: t('orders.detailItemPrice'), dataIndex: 'unitPrice', key: 'unitPrice', width: 100, align: 'right' as const, render: (v: any) => `${order.currency ?? ''} ${v ?? 0}` },
+              ]}
+            />
+          </div>
+
+          {/* After-sales tickets if any */}
+          {order.afterSalesTickets?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{t('orders.detailReturns')}</div>
+              {order.afterSalesTickets.map((tk: any) => (
+                <div key={tk.id} style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '6px 10px', background: 'var(--bg-surface)', borderRadius: 6, marginBottom: 4 }}>
+                  {tk.type} · {tk.status} · review={tk.reviewStatus}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+function DetailField({ label, value, span = 1 }: { label: string; value: React.ReactNode; span?: number }) {
+  return (
+    <div style={{ gridColumn: `span ${span}` }}>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>{value}</div>
     </div>
   )
 }
