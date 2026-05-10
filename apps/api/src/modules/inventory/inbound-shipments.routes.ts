@@ -23,8 +23,12 @@ import { createInventoryEvent } from './inventory.service'
  * gate only applies when the caller is a MERCHANT.
  */
 
+// Accept skuCode rather than systemSkuId so the merchant doesn't have to
+// create catalog rows up-front. Any unknown SKU code is auto-created under
+// the merchant on submit.
 const itemSchema = z.object({
-  systemSkuId: z.string().min(1),
+  skuCode: z.string().min(1),
+  productName: z.string().optional(),
   expectedQuantity: z.number().int().min(0),
 })
 
@@ -59,25 +63,36 @@ export async function inboundShipmentRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.status(400).send({ success: false, error: parsed.error.message })
     const { warehouseId, shippedAt, carrier, trackingNumber, notes, items } = parsed.data
 
-    // All listed SKUs must belong to this merchant.
-    const skus = await prisma.systemSku.findMany({
-      where: { id: { in: items.map((i) => i.systemSkuId) } },
-      include: { systemProduct: { select: { ownerUserId: true, tenantId: true } } },
-    })
-    if (skus.length !== items.length) {
-      return reply.status(400).send({ success: false, error: 'One or more SKUs not found' })
-    }
-    for (const sku of skus) {
-      if (sku.systemProduct.tenantId !== request.user.tenantId || sku.systemProduct.ownerUserId !== request.user.userId) {
-        return reply.status(403).send({ success: false, error: `SKU ${sku.id} is not owned by this merchant` })
-      }
-    }
-
     const wh = await prisma.warehouse.findFirst({
       where: { id: warehouseId, tenantId: request.user.tenantId, isActive: true },
       select: { id: true },
     })
     if (!wh) return reply.status(400).send({ success: false, error: 'Warehouse not found or inactive' })
+
+    // Resolve / auto-create the SystemSku for each row scoped to this merchant.
+    const resolvedItems: Array<{ systemSkuId: string; expectedQuantity: number }> = []
+    for (const it of items) {
+      let sku = await prisma.systemSku.findFirst({
+        where: {
+          skuCode: it.skuCode,
+          systemProduct: { tenantId: request.user.tenantId, ownerUserId: request.user.userId },
+        },
+      })
+      if (!sku) {
+        const product = await prisma.systemProduct.create({
+          data: {
+            tenantId: request.user.tenantId,
+            ownerUserId: request.user.userId,
+            spuCode: it.skuCode,
+            name: it.productName ?? it.skuCode,
+          },
+        })
+        sku = await prisma.systemSku.create({
+          data: { systemProductId: product.id, skuCode: it.skuCode },
+        })
+      }
+      resolvedItems.push({ systemSkuId: sku.id, expectedQuantity: it.expectedQuantity })
+    }
 
     const shipment = await prisma.inboundShipment.create({
       data: {
@@ -88,12 +103,7 @@ export async function inboundShipmentRoutes(app: FastifyInstance) {
         carrier,
         trackingNumber,
         notes: notes ?? null,
-        items: {
-          create: items.map((i) => ({
-            systemSkuId: i.systemSkuId,
-            expectedQuantity: i.expectedQuantity,
-          })),
-        },
+        items: { create: resolvedItems },
       },
       include: { items: true },
     })

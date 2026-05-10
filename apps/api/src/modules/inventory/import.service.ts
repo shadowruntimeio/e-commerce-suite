@@ -1,6 +1,5 @@
 import ExcelJS from 'exceljs'
 import { prisma, Prisma } from '@ems/db'
-import { ADJUSTMENT_REASONS } from '@ems/shared'
 import type { AdjustmentReason, InventoryEventType } from '@ems/shared'
 import { getCurrentStock, createInventoryEvent } from './inventory.service'
 
@@ -16,30 +15,24 @@ const EVENT_TYPES: InventoryEventType[] = [
 export type ImportMode = 'absolute' | 'delta'
 
 // Columns per mode. Keep headers in sync with template generation below.
-const ABSOLUTE_COLUMNS = ['warehouse_name', 'sku_code', 'product_name', 'category', 'counted_quantity', 'reason', 'notes']
-const DELTA_COLUMNS = ['warehouse_name', 'sku_code', 'product_name', 'category', 'event_type', 'quantity', 'reason', 'notes']
+const ABSOLUTE_COLUMNS = ['warehouse_name', 'sku_code', 'category', 'counted_quantity']
+const DELTA_COLUMNS = ['warehouse_name', 'sku_code', 'category', 'event_type', 'quantity']
 
 export interface ParsedRowAbsolute {
   rowNumber: number
   warehouseName: string
   skuCode: string
-  productName?: string
   category?: string
   countedQuantity: number
-  reason: AdjustmentReason
-  notes?: string
 }
 
 export interface ParsedRowDelta {
   rowNumber: number
   warehouseName: string
   skuCode: string
-  productName?: string
   category?: string
   eventType: InventoryEventType
   quantity: number
-  reason?: AdjustmentReason
-  notes?: string
 }
 
 export interface PreviewRow {
@@ -102,10 +95,13 @@ export async function generateTemplate(opts: {
   writeList('A', opts.warehouseNames)
   writeList('B', opts.categoryNames)
   writeList('C', EVENT_TYPES)
-  writeList('D', ADJUSTMENT_REASONS)
 
-  const applyValidation = (col: string, listCol: string, count: number) => {
+  const colLetter = (i: number) => String.fromCharCode('A'.charCodeAt(0) + i)
+  const applyValidationForHeader = (header: string, listCol: string, count: number) => {
     if (count === 0) return
+    const idx = headers.indexOf(header)
+    if (idx === -1) return
+    const col = colLetter(idx)
     for (let row = 2; row <= 1000; row++) {
       sheet.getCell(`${col}${row}`).dataValidation = {
         type: 'list',
@@ -117,23 +113,9 @@ export async function generateTemplate(opts: {
     }
   }
 
-  if (opts.mode === 'absolute') {
-    // warehouse_name=A, sku_code=B, product_name=C, category=D, counted_quantity=E, reason=F, notes=G
-    applyValidation('A', 'A', opts.warehouseNames.length)
-    applyValidation('D', 'B', opts.categoryNames.length)
-    applyValidation('F', 'D', ADJUSTMENT_REASONS.length)
-  } else if (opts.hideEventType) {
-    // warehouse_name=A, sku_code=B, product_name=C, category=D, quantity=E, reason=F, notes=G
-    applyValidation('A', 'A', opts.warehouseNames.length)
-    applyValidation('D', 'B', opts.categoryNames.length)
-    applyValidation('F', 'D', ADJUSTMENT_REASONS.length)
-  } else {
-    // warehouse_name=A, sku_code=B, product_name=C, category=D, event_type=E, quantity=F, reason=G, notes=H
-    applyValidation('A', 'A', opts.warehouseNames.length)
-    applyValidation('D', 'B', opts.categoryNames.length)
-    applyValidation('E', 'C', EVENT_TYPES.length)
-    applyValidation('G', 'D', ADJUSTMENT_REASONS.length)
-  }
+  applyValidationForHeader('warehouse_name', 'A', opts.warehouseNames.length)
+  applyValidationForHeader('category', 'B', opts.categoryNames.length)
+  applyValidationForHeader('event_type', 'C', EVENT_TYPES.length)
 
   const buf = (await workbook.xlsx.writeBuffer()) as ArrayBuffer
   return Buffer.from(buf)
@@ -202,17 +184,10 @@ export async function parseWorkbook(buffer: Buffer, mode: ImportMode): Promise<{
     const skuCode = cellString(row.getCell(colIdx.sku_code).value)
     if (!warehouseName && !skuCode) continue // fully blank row
 
-    const productName = cellString(row.getCell(colIdx.product_name).value) || undefined
     const category = cellString(row.getCell(colIdx.category).value) || undefined
-    const reason = (cellString(row.getCell(colIdx.reason).value).toUpperCase() || undefined) as AdjustmentReason | undefined
-    const notes = cellString(row.getCell(colIdx.notes).value) || undefined
 
     if (!warehouseName) { errors.push({ row: r, error: 'warehouse_name is required' }); continue }
     if (!skuCode) { errors.push({ row: r, error: 'sku_code is required' }); continue }
-    if (reason && !ADJUSTMENT_REASONS.includes(reason as AdjustmentReason)) {
-      errors.push({ row: r, error: `invalid reason "${reason}"` })
-      continue
-    }
 
     if (mode === 'absolute') {
       const counted = cellNumber(row.getCell(colIdx.counted_quantity).value)
@@ -220,16 +195,12 @@ export async function parseWorkbook(buffer: Buffer, mode: ImportMode): Promise<{
         errors.push({ row: r, error: 'counted_quantity must be a non-negative integer' })
         continue
       }
-      if (!reason) { errors.push({ row: r, error: 'reason is required' }); continue }
       rows.push({
         rowNumber: r,
         warehouseName,
         skuCode,
-        productName,
         category,
         countedQuantity: counted,
-        reason,
-        notes,
       } satisfies ParsedRowAbsolute)
     } else {
       const hasEventTypeCol = colIdx.event_type !== undefined
@@ -249,12 +220,9 @@ export async function parseWorkbook(buffer: Buffer, mode: ImportMode): Promise<{
         rowNumber: r,
         warehouseName,
         skuCode,
-        productName,
         category,
         eventType,
         quantity: qty,
-        reason,
-        notes,
       } satisfies ParsedRowDelta)
     }
   }
@@ -334,9 +302,9 @@ export async function previewImport(opts: {
         quantityAfter: null,
         delta: null,
         skuWillBeCreated: !sku,
-        reason: (p as any).reason ?? null,
+        reason: null,
         eventType: (p as any).eventType ?? null,
-        notes: p.notes ?? null,
+        notes: null,
         error: `Warehouse "${p.warehouseName}" not found`,
       })
       continue
@@ -372,16 +340,16 @@ export async function previewImport(opts: {
       warehouseName: p.warehouseName,
       warehouseId,
       skuCode: p.skuCode,
-      productName: p.productName ?? sku?.systemProduct.name ?? p.skuCode,
+      productName: sku?.systemProduct.name ?? p.skuCode,
       categoryBefore,
       categoryAfter,
       quantityBefore,
       quantityAfter,
       delta,
       skuWillBeCreated: !sku,
-      reason: (p as any).reason ?? null,
+      reason: null,
       eventType: (p as any).eventType ?? 'ADJUSTMENT',
-      notes: p.notes ?? null,
+      notes: null,
     })
   }
 
@@ -483,14 +451,12 @@ export async function applyImport(opts: { tenantId: string; userId: string; toke
         },
         include: { systemProduct: true },
       })
-    } else {
-      // Update name/category on existing product if caller provided them
-      const updates: Prisma.SystemProductUpdateInput = {}
-      if (row.productName && row.productName !== sku.systemProduct.name) updates.name = row.productName
-      if (categoryId !== sku.systemProduct.categoryId) updates.category = categoryId ? { connect: { id: categoryId } } : { disconnect: true }
-      if (Object.keys(updates).length > 0) {
-        await prisma.systemProduct.update({ where: { id: sku.systemProductId }, data: updates })
-      }
+    } else if (categoryId !== sku.systemProduct.categoryId) {
+      // Sync category on existing product when the upload provided one.
+      await prisma.systemProduct.update({
+        where: { id: sku.systemProductId },
+        data: { category: categoryId ? { connect: { id: categoryId } } : { disconnect: true } },
+      })
     }
 
     // Find or create WarehouseSku
@@ -520,8 +486,8 @@ export async function applyImport(opts: { tenantId: string; userId: string; toke
       warehouseId: row.warehouseId,
       eventType: (row.eventType ?? 'ADJUSTMENT') as InventoryEventType,
       quantityDelta: delta,
-      reason: (row.reason as AdjustmentReason | undefined) ?? (session.mode === 'absolute' ? 'STOCKTAKE_CORRECTION' : undefined),
-      notes: row.notes ?? (session.mode === 'absolute' ? 'Import (absolute)' : 'Import (delta)'),
+      reason: session.mode === 'absolute' ? 'STOCKTAKE_CORRECTION' : undefined,
+      notes: session.mode === 'absolute' ? 'Import (absolute)' : 'Import (delta)',
       referenceType: session.mode === 'absolute' ? 'import_absolute' : 'import_delta',
       createdBy: opts.userId,
     })

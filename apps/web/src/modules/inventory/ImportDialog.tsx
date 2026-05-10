@@ -1,12 +1,17 @@
-import { Modal, Upload, Button, message, Table, Alert, Space, Tag } from 'antd'
+import { Modal, Upload, Button, message, Table, Alert, Space, Tag, DatePicker, Input } from 'antd'
 import { InboxOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import type { ColumnsType } from 'antd/es/table'
 import { api } from '../../lib/api'
+import { useAuthStore, isMerchant } from '../../store/auth.store'
+import dayjs, { type Dayjs } from 'dayjs'
 
-type Step = 'select' | 'preview'
+// Merchant submission has an extra step between preview and "done":
+//   select → preview → ship (carrier / tracking / shipped-at) → submit
+// Admin / warehouse staff still go: select → preview → apply
+type Step = 'select' | 'preview' | 'ship'
 
 // Only one import mode is exposed in the UI: delta (+/- adjustment). Absolute
 // "stocktake" mode is still wired on the backend but hidden — it's destructive
@@ -44,10 +49,16 @@ type PreviewResult = {
 export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const user = useAuthStore((s) => s.user)
+  const merchant = isMerchant(user)
   const [step, setStep] = useState<Step>('select')
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [applying, setApplying] = useState(false)
+  // Merchant ship-info form state
+  const [shippedAt, setShippedAt] = useState<Dayjs | null>(null)
+  const [carrier, setCarrier] = useState('')
+  const [trackingNumber, setTrackingNumber] = useState('')
   const [preview, setPreview] = useState<PreviewResult | null>(null)
 
   function reset() {
@@ -56,6 +67,9 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setPreview(null)
     setUploading(false)
     setApplying(false)
+    setShippedAt(null)
+    setCarrier('')
+    setTrackingNumber('')
   }
 
   function handleClose() {
@@ -102,6 +116,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     }
   }
 
+  // Warehouse / admin path: write inventory immediately.
   async function handleApply() {
     if (!preview) return
     setApplying(true)
@@ -114,6 +129,57 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
       handleClose()
     } catch (err: any) {
       void message.error(err?.response?.data?.error ?? t('inventory.applyFailed'))
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  // Merchant path: submit a shipment that lands in PENDING_REVIEW. Warehouse
+  // staff confirms on arrival to actually update stock. Validates that all
+  // preview rows target the same warehouse — otherwise the merchant must
+  // split the import into one file per warehouse.
+  function previewWarehouses(): Array<{ id: string; name: string }> {
+    if (!preview) return []
+    const seen = new Map<string, string>()
+    for (const r of preview.rows) {
+      if (r.warehouseId && !seen.has(r.warehouseId)) seen.set(r.warehouseId, r.warehouseName)
+    }
+    return Array.from(seen.entries()).map(([id, name]) => ({ id, name }))
+  }
+
+  async function handleSubmitShipment() {
+    if (!preview) return
+    const whs = previewWarehouses()
+    if (whs.length !== 1) {
+      void message.error(t('inventory.shipmentSingleWarehouseRequired'))
+      return
+    }
+    if (!shippedAt || !carrier.trim() || !trackingNumber.trim()) return
+    const items = preview.rows
+      .filter((r) => !r.error && r.skuCode && (r.delta ?? 0) > 0)
+      .map((r) => ({
+        skuCode: r.skuCode,
+        productName: r.productName ?? undefined,
+        expectedQuantity: r.delta ?? 0,
+      }))
+    if (items.length === 0) {
+      void message.error(t('inventory.shipmentNoValidRows'))
+      return
+    }
+    setApplying(true)
+    try {
+      await api.post('/inventory/inbound-shipments', {
+        warehouseId: whs[0].id,
+        shippedAt: shippedAt.toISOString(),
+        carrier: carrier.trim(),
+        trackingNumber: trackingNumber.trim(),
+        items,
+      })
+      void message.success(t('inventory.shipmentSubmitted', { count: items.length }))
+      queryClient.invalidateQueries({ queryKey: ['inbound-shipments'] })
+      handleClose()
+    } catch (err: any) {
+      void message.error(err?.response?.data?.error ?? t('inventory.shipmentSubmitFailed'))
     } finally {
       setApplying(false)
     }
@@ -299,13 +365,96 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
             <Button onClick={() => setStep('select')}>{t('inventory.backBtn')}</Button>
             <Space>
               <Button onClick={handleClose}>{t('common.cancel')}</Button>
+              {merchant ? (
+                <Button
+                  type="primary"
+                  disabled={preview.validRows === 0}
+                  onClick={() => setStep('ship')}
+                  style={{ background: 'var(--accent-gradient)', border: 'none' }}
+                >
+                  {t('inventory.nextShipBtn')}
+                </Button>
+              ) : (
+                <Button
+                  type="primary"
+                  loading={applying}
+                  disabled={preview.validRows === 0}
+                  onClick={handleApply}
+                >
+                  {t('inventory.applyBtn', { count: preview.validRows })}
+                </Button>
+              )}
+            </Space>
+          </div>
+        </div>
+      )}
+
+      {step === 'ship' && preview && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 12 }}>
+          <Alert
+            type="info"
+            showIcon
+            message={t('inventory.shipFormHint', { count: preview.validRows })}
+          />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div>
+              <label style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                {t('inventory.shippedAtLabel')} *
+              </label>
+              <DatePicker
+                value={shippedAt}
+                onChange={(d) => setShippedAt(d)}
+                style={{ width: '100%' }}
+                placeholder={t('inventory.shippedAtPlaceholder')}
+                disabledDate={(d) => !!d && d.isAfter(dayjs(), 'day')}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                {t('inventory.warehouseLabel')}
+              </label>
+              <Input
+                value={previewWarehouses().map((w) => w.name).join(', ') || '—'}
+                disabled
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                {t('inventory.carrierLabel')} *
+              </label>
+              <Input
+                value={carrier}
+                onChange={(e) => setCarrier(e.target.value)}
+                placeholder={t('inventory.carrierPlaceholder')}
+                maxLength={60}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                {t('inventory.trackingLabel')} *
+              </label>
+              <Input
+                value={trackingNumber}
+                onChange={(e) => setTrackingNumber(e.target.value)}
+                placeholder={t('inventory.trackingPlaceholder')}
+                maxLength={80}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Button onClick={() => setStep('preview')}>{t('inventory.backBtn')}</Button>
+            <Space>
+              <Button onClick={handleClose}>{t('common.cancel')}</Button>
               <Button
                 type="primary"
                 loading={applying}
-                disabled={preview.validRows === 0}
-                onClick={handleApply}
+                disabled={!shippedAt || !carrier.trim() || !trackingNumber.trim()}
+                onClick={handleSubmitShipment}
+                style={{ background: 'var(--accent-gradient)', border: 'none' }}
               >
-                {t('inventory.applyBtn', { count: preview.validRows })}
+                {t('inventory.submitShipmentBtn')}
               </Button>
             </Space>
           </div>
