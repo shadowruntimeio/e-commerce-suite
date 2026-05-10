@@ -140,6 +140,7 @@ export default {
     afterSales: 'After Sales',
     orderId: 'Order ID',
     searchPlaceholder: 'Order ID / Buyer name',
+    skuFilterPlaceholder: 'Filter by SKU',
     allShops: 'All shops',
     platform: 'Platform',
     shop: 'Shop',

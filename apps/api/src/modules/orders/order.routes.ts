@@ -13,11 +13,11 @@ export async function orderRoutes(app: FastifyInstance) {
 
   app.get('/', async (request) => {
     const {
-      status, shopId, ownerUserId, merchantConfirm, page = 1, pageSize = 20, search,
+      status, shopId, ownerUserId, merchantConfirm, page = 1, pageSize = 20, search, sku,
       sortBy = 'sku', sortOrder = 'desc',
     } = request.query as {
       status?: string; shopId?: string; ownerUserId?: string; merchantConfirm?: string
-      page?: number; pageSize?: number; search?: string
+      page?: number; pageSize?: number; search?: string; sku?: string
       sortBy?: 'sku' | 'date'; sortOrder?: 'asc' | 'desc'
     }
     const statusList = (status ?? '').split(',').map((s) => s.trim()).filter(Boolean)
@@ -58,6 +58,12 @@ export async function orderRoutes(app: FastifyInstance) {
           { platformOrderId: { contains: search } },
           { buyerName: { contains: search, mode: 'insensitive' as const } },
         ],
+      } : {}),
+      // Match any order item by sellerSku (case-insensitive, substring). Uses
+      // `items.some` rather than the denormalized firstSellerSku so multi-item
+      // orders are still found when the SKU is on a non-first line.
+      ...(sku ? {
+        items: { some: { sellerSku: { contains: sku, mode: 'insensitive' as const } } },
       } : {}),
     }
     const dir = sortOrder === 'asc' ? 'asc' : 'desc'

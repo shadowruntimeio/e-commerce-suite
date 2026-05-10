@@ -140,6 +140,7 @@ export default {
     afterSales: '售后',
     orderId: '订单号',
     searchPlaceholder: '订单号 / 买家姓名',
+    skuFilterPlaceholder: '按 SKU 筛选',
     allShops: '全部店铺',
     platform: '平台',
     shop: '店铺',

@@ -77,6 +77,7 @@ export default function OrdersPage() {
   const merchantUser = isMerchant(user)
   const [statuses, setStatuses] = useState<string[]>(merchantUser ? [] : ['TO_SHIP'])
   const [search, setSearch] = useState('')
+  const [sku, setSku] = useState('')
   const [shopId, setShopId] = useState<string | undefined>(undefined)
   const [merchantId, setMerchantId] = useState<string | undefined>(undefined)
   const [confirmStatus, setConfirmStatus] = useState<string | undefined>(
@@ -216,12 +217,13 @@ export default function OrdersPage() {
   ]
 
   const { data, isLoading } = useQuery({
-    queryKey: ['orders', { statuses, search, shopId, merchantId, confirmStatus, page, sortBy, sortOrder }],
+    queryKey: ['orders', { statuses, search, sku, shopId, merchantId, confirmStatus, page, sortBy, sortOrder }],
     queryFn: () =>
       api.get('/orders', {
         params: {
           status: statuses.length ? statuses.join(',') : undefined,
           search: search || undefined,
+          sku: sku || undefined,
           shopId: shopId || undefined,
           ownerUserId: merchantId || undefined,
           merchantConfirm: confirmStatus || undefined,
@@ -244,6 +246,7 @@ export default function OrdersPage() {
       params: {
         status: statuses.length ? statuses.join(',') : undefined,
         search: search || undefined,
+        sku: sku || undefined,
         shopId: shopId || undefined,
         page: 1,
         pageSize: 200,
@@ -539,6 +542,12 @@ export default function OrdersPage() {
           allowClear
           onSearch={(v) => { setSearch(v); setPage(1) }}
           style={{ width: 260 }}
+        />
+        <Input.Search
+          placeholder={t('orders.skuFilterPlaceholder')}
+          allowClear
+          onSearch={(v) => { setSku(v); setPage(1) }}
+          style={{ width: 160 }}
         />
         {!merchantUser && (
           <Select
