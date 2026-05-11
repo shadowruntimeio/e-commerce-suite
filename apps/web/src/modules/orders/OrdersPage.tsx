@@ -342,52 +342,24 @@ export default function OrdersPage() {
     refetchIntervalInBackground: false,
   })
 
-  async function handlePrintAll() {
-    // Re-fetch the entire filtered list (up to 200) and restrict to printable
-    // statuses server-side filtering gave us.
-    const res = await api.get('/orders', {
-      params: {
-        status: expandedStatuses.length ? expandedStatuses.join(',') : undefined,
-        search: search || undefined,
-        sku: sku || undefined,
-        shopId: shopId || undefined,
-        page: 1,
-        pageSize: 200,
-      },
-    })
-    const all = (res.data.data?.items ?? []) as Array<{ id: string; platformOrderId: string; status: string; platformMetadata?: any }>
-    const printable = all.filter((o) => PRINTABLE_STATUSES.has(o.status))
-    const skipped = all.length - printable.length
-
-    if (printable.length === 0) {
-      void message.info(t('orders.noneToPrint'))
-      return
-    }
-
-    // Expand each order into one (orderId, packageId) task per distinct package.
-    // Preserves order-then-package ordering so labels for the same order stay
-    // adjacent in the merged PDF.
+  // Expand a list of orders into one print task per (order, package). Multi-
+  // package orders produce multiple tasks; orders without package_ids fall back
+  // to a single task with no packageId. Order-then-package ordering keeps the
+  // merged PDF's pages grouped by order.
+  function ordersToPrintTasks(orders: Array<{ id: string; platformMetadata?: any }>) {
     const tasks: Array<{ orderId: string; packageId?: string }> = []
-    for (const o of printable) {
+    for (const o of orders) {
       const pkgs = packageIdsForOrder(o)
       if (pkgs.length === 0) tasks.push({ orderId: o.id })
       else for (const pkg of pkgs) tasks.push({ orderId: o.id, packageId: pkg })
     }
+    return tasks
+  }
 
-    const content = t('orders.bulkPrintConfirm', { n: tasks.length })
-      + (skipped > 0 ? ' ' + t('orders.bulkPrintSkipped', { skipped }) : '')
-    const confirmed = await new Promise<boolean>((resolve) => {
-      Modal.confirm({
-        title: t('orders.bulkPrintTitle'),
-        content,
-        okText: t('orders.bulkPrintOk'),
-        cancelText: t('common.cancel'),
-        onOk: () => resolve(true),
-        onCancel: () => resolve(false),
-      })
-    })
-    if (!confirmed) return
-
+  // Fetch each task's label URL, merge into a single PDF, open it. Shared by
+  // both "print all filtered" and "print selected". Returns counts so the
+  // caller can show a unified success/warning toast.
+  async function runPrintTasks(tasks: Array<{ orderId: string; packageId?: string }>) {
     setBulkPrinting(true)
     let hide = message.loading(t('orders.bulkPrintProgress', { done: 0, total: tasks.length }), 0)
     let done = 0
@@ -412,7 +384,7 @@ export default function OrdersPage() {
 
       if (urls.length === 0) {
         void message.error(t('orders.bulkPrintDone', { done: 0, failed }))
-        return
+        return { done: 0, failed }
       }
 
       // Merge all PDFs into a single document so the user gets one print window
@@ -434,14 +406,77 @@ export default function OrdersPage() {
         }
       }
       const blob = new Blob([new Uint8Array(await merged.save()).buffer], { type: 'application/pdf' })
-      const blobUrl = URL.createObjectURL(blob)
-      window.open(blobUrl, '_blank')
+      window.open(URL.createObjectURL(blob), '_blank')
     } finally {
       hide()
       setBulkPrinting(false)
     }
-    void message.success(t('orders.bulkPrintDone', { done: urls.length, failed }))
+    void message[failed === 0 ? 'success' : 'warning'](t('orders.bulkPrintDone', { done: urls.length, failed }))
     void syncQuiet()
+    return { done: urls.length, failed }
+  }
+
+  async function handlePrintAll() {
+    // Re-fetch the entire filtered list (up to 200) and restrict to printable
+    // statuses server-side filtering gave us.
+    const res = await api.get('/orders', {
+      params: {
+        status: expandedStatuses.length ? expandedStatuses.join(',') : undefined,
+        search: search || undefined,
+        sku: sku || undefined,
+        shopId: shopId || undefined,
+        page: 1,
+        pageSize: 200,
+      },
+    })
+    const all = (res.data.data?.items ?? []) as Array<{ id: string; platformOrderId: string; status: string; platformMetadata?: any }>
+    const printable = all.filter((o) => PRINTABLE_STATUSES.has(o.status))
+    const skipped = all.length - printable.length
+
+    if (printable.length === 0) {
+      void message.info(t('orders.noneToPrint'))
+      return
+    }
+
+    const tasks = ordersToPrintTasks(printable)
+    const content = t('orders.bulkPrintConfirm', { n: tasks.length })
+      + (skipped > 0 ? ' ' + t('orders.bulkPrintSkipped', { skipped }) : '')
+    const confirmed = await new Promise<boolean>((resolve) => {
+      Modal.confirm({
+        title: t('orders.bulkPrintTitle'),
+        content,
+        okText: t('orders.bulkPrintOk'),
+        cancelText: t('common.cancel'),
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      })
+    })
+    if (!confirmed) return
+    await runPrintTasks(tasks)
+  }
+
+  // Print only the rows the user has checked. Operates on the current page's
+  // data (selection clears on page change), filters to printable statuses, and
+  // skips silently if nothing eligible is selected.
+  function handlePrintSelected() {
+    const printable = (data?.items ?? []).filter(
+      (o: any) => selectedKeys.includes(o.id) && PRINTABLE_STATUSES.has(o.status),
+    )
+    if (printable.length === 0) {
+      void message.info(t('orders.bulkPrintNoneSelected'))
+      return
+    }
+    const skipped = selectedKeys.length - printable.length
+    const tasks = ordersToPrintTasks(printable)
+    const content = t('orders.bulkPrintSelectedContent', { n: tasks.length })
+      + (skipped > 0 ? ' ' + t('orders.bulkPrintSkipped', { skipped }) : '')
+    Modal.confirm({
+      title: t('orders.bulkPrintSelectedTitle'),
+      content,
+      okText: t('orders.bulkPrintOk'),
+      cancelText: t('common.cancel'),
+      onOk: () => runPrintTasks(tasks),
+    })
   }
 
   const columns: ColumnsType<any> = [
@@ -727,9 +762,10 @@ export default function OrdersPage() {
         <span>{t('orders.footerItems')}<strong style={{ color: 'var(--text-primary)', marginLeft: 6 }}>{data?.totalItems ?? 0}</strong></span>
       </div>
 
-      {/* Bulk action bar — only rendered when the merchant has rows selected.
-          Selection is restricted to PENDING_CONFIRM orders (the only ones a
-          merchant can confirm/cancel). */}
+      {/* Bulk action bar — shown when any row is selected. Buttons are
+          role-gated: warehouse only sees "print selected"; merchant/admin
+          additionally see confirm / cancel. Each button filters the
+          selection to its own eligible subset at click time. */}
       {selectedKeys.length > 0 && (
         <div style={{
           display: 'flex',
@@ -754,22 +790,34 @@ export default function OrdersPage() {
           </div>
           <Space>
             <Button
-              icon={<CheckOutlined />}
-              loading={bulkActing}
-              onClick={handleBulkConfirm}
+              icon={<PrinterOutlined />}
+              loading={bulkPrinting}
+              onClick={handlePrintSelected}
               style={{ borderRadius: 8, fontWeight: 500 }}
             >
-              {t('orders.bulkConfirm')}
+              {t('orders.bulkPrintSelected')}
             </Button>
-            <Button
-              icon={<CloseOutlined />}
-              danger
-              loading={bulkActing}
-              onClick={handleBulkCancel}
-              style={{ borderRadius: 8, fontWeight: 500 }}
-            >
-              {t('orders.bulkCancel')}
-            </Button>
+            {(merchantUser || user?.role === 'ADMIN') && (
+              <>
+                <Button
+                  icon={<CheckOutlined />}
+                  loading={bulkActing}
+                  onClick={handleBulkConfirm}
+                  style={{ borderRadius: 8, fontWeight: 500 }}
+                >
+                  {t('orders.bulkConfirm')}
+                </Button>
+                <Button
+                  icon={<CloseOutlined />}
+                  danger
+                  loading={bulkActing}
+                  onClick={handleBulkCancel}
+                  style={{ borderRadius: 8, fontWeight: 500 }}
+                >
+                  {t('orders.bulkCancel')}
+                </Button>
+              </>
+            )}
           </Space>
         </div>
       )}
@@ -788,14 +836,24 @@ export default function OrdersPage() {
           rowSelection={{
             selectedRowKeys: selectedKeys,
             onChange: (keys) => setSelectedKeys(keys),
-            // Disable selection for rows the bulk actions can't apply to —
-            // only PENDING_CONFIRM orders are actionable here. Greyed-out
-            // checkboxes are clearer than failing later in runBulkAction.
+            // A row is selectable if any bulk action applies to it:
+            //   - PENDING_CONFIRM → merchant confirm / cancel
+            //   - printable status → warehouse / admin batch print
+            // Each button then filters the selection to its own eligible
+            // subset, so warehouses don't accidentally hit confirm-only rows.
             getCheckboxProps: (record: any) => ({
-              disabled: record.merchantConfirmStatus !== 'PENDING_CONFIRM',
+              disabled:
+                record.merchantConfirmStatus !== 'PENDING_CONFIRM' &&
+                !PRINTABLE_STATUSES.has(record.status),
             }),
           }}
-          onChange={(_p, _f, sorter) => {
+          onChange={(_p, _f, sorter, extra) => {
+            // Antd fires this for pagination, filter, AND sort changes. The
+            // pagination.onChange below already handles page clicks, so only
+            // touch sort state (and reset to page 1) when the user actually
+            // clicked a sort header — otherwise paginating would silently
+            // reset back to page 1.
+            if (extra.action !== 'sort') return
             const s = Array.isArray(sorter) ? sorter[0] : sorter
             const key = (s?.columnKey as 'sku' | 'date') ?? 'sku'
             const order = s?.order === 'ascend' ? 'asc' : 'desc'

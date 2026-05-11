@@ -214,6 +214,10 @@ export default {
     bulkActionProgress: '处理中 {{done}} / {{total}}...',
     bulkActionDone: '完成。成功 {{done}} 个，失败 {{failed}} 个。',
     bulkNoneEligible: '所选订单都不是待商家确认状态',
+    bulkPrintSelected: '批量打印所选',
+    bulkPrintSelectedTitle: '打印所选订单的面单？',
+    bulkPrintSelectedContent: '将通过 J&T 安排上门自提并生成 {{n}} 张面单。此操作不可撤销。',
+    bulkPrintNoneSelected: '所选订单都不是可打印状态',
   },
   products: {
     title: '商品管理',

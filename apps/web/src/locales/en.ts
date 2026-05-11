@@ -214,6 +214,10 @@ export default {
     bulkActionProgress: 'Processing {{done}} / {{total}}...',
     bulkActionDone: 'Done. {{done}} succeeded, {{failed}} failed.',
     bulkNoneEligible: 'None of the selected orders are pending merchant confirmation',
+    bulkPrintSelected: 'Print Selected',
+    bulkPrintSelectedTitle: 'Print labels for the selected orders?',
+    bulkPrintSelectedContent: 'This will arrange shipping (drop-off via J&T) and generate {{n}} labels. This cannot be undone.',
+    bulkPrintNoneSelected: 'None of the selected orders are in a printable status',
   },
   products: {
     title: 'Products',
