@@ -105,6 +105,8 @@ export default function OrdersPage() {
   )
   const [page, setPage] = useState(1)
   const [bulkPrinting, setBulkPrinting] = useState(false)
+  const [bulkActing, setBulkActing] = useState(false)
+  const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([])
   const [syncing, setSyncing] = useState(false)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'sku' | 'date'>('sku')
@@ -160,6 +162,77 @@ export default function OrdersPage() {
   useEffect(() => {
     void syncQuiet()
   }, [syncQuiet])
+
+  // Clear bulk selection whenever the filtered set or page changes — a key
+  // selected on page 1 is no longer visible after switching to page 2, and
+  // silently carrying it over is surprising.
+  useEffect(() => {
+    setSelectedKeys([])
+  }, [statuses, search, sku, shopId, merchantId, confirmStatus, page, sortBy, sortOrder])
+
+  // Run a confirm/cancel mutation across a list of order ids with progress
+  // toast. Calls run in parallel — each endpoint is idempotent and the order
+  // doesn't matter.
+  async function runBulkAction(ids: string[], action: 'confirm' | 'cancel') {
+    if (ids.length === 0) {
+      void message.info(t('orders.bulkNoneEligible'))
+      return
+    }
+    setBulkActing(true)
+    let hide = message.loading(t('orders.bulkActionProgress', { done: 0, total: ids.length }), 0)
+    let done = 0
+    let failed = 0
+    try {
+      const results = await Promise.allSettled(
+        ids.map((id) => api.post(`/orders/${id}/merchant-${action}`)),
+      )
+      for (const r of results) {
+        if (r.status === 'fulfilled') done++
+        else failed++
+      }
+    } finally {
+      hide()
+      setBulkActing(false)
+    }
+    void message[failed === 0 ? 'success' : 'warning'](t('orders.bulkActionDone', { done, failed }))
+    setSelectedKeys([])
+    await queryClient.invalidateQueries({ queryKey: ['orders'] })
+  }
+
+  function handleBulkConfirm() {
+    const eligibleIds = (data?.items ?? [])
+      .filter((o: any) => selectedKeys.includes(o.id) && o.merchantConfirmStatus === 'PENDING_CONFIRM')
+      .map((o: any) => o.id as string)
+    if (eligibleIds.length === 0) {
+      void message.info(t('orders.bulkNoneEligible'))
+      return
+    }
+    Modal.confirm({
+      title: t('orders.bulkConfirmTitle'),
+      content: t('orders.bulkConfirmContent', { n: eligibleIds.length }),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      onOk: () => runBulkAction(eligibleIds, 'confirm'),
+    })
+  }
+
+  function handleBulkCancel() {
+    const eligibleIds = (data?.items ?? [])
+      .filter((o: any) => selectedKeys.includes(o.id) && o.merchantConfirmStatus === 'PENDING_CONFIRM')
+      .map((o: any) => o.id as string)
+    if (eligibleIds.length === 0) {
+      void message.info(t('orders.bulkNoneEligible'))
+      return
+    }
+    Modal.confirm({
+      title: t('orders.bulkCancelTitle'),
+      content: t('orders.bulkCancelContent', { n: eligibleIds.length }),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      okButtonProps: { danger: true },
+      onOk: () => runBulkAction(eligibleIds, 'cancel'),
+    })
+  }
 
   async function handleSyncNow() {
     if (!shops || shops.length === 0) {
@@ -654,6 +727,53 @@ export default function OrdersPage() {
         <span>{t('orders.footerItems')}<strong style={{ color: 'var(--text-primary)', marginLeft: 6 }}>{data?.totalItems ?? 0}</strong></span>
       </div>
 
+      {/* Bulk action bar — only rendered when the merchant has rows selected.
+          Selection is restricted to PENDING_CONFIRM orders (the only ones a
+          merchant can confirm/cancel). */}
+      {selectedKeys.length > 0 && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          borderRadius: 12,
+          padding: '10px 20px',
+          marginBottom: 12,
+        }}>
+          <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>
+            {t('orders.bulkSelected', { n: selectedKeys.length })}
+            <Button
+              type="link"
+              size="small"
+              onClick={() => setSelectedKeys([])}
+              style={{ padding: '0 8px' }}
+            >
+              {t('orders.bulkClear')}
+            </Button>
+          </div>
+          <Space>
+            <Button
+              icon={<CheckOutlined />}
+              loading={bulkActing}
+              onClick={handleBulkConfirm}
+              style={{ borderRadius: 8, fontWeight: 500 }}
+            >
+              {t('orders.bulkConfirm')}
+            </Button>
+            <Button
+              icon={<CloseOutlined />}
+              danger
+              loading={bulkActing}
+              onClick={handleBulkCancel}
+              style={{ borderRadius: 8, fontWeight: 500 }}
+            >
+              {t('orders.bulkCancel')}
+            </Button>
+          </Space>
+        </div>
+      )}
+
       {/* Table */}
       <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
         <Table
@@ -665,6 +785,16 @@ export default function OrdersPage() {
           style={{ borderRadius: 0 }}
           onRow={() => ({ style: { cursor: 'pointer' } })}
           rowHoverable
+          rowSelection={{
+            selectedRowKeys: selectedKeys,
+            onChange: (keys) => setSelectedKeys(keys),
+            // Disable selection for rows the bulk actions can't apply to —
+            // only PENDING_CONFIRM orders are actionable here. Greyed-out
+            // checkboxes are clearer than failing later in runBulkAction.
+            getCheckboxProps: (record: any) => ({
+              disabled: record.merchantConfirmStatus !== 'PENDING_CONFIRM',
+            }),
+          }}
           onChange={(_p, _f, sorter) => {
             const s = Array.isArray(sorter) ? sorter[0] : sorter
             const key = (s?.columnKey as 'sku' | 'date') ?? 'sku'
