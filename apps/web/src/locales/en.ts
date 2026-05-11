@@ -650,6 +650,7 @@ export default {
     confirmFailed: 'Failed to confirm shipment',
     rejectedToast: 'Shipment rejected',
     rejectFailed: 'Failed to reject shipment',
+    backToInventory: 'Back to inventory',
   },
   notifications: {
     title: 'Notifications',
