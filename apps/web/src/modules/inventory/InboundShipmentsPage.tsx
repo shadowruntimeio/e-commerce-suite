@@ -201,10 +201,16 @@ function ShipmentDetailModal({
   })
 
   const confirmMut = useMutation({
-    mutationFn: () =>
-      api.post(`/inventory/inbound-shipments/${id}/confirm`, {
-        items: Object.entries(editedQty).map(([itemId, q]) => ({ itemId, confirmedQuantity: q })),
-      }),
+    mutationFn: () => {
+      // Send every item — the InputNumber is uncontrolled, so editedQty only
+      // contains rows the user actually changed. Fall back to expectedQuantity
+      // for the rest so the request never goes out with an empty items array.
+      const items = (data?.items ?? []).map((it) => ({
+        itemId: it.id,
+        confirmedQuantity: editedQty[it.id] ?? it.confirmedQuantity ?? it.expectedQuantity,
+      }))
+      return api.post(`/inventory/inbound-shipments/${id}/confirm`, { items })
+    },
     onSuccess: () => {
       void message.success(t('shipments.confirmedToast'))
       queryClient.invalidateQueries({ queryKey: ['inbound-shipments'] })
