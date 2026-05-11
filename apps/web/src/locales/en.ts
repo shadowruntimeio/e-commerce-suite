@@ -58,6 +58,7 @@ export default {
     export: 'Export',
     add: 'Add',
     edit: 'Edit',
+    view: 'View',
     delete: 'Delete',
     cancel: 'Cancel',
     confirm: 'Confirm',
