@@ -1,8 +1,8 @@
-import { Modal, Upload, Button, message, Table, Alert, Space, Tag, DatePicker, Input } from 'antd'
+import { Modal, Upload, Button, message, Table, Alert, Space, Tag, DatePicker, Input, Select } from 'antd'
 import { InboxOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnsType } from 'antd/es/table'
 import { api } from '../../lib/api'
 import { useAuthStore, isMerchant } from '../../store/auth.store'
@@ -55,11 +55,24 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [applying, setApplying] = useState(false)
+  // Non-merchant uploaders (warehouse / admin) must pick the merchant that
+  // owns the imported stock — backend requires it. Merchants skip this; the
+  // backend force-binds to their own userId.
+  const [ownerUserId, setOwnerUserId] = useState<string | undefined>(undefined)
   // Merchant ship-info form state
   const [shippedAt, setShippedAt] = useState<Dayjs | null>(null)
   const [carrier, setCarrier] = useState('')
   const [trackingNumber, setTrackingNumber] = useState('')
   const [preview, setPreview] = useState<PreviewResult | null>(null)
+
+  const { data: merchants } = useQuery({
+    enabled: !merchant && open,
+    queryKey: ['merchants-for-import'],
+    queryFn: async () =>
+      (await api.get('/admin/users', { params: { role: 'MERCHANT' } })).data.data as Array<{
+        id: string; name: string; email: string
+      }>,
+  })
 
   function reset() {
     setStep('select')
@@ -67,6 +80,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setPreview(null)
     setUploading(false)
     setApplying(false)
+    setOwnerUserId(undefined)
     setShippedAt(null)
     setCarrier('')
     setTrackingNumber('')
@@ -99,11 +113,16 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   async function handleUpload() {
     if (!file) return
+    if (!merchant && !ownerUserId) {
+      void message.error(t('inventory.merchantRequired'))
+      return
+    }
     setUploading(true)
     try {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('mode', MODE)
+      if (!merchant && ownerUserId) fd.append('ownerUserId', ownerUserId)
       const res = await api.post('/inventory/import/preview', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
@@ -312,6 +331,26 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
             </span>
           </div>
 
+          {!merchant && (
+            <div>
+              <label style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+                {t('inventory.merchantLabel')} *
+              </label>
+              <Select
+                showSearch
+                placeholder={t('inventory.merchantPlaceholder')}
+                style={{ width: '100%' }}
+                value={ownerUserId}
+                onChange={(v) => setOwnerUserId(v)}
+                optionFilterProp="label"
+                options={(merchants ?? []).map((m) => ({
+                  value: m.id,
+                  label: `${m.name} (${m.email})`,
+                }))}
+              />
+            </div>
+          )}
+
           <Upload.Dragger
             accept=".xlsx"
             beforeUpload={(f) => {
@@ -333,7 +372,12 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <Button onClick={handleClose}>{t('common.cancel')}</Button>
-            <Button type="primary" disabled={!file} loading={uploading} onClick={handleUpload}>
+            <Button
+              type="primary"
+              disabled={!file || (!merchant && !ownerUserId)}
+              loading={uploading}
+              onClick={handleUpload}
+            >
               {t('inventory.previewBtn')}
             </Button>
           </div>
