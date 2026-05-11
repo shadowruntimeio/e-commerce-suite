@@ -1,6 +1,6 @@
 import { Modal, Upload, Button, message, Table, Alert, Space, Tag, DatePicker, Input, Select } from 'antd'
 import { InboxOutlined, DownloadOutlined } from '@ant-design/icons'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnsType } from 'antd/es/table'
@@ -73,6 +73,13 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
         id: string; name: string; email: string
       }>,
   })
+
+  // Single-merchant tenants are the common case today — skip the click.
+  useEffect(() => {
+    if (!merchant && merchants?.length === 1 && !ownerUserId) {
+      setOwnerUserId(merchants[0].id)
+    }
+  }, [merchant, merchants, ownerUserId])
 
   function reset() {
     setStep('select')
