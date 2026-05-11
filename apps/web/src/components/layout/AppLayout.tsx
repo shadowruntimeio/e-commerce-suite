@@ -49,14 +49,7 @@ const navGroups: NavGroup[] = [
   {
     groupKey: 'products',
     items: [
-      { key: '/products', icon: <AppstoreOutlined />, labelKey: 'nav.productsMenu' },
       { key: '/inventory', icon: <InboxOutlined />, labelKey: 'nav.inventory', caps: ['INVENTORY_VIEW'] },
-    ],
-  },
-  {
-    groupKey: 'analytics',
-    items: [
-      { key: '/reports/sales', icon: <BarChartOutlined />, labelKey: 'nav.salesReport', roles: ['ADMIN', 'WAREHOUSE_STAFF'] },
     ],
   },
   {
@@ -69,7 +62,6 @@ const navGroups: NavGroup[] = [
     groupKey: 'operations',
     items: [
       { key: '/warehouses', icon: <BankOutlined />, labelKey: 'nav.warehouses', roles: ['ADMIN', 'WAREHOUSE_STAFF'] },
-      { key: '/logistics', icon: <TruckOutlined />, labelKey: 'nav.logistics', roles: ['ADMIN', 'WAREHOUSE_STAFF'] },
     ],
   },
   {

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Table, Tag, Button, Space, Modal, Input, InputNumber, message, Spin, Popconfirm } from 'antd'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import { api } from '../../lib/api'
@@ -43,6 +45,7 @@ function StatusTag({ status }: { status: Status }) {
 
 export default function InboundShipmentsPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const merchant = isMerchant(user)
   const [statusFilter, setStatusFilter] = useState<Status | null>(merchant ? null : 'PENDING_REVIEW')
@@ -130,6 +133,15 @@ export default function InboundShipmentsPage() {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
+        <Button
+          type="text"
+          size="small"
+          icon={<ArrowLeftOutlined />}
+          onClick={() => navigate('/inventory')}
+          style={{ marginBottom: 8, padding: '0 4px', color: 'var(--text-secondary)' }}
+        >
+          {t('shipments.backToInventory')}
+        </Button>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>{t('shipments.title')}</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>
           {t(merchant ? 'shipments.subtitleMerchant' : 'shipments.subtitleWarehouse')}
@@ -201,10 +213,16 @@ function ShipmentDetailModal({
   })
 
   const confirmMut = useMutation({
-    mutationFn: () =>
-      api.post(`/inventory/inbound-shipments/${id}/confirm`, {
-        items: Object.entries(editedQty).map(([itemId, q]) => ({ itemId, confirmedQuantity: q })),
-      }),
+    mutationFn: () => {
+      // Send every item — the InputNumber is uncontrolled, so editedQty only
+      // contains rows the user actually changed. Fall back to expectedQuantity
+      // for the rest so the request never goes out with an empty items array.
+      const items = (data?.items ?? []).map((it) => ({
+        itemId: it.id,
+        confirmedQuantity: editedQty[it.id] ?? it.confirmedQuantity ?? it.expectedQuantity,
+      }))
+      return api.post(`/inventory/inbound-shipments/${id}/confirm`, { items })
+    },
     onSuccess: () => {
       void message.success(t('shipments.confirmedToast'))
       queryClient.invalidateQueries({ queryKey: ['inbound-shipments'] })

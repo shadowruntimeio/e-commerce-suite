@@ -58,6 +58,7 @@ export default {
     export: '导出',
     add: '新增',
     edit: '编辑',
+    view: '查看',
     delete: '删除',
     cancel: '取消',
     confirm: '确认',
@@ -649,6 +650,7 @@ export default {
     confirmFailed: '确认失败',
     rejectedToast: '已拒收',
     rejectFailed: '拒收失败',
+    backToInventory: '返回库存管理',
   },
   notifications: {
     title: '通知',
