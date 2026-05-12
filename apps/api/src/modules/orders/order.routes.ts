@@ -197,17 +197,30 @@ export async function orderRoutes(app: FastifyInstance) {
         : { merchantConfirmStatus: { in: ['CONFIRMED', 'AUTO_CONFIRMED'] as const } }
     }
 
-    const where = {
-      tenantId: request.user.tenantId,
-      isManual: false,  // exclude manual orders from the regular list
+    const statusFilter = statusList.length === 1
+      ? { status: statusList[0] as any }
+      : statusList.length > 1
+        ? { status: { in: statusList as any[] } }
+        : {}
+
+    // Manual orders (no shop, always CONFIRMED) are included in the regular list
+    // so they appear in "待发货" alongside platform orders.
+    const manualBranch: Record<string, unknown> = {
+      isManual: true,
+      ...(request.user.role === 'MERCHANT' ? { createdByUserId: request.user.userId } : {}),
+      ...statusFilter,
+    }
+    const platformBranch: Record<string, unknown> = {
+      isManual: false,
       shop: shopFilter,
       ...(merchantConfirmFilter ?? {}),
-      ...(statusList.length === 1
-        ? { status: statusList[0] as any }
-        : statusList.length > 1
-          ? { status: { in: statusList as any[] } }
-          : {}),
+      ...statusFilter,
       ...(shopId ? { shopId } : {}),
+    }
+
+    const where: Record<string, unknown> = {
+      tenantId: request.user.tenantId,
+      OR: [platformBranch, manualBranch],
       ...(search ? {
         OR: [
           { platformOrderId: { contains: search } },
