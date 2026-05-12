@@ -96,7 +96,7 @@ async function autoConfirmExpiredOrders() {
           action: AuditAction.ORDER_AUTO_CONFIRM,
           targetType: 'order',
           targetId: o.id,
-          payload: { ownerUserId: o.shop.ownerUserId, system: true },
+          payload: { ownerUserId: o.shop?.ownerUserId ?? null, system: true },
         })
       } catch (err) {
         console.warn(`[scheduler] failed to auto-confirm order ${o.id}:`, (err as Error).message)

@@ -237,7 +237,7 @@ export async function returnsRoutes(app: FastifyInstance) {
       const wsku = await prisma.warehouseSku.findFirst({
         where: {
           id: body.warehouseSkuId,
-          ownerUserId: ticket.order.shop.ownerUserId,
+          ownerUserId: ticket.order.shop?.ownerUserId ?? '',
           warehouse: { tenantId: request.user.tenantId },
         },
       })

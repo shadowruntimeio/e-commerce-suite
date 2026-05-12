@@ -11,16 +11,169 @@ import { reserveStockForOrder, releaseStockForOrder } from '../inventory/invento
 export async function orderRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
+  // POST /manual — create a manual order (merchant / admin only)
+  app.post('/manual', async (request, reply) => {
+    if (request.user.role !== 'MERCHANT' && request.user.role !== 'ADMIN') {
+      return reply.status(403).send({ success: false, error: 'Forbidden' })
+    }
+    const { items, buyerName, buyerPhone, shippingAddress, notes } = (request.body ?? {}) as {
+      items?: Array<{ sku: string; quantity: number; productName?: string }>
+      buyerName?: string
+      buyerPhone?: string
+      shippingAddress?: string
+      notes?: string
+    }
+    if (!items?.length) return reply.status(400).send({ success: false, error: 'items required' })
+    if (!buyerName?.trim()) return reply.status(400).send({ success: false, error: 'buyerName required' })
+
+    const platformOrderId = `MANUAL-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+
+    const order = await prisma.order.create({
+      data: {
+        tenantId: request.user.tenantId,
+        platformOrderId,
+        status: 'TO_SHIP',
+        buyerName: buyerName.trim(),
+        buyerPhone: buyerPhone?.trim() ?? null,
+        shippingAddress: shippingAddress ? { address: shippingAddress } : undefined,
+        platformMetadata: notes ? { notes } : {},
+        merchantConfirmStatus: 'CONFIRMED',
+        merchantConfirmedAt: new Date(),
+        isManual: true,
+        manualStatus: 'PENDING',
+        createdByUserId: request.user.userId,
+        firstSellerSku: items[0]?.sku ?? null,
+        items: {
+          create: items.map((item) => ({
+            platformSkuId: item.sku,
+            sellerSku: item.sku,
+            productName: item.productName?.trim() || item.sku,
+            quantity: item.quantity,
+            unitPrice: 0,
+          })),
+        },
+      },
+      include: { items: true },
+    })
+
+    // Notify all active warehouse staff in the tenant
+    const warehouseUsers = await prisma.user.findMany({
+      where: { tenantId: request.user.tenantId, role: 'WAREHOUSE_STAFF', isActive: true },
+      select: { id: true },
+    })
+    if (warehouseUsers.length > 0) {
+      const itemSummary = items.map((i) => `${i.sku}×${i.quantity}`).join(', ')
+      await prisma.merchantNotification.createMany({
+        data: warehouseUsers.map((wu) => ({
+          tenantId: request.user.tenantId,
+          userId: wu.id,
+          type: 'MANUAL_ORDER_CREATED' as const,
+          title: '新手工单',
+          body: `${buyerName} — ${itemSummary}`,
+          payload: { orderId: order.id },
+        })),
+      })
+    }
+
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: 'order.manual_create',
+      targetType: 'order',
+      targetId: order.id,
+      payload: { platformOrderId, items },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
+
+    return { success: true, data: order }
+  })
+
+  // POST /:id/manual-ship — warehouse marks a manual order as shipped
+  app.post('/:id/manual-ship', async (request, reply) => {
+    if (request.user.role === 'MERCHANT') {
+      return reply.status(403).send({ success: false, error: 'Forbidden' })
+    }
+    const { id } = request.params as { id: string }
+    const order = await prisma.order.findFirst({
+      where: { id, tenantId: request.user.tenantId, isManual: true },
+    })
+    if (!order) return reply.status(404).send({ success: false, error: 'Manual order not found' })
+    if (order.manualStatus !== 'PENDING') {
+      return reply.status(400).send({ success: false, error: 'Order already shipped' })
+    }
+
+    const updated = await prisma.order.update({
+      where: { id },
+      data: { manualStatus: 'SHIPPED', status: 'COMPLETED' },
+    })
+
+    // Notify the merchant who created the order
+    if (order.createdByUserId) {
+      await prisma.merchantNotification.create({
+        data: {
+          tenantId: request.user.tenantId,
+          userId: order.createdByUserId,
+          type: 'MANUAL_ORDER_SHIPPED' as const,
+          title: '手工单已发货',
+          body: `订单 ${order.platformOrderId} 已由仓库确认发货`,
+          payload: { orderId: order.id },
+        },
+      })
+    }
+
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: 'order.manual_ship',
+      targetType: 'order',
+      targetId: id,
+      payload: {},
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
+
+    return { success: true, data: updated }
+  })
+
   app.get('/', async (request) => {
     const {
       status, shopId, ownerUserId, merchantConfirm, page = 1, pageSize = 20, search, sku,
-      sortBy = 'sku', sortOrder = 'desc',
+      sortBy = 'sku', sortOrder = 'desc', isManual,
     } = request.query as {
       status?: string; shopId?: string; ownerUserId?: string; merchantConfirm?: string
       page?: number; pageSize?: number; search?: string; sku?: string
-      sortBy?: 'sku' | 'date'; sortOrder?: 'asc' | 'desc'
+      sortBy?: 'sku' | 'date'; sortOrder?: 'asc' | 'desc'; isManual?: string
     }
     const statusList = (status ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+
+    // Manual orders tab: separate query path — no shop relation, no confirm gate
+    if (isManual === 'true') {
+      const manualWhere: Record<string, unknown> = {
+        tenantId: request.user.tenantId,
+        isManual: true,
+        ...(request.user.role === 'MERCHANT' ? { createdByUserId: request.user.userId } : {}),
+        ...(search ? {
+          OR: [
+            { platformOrderId: { contains: search } },
+            { buyerName: { contains: search, mode: 'insensitive' as const } },
+          ],
+        } : {}),
+        ...(sku ? { items: { some: { sellerSku: { contains: sku, mode: 'insensitive' as const } } } } : {}),
+      }
+      const [items, total, itemAgg] = await Promise.all([
+        prisma.order.findMany({
+          where: manualWhere,
+          include: { items: true },
+          skip: (Number(page) - 1) * Number(pageSize),
+          take: Number(pageSize),
+          orderBy: [{ createdAt: 'desc' }],
+        }),
+        prisma.order.count({ where: manualWhere }),
+        prisma.orderItem.aggregate({ where: { order: manualWhere }, _sum: { quantity: true } }),
+      ])
+      return { success: true, data: { items, total, totalItems: itemAgg._sum.quantity ?? 0, page: Number(page), pageSize: Number(pageSize), totalPages: Math.ceil(total / Number(pageSize)) } }
+    }
 
     // Role-based scope:
     // - MERCHANT: only own shops, sees ALL merchantConfirmStatus by default
@@ -45,6 +198,7 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const where = {
       tenantId: request.user.tenantId,
+      isManual: false,  // exclude manual orders from the regular list
       shop: shopFilter,
       ...(merchantConfirmFilter ?? {}),
       ...(statusList.length === 1
@@ -178,7 +332,7 @@ export async function orderRoutes(app: FastifyInstance) {
       action: AuditAction.ORDER_MERCHANT_CONFIRM,
       targetType: 'order',
       targetId: id,
-      payload: { ownerUserId: order.shop.ownerUserId },
+      payload: { ownerUserId: order.shop?.ownerUserId ?? null },
       ip: request.ip,
       userAgent: request.headers['user-agent'] ?? undefined,
     })
@@ -247,6 +401,7 @@ export async function orderRoutes(app: FastifyInstance) {
       include: { shop: true },
     })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
+    if (!order.shop) return reply.status(400).send({ success: false, error: 'Shipping labels not supported for manual orders' })
 
     if (order.shop.platform === 'TIKTOK') {
       const appCreds = await getShopTikTokAppCreds(order.shop.id)

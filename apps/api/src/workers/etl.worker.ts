@@ -115,7 +115,7 @@ async function processSalesFacts(
       const share = grp.qty / totalQty
       const mapKey = `${order.shopId}|${skuId ?? '__null__'}`
       const existing = map.get(mapKey) ?? {
-        shopId: order.shopId,
+        shopId: order.shopId ?? '',
         systemSkuId: skuId,
         ordersCount: 0,
         unitsSold: 0,

@@ -163,8 +163,8 @@ export async function runRulesForOrder(orderId: string, tenantId: string): Promi
 
   const context: OrderContext = {
     status: order.status,
-    platform: order.shop.platform,
-    shopId: order.shopId,
+    platform: order.shop?.platform ?? 'MANUAL',
+    shopId: order.shopId ?? '',
     totalRevenue: Number(order.totalRevenue),
     itemCount: order.items.length,
     buyerName: order.buyerName ?? '',

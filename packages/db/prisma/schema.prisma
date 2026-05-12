@@ -40,6 +40,11 @@ enum MerchantConfirmStatus {
   CANCELLED_BY_MERCHANT
 }
 
+enum ManualOrderStatus {
+  PENDING
+  SHIPPED
+}
+
 enum ReturnCondition {
   PENDING_INSPECTION
   SELLABLE
@@ -187,6 +192,7 @@ model User {
   ownedShipments      InboundShipment[]   @relation("ShipmentOwner")
   reviewedShipments   InboundShipment[]   @relation("ShipmentReviewer")
   notifications       MerchantNotification[] @relation("UserNotifications")
+  createdManualOrders Order[]                @relation("ManualOrderCreator")
 
   @@unique([tenantId, email])
   @@map("users")
@@ -452,7 +458,7 @@ model InboundOrder {
 model Order {
   id               String      @id @default(cuid())
   tenantId         String
-  shopId           String
+  shopId           String?     // null for manual orders
   platformOrderId  String
   status           OrderStatus @default(PENDING)
   buyerName        String?
@@ -481,8 +487,14 @@ model Order {
   merchantConfirmedAt      DateTime?
   merchantConfirmExpiresAt DateTime?
 
+  // Manual order fields (isManual=true means this was created by a merchant, not synced from a platform)
+  isManual         Boolean     @default(false)
+  manualStatus     ManualOrderStatus?
+  createdByUserId  String?     // merchant who created the manual order
+
   tenant        Tenant          @relation(fields: [tenantId], references: [id])
-  shop          Shop            @relation(fields: [shopId], references: [id])
+  shop          Shop?           @relation(fields: [shopId], references: [id])
+  createdBy     User?           @relation("ManualOrderCreator", fields: [createdByUserId], references: [id])
   items         OrderItem[]
   afterSalesTickets AfterSalesTicket[]
   waveItems     OutboundWaveItem[]
@@ -491,6 +503,7 @@ model Order {
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@index([tenantId, firstSellerSku])
+  @@index([tenantId, isManual])
   @@index([merchantConfirmStatus, merchantConfirmExpiresAt])
   @@map("orders")
 }
@@ -879,6 +892,8 @@ model InboundShipmentItem {
 enum MerchantNotificationType {
   SHIPMENT_QUANTITY_ADJUSTED
   SHIPMENT_REJECTED
+  MANUAL_ORDER_CREATED
+  MANUAL_ORDER_SHIPPED
 }
 
 model MerchantNotification {

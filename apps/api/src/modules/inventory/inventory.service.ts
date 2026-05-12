@@ -68,14 +68,14 @@ export async function reserveStockForOrder(orderId: string, tenantId: string, ac
     },
   })
   if (!order) return
-  const ownerUserId = order.shop.ownerUserId
+  const ownerUserId = order.shop?.ownerUserId ?? null
 
   for (const item of order.items) {
     const sysSkuId = item.systemSkuId
     if (!sysSkuId) continue
 
     const warehouseSku = await prisma.warehouseSku.findFirst({
-      where: { systemSkuId: sysSkuId, ownerUserId },
+      where: { systemSkuId: sysSkuId, ...(ownerUserId ? { ownerUserId } : {}) },
       select: { id: true, warehouseId: true },
     })
     if (!warehouseSku) continue

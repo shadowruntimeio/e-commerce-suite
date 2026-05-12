@@ -1,7 +1,8 @@
-import { Table, Input, Select, Space, DatePicker, Button, Modal, Tag, Popconfirm } from 'antd'
+import { Table, Input, Select, Space, DatePicker, Button, Modal, Tag, Popconfirm, Form } from 'antd'
 import {
   SyncOutlined, DownloadOutlined, EyeOutlined, ShoppingCartOutlined,
   PrinterOutlined, CheckOutlined, CloseOutlined, SearchOutlined,
+  PlusOutlined, CarOutlined, MinusCircleOutlined,
 } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
@@ -160,6 +161,8 @@ export default function OrdersPage() {
   const [detailId, setDetailId] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'sku' | 'date'>('sku')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [isManualTab, setIsManualTab] = useState(false)
+  const [showCreateManual, setShowCreateManual] = useState(false)
   const queryClient = useQueryClient()
 
   // Sub-account list (for warehouse/admin merchant filter)
@@ -174,6 +177,15 @@ export default function OrdersPage() {
       api.post(`/orders/${id}/merchant-${action}`),
     onSuccess: () => {
       message.success(t('common.updated'))
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+    },
+    onError: (err: any) => message.error(err?.response?.data?.error ?? t('returns.failed')),
+  })
+
+  const manualShipMut = useMutation({
+    mutationFn: (id: string) => api.post(`/orders/${id}/manual-ship`),
+    onSuccess: () => {
+      void message.success(t('orders.manualShipSuccess'))
       queryClient.invalidateQueries({ queryKey: ['orders'] })
     },
     onError: (err: any) => message.error(err?.response?.data?.error ?? t('returns.failed')),
@@ -217,7 +229,7 @@ export default function OrdersPage() {
   // silently carrying it over is surprising.
   useEffect(() => {
     setSelectedKeys([])
-  }, [statuses, search, sku, shopId, merchantId, confirmStatus, page, sortBy, sortOrder])
+  }, [statuses, search, sku, shopId, merchantId, confirmStatus, page, sortBy, sortOrder, isManualTab])
 
   // Run a confirm/cancel mutation across a list of order ids with progress
   // toast. Calls run in parallel — each endpoint is idempotent and the order
@@ -368,21 +380,23 @@ export default function OrdersPage() {
   const expandedStatuses = statuses.flatMap((key) => (STATUS_GROUPS as any)[key] ?? [key])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['orders', { statuses, search, sku, shopId, merchantId, confirmStatus, page, sortBy, sortOrder }],
+    queryKey: ['orders', { isManualTab, statuses, search, sku, shopId, merchantId, confirmStatus, page, sortBy, sortOrder }],
     queryFn: () =>
       api.get('/orders', {
-        params: {
-          status: expandedStatuses.length ? expandedStatuses.join(',') : undefined,
-          search: search || undefined,
-          sku: sku || undefined,
-          shopId: shopId || undefined,
-          ownerUserId: merchantId || undefined,
-          merchantConfirm: confirmStatus || undefined,
-          page,
-          pageSize: 20,
-          sortBy,
-          sortOrder,
-        },
+        params: isManualTab
+          ? { isManual: 'true', page, pageSize: 20, search: search || undefined, sku: sku || undefined }
+          : {
+              status: expandedStatuses.length ? expandedStatuses.join(',') : undefined,
+              search: search || undefined,
+              sku: sku || undefined,
+              shopId: shopId || undefined,
+              ownerUserId: merchantId || undefined,
+              merchantConfirm: confirmStatus || undefined,
+              page,
+              pageSize: 20,
+              sortBy,
+              sortOrder,
+            },
       }).then((r) => r.data.data),
     // Auto-poll so the list reflects backend updates (from both the 1-min
     // scheduled sync and action-triggered syncs) without manual refresh.
@@ -480,8 +494,8 @@ export default function OrdersPage() {
         pageSize: 200,
       },
     })
-    const all = (res.data.data?.items ?? []) as Array<{ id: string; platformOrderId: string; status: string; platformMetadata?: any }>
-    const printable = all.filter((o) => PRINTABLE_STATUSES.has(o.status))
+    const all = (res.data.data?.items ?? []) as Array<{ id: string; platformOrderId: string; status: string; platformMetadata?: any; isManual?: boolean }>
+    const printable = all.filter((o) => PRINTABLE_STATUSES.has(o.status) && !o.isManual)
     const skipped = all.length - printable.length
 
     if (printable.length === 0) {
@@ -511,7 +525,7 @@ export default function OrdersPage() {
   // skips silently if nothing eligible is selected.
   function handlePrintSelected() {
     const printable = (data?.items ?? []).filter(
-      (o: any) => selectedKeys.includes(o.id) && PRINTABLE_STATUSES.has(o.status),
+      (o: any) => selectedKeys.includes(o.id) && PRINTABLE_STATUSES.has(o.status) && !o.isManual,
     )
     if (printable.length === 0) {
       void message.info(t('orders.bulkPrintNoneSelected'))
@@ -534,9 +548,16 @@ export default function OrdersPage() {
     {
       title: t('orders.orderId'),
       dataIndex: 'platformOrderId',
-      width: 160,
-      render: (v) => (
-        <span style={{ fontFamily: "'Courier New', monospace", color: 'var(--mono-color)', fontSize: 13 }}>{v}</span>
+      width: 180,
+      render: (v, record: any) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: "'Courier New', monospace", color: 'var(--mono-color)', fontSize: 13 }}>{v}</span>
+          {record.isManual && (
+            <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px', marginRight: 0 }}>
+              {t('orders.manualTag')}
+            </Tag>
+          )}
+        </div>
       ),
     },
     {
@@ -629,7 +650,8 @@ export default function OrdersPage() {
       width: 180,
       render: (_: any, record: any) => {
         const isPending = record.merchantConfirmStatus === 'PENDING_CONFIRM'
-        const canMerchantAct = (merchantUser || user?.role === 'ADMIN') && isPending
+        const canMerchantAct = (merchantUser || user?.role === 'ADMIN') && isPending && !record.isManual
+        const canManualShip = !merchantUser && record.isManual && record.manualStatus === 'PENDING'
         return (
           <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             {canMerchantAct && (
@@ -652,6 +674,24 @@ export default function OrdersPage() {
                 </Popconfirm>
               </>
             )}
+            {canManualShip && (
+              <Popconfirm
+                title={t('orders.manualShipTitle')}
+                description={t('orders.manualShipContent')}
+                okText={t('common.confirm')}
+                cancelText={t('common.cancel')}
+                onConfirm={() => manualShipMut.mutate(record.id)}
+              >
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CarOutlined />}
+                  style={{ color: 'var(--accent-color, #7c3aed)' }}
+                  title={t('orders.manualShip')}
+                  loading={manualShipMut.isPending}
+                />
+              </Popconfirm>
+            )}
             <Button
               type="text"
               size="small"
@@ -660,16 +700,18 @@ export default function OrdersPage() {
               title={t('orders.viewDetail')}
               onClick={(e) => { e.stopPropagation(); setDetailId(record.id) }}
             />
-            <Button
-              type="text"
-              size="small"
-              icon={<PrinterOutlined />}
-              style={{ color: 'var(--text-secondary)' }}
-              onClick={(e) => {
-                e.stopPropagation()
-                handlePrintLabel(record)
-              }}
-            />
+            {!record.isManual && (
+              <Button
+                type="text"
+                size="small"
+                icon={<PrinterOutlined />}
+                style={{ color: 'var(--text-secondary)' }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handlePrintLabel(record)
+                }}
+              />
+            )}
           </div>
         )
       },
@@ -686,35 +728,48 @@ export default function OrdersPage() {
             <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>{t('orders.subtitle')}</p>
           </div>
           <Space>
-            <Button
-              icon={<SyncOutlined spin={syncing} />}
-              loading={syncing}
-              onClick={handleSyncNow}
-              style={{ background: 'var(--header-btn-bg)', color: 'var(--header-btn-color)', border: 'var(--header-btn-border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
-            >
-              {t('common.syncNow')}
-            </Button>
-            <Button
-              icon={<DownloadOutlined />}
-              style={{ background: 'var(--header-btn-bg)', color: 'var(--header-btn-color)', border: 'var(--header-btn-border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
-            >
-              {t('common.export')}
-            </Button>
-            <Button
-              icon={<PrinterOutlined />}
-              loading={bulkPrinting}
-              onClick={handlePrintAll}
-              style={{ background: 'var(--accent-gradient)', color: '#fff', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
-            >
-              {t('orders.printAll')}
-            </Button>
+            {!isManualTab && (
+              <>
+                <Button
+                  icon={<SyncOutlined spin={syncing} />}
+                  loading={syncing}
+                  onClick={handleSyncNow}
+                  style={{ background: 'var(--header-btn-bg)', color: 'var(--header-btn-color)', border: 'var(--header-btn-border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+                >
+                  {t('common.syncNow')}
+                </Button>
+                <Button
+                  icon={<DownloadOutlined />}
+                  style={{ background: 'var(--header-btn-bg)', color: 'var(--header-btn-color)', border: 'var(--header-btn-border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
+                >
+                  {t('common.export')}
+                </Button>
+                <Button
+                  icon={<PrinterOutlined />}
+                  loading={bulkPrinting}
+                  onClick={handlePrintAll}
+                  style={{ background: 'var(--accent-gradient)', color: '#fff', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
+                >
+                  {t('orders.printAll')}
+                </Button>
+              </>
+            )}
+            {merchantUser && (
+              <Button
+                icon={<PlusOutlined />}
+                onClick={() => setShowCreateManual(true)}
+                style={{ background: 'var(--accent-gradient)', color: '#fff', border: 'none', borderRadius: 8, height: 36, fontWeight: 600, fontSize: 14, boxShadow: '0 0 16px rgba(204,151,255,0.3)' }}
+              >
+                {t('orders.manualCreate')}
+              </Button>
+            )}
           </Space>
         </div>
       </div>
 
-      {/* Status Tabs (multi-select; "All" clears) */}
+      {/* Status Tabs + Manual Orders tab */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
-        {statusTabs.map((tab) => {
+        {!isManualTab && statusTabs.map((tab) => {
           const isActive = tab.key === '' ? statuses.length === 0 : statuses.includes(tab.key)
           return (
             <button
@@ -736,6 +791,23 @@ export default function OrdersPage() {
             </button>
           )
         })}
+        {/* Manual orders tab — mutually exclusive with status tabs */}
+        <button
+          onClick={() => { setIsManualTab((v) => !v); setPage(1) }}
+          style={{
+            background: isManualTab ? 'rgba(124,58,237,0.15)' : 'var(--bg-surface)',
+            color: isManualTab ? '#7c3aed' : 'var(--text-secondary)',
+            border: isManualTab ? '1px solid rgba(124,58,237,0.4)' : '1px solid var(--border)',
+            borderRadius: 20,
+            padding: '5px 14px',
+            fontSize: 13,
+            fontWeight: isManualTab ? 600 : 400,
+            cursor: 'pointer',
+            transition: 'all 0.15s',
+          }}
+        >
+          {t('orders.manualTab')}
+        </button>
       </div>
 
       {/* Filter Bar */}
@@ -840,15 +912,42 @@ export default function OrdersPage() {
             </Button>
           </div>
           <Space>
-            <Button
-              icon={<PrinterOutlined />}
-              loading={bulkPrinting}
-              onClick={handlePrintSelected}
-              style={{ borderRadius: 8, fontWeight: 500 }}
-            >
-              {t('orders.bulkPrintSelected')}
-            </Button>
-            {(merchantUser || user?.role === 'ADMIN') && (
+            {!isManualTab && (
+              <Button
+                icon={<PrinterOutlined />}
+                loading={bulkPrinting}
+                onClick={handlePrintSelected}
+                style={{ borderRadius: 8, fontWeight: 500 }}
+              >
+                {t('orders.bulkPrintSelected')}
+              </Button>
+            )}
+            {isManualTab && !merchantUser && (
+              <Button
+                icon={<CarOutlined />}
+                loading={manualShipMut.isPending}
+                onClick={() => {
+                  const pending = (data?.items ?? []).filter(
+                    (o: any) => selectedKeys.includes(o.id) && o.manualStatus === 'PENDING',
+                  )
+                  if (!pending.length) { void message.info(t('orders.bulkNoneEligible')); return }
+                  Modal.confirm({
+                    title: t('orders.manualShipTitle'),
+                    content: t('orders.manualShipContent'),
+                    okText: t('common.confirm'),
+                    cancelText: t('common.cancel'),
+                    onOk: async () => {
+                      await Promise.allSettled(pending.map((o: any) => manualShipMut.mutateAsync(o.id)))
+                      setSelectedKeys([])
+                    },
+                  })
+                }}
+                style={{ borderRadius: 8, fontWeight: 500, color: '#7c3aed', borderColor: 'rgba(124,58,237,0.4)' }}
+              >
+                {t('orders.manualShip')}
+              </Button>
+            )}
+            {!isManualTab && (merchantUser || user?.role === 'ADMIN') && (
               <>
                 <Button
                   icon={<CheckOutlined />}
@@ -893,9 +992,11 @@ export default function OrdersPage() {
             // Each button then filters the selection to its own eligible
             // subset, so warehouses don't accidentally hit confirm-only rows.
             getCheckboxProps: (record: any) => ({
-              disabled:
-                record.merchantConfirmStatus !== 'PENDING_CONFIRM' &&
-                !PRINTABLE_STATUSES.has(record.status),
+              disabled: record.isManual
+                // manual orders: warehouse can select pending ones for bulk ship
+                ? (merchantUser || record.manualStatus !== 'PENDING')
+                : (record.merchantConfirmStatus !== 'PENDING_CONFIRM' &&
+                   !PRINTABLE_STATUSES.has(record.status)),
             }),
           }}
           onChange={(_p, _f, sorter, extra) => {
@@ -937,6 +1038,17 @@ export default function OrdersPage() {
       </div>
 
       <OrderDetailModal id={detailId} onClose={() => setDetailId(null)} />
+      {showCreateManual && (
+        <CreateManualOrderModal
+          onClose={() => setShowCreateManual(false)}
+          onSuccess={() => {
+            setShowCreateManual(false)
+            setIsManualTab(true)
+            setPage(1)
+            queryClient.invalidateQueries({ queryKey: ['orders'] })
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -1044,5 +1156,124 @@ function DetailField({ label, value, span = 1 }: { label: string; value: React.R
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
       <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>{value}</div>
     </div>
+  )
+}
+
+// ─── Create Manual Order Modal ────────────────────────────────────────────────
+
+function CreateManualOrderModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const { t } = useTranslation()
+  const [form] = Form.useForm()
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit() {
+    const values = await form.validateFields()
+    setLoading(true)
+    try {
+      await api.post('/orders/manual', {
+        items: values.items,
+        buyerName: values.buyerName,
+        buyerPhone: values.buyerPhone || undefined,
+        shippingAddress: values.shippingAddress || undefined,
+        notes: values.notes || undefined,
+      })
+      void message.success(t('orders.manualCreateSuccess'))
+      onSuccess()
+    } catch (err: any) {
+      void message.error(err?.response?.data?.error ?? t('returns.failed'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onCancel={onClose}
+      onOk={handleSubmit}
+      confirmLoading={loading}
+      okText={t('common.confirm')}
+      cancelText={t('common.cancel')}
+      width={600}
+      title={t('orders.manualCreateTitle')}
+      destroyOnClose
+    >
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{ items: [{ sku: '', quantity: 1, productName: '' }] }}
+        style={{ marginTop: 16 }}
+      >
+        {/* Items */}
+        <Form.List name="items">
+          {(fields, { add, remove }) => (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
+                {t('orders.manualItems')}
+              </div>
+              {fields.map((field, index) => (
+                <div key={field.key} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+                  <Form.Item
+                    name={[field.name, 'sku']}
+                    rules={[{ required: true, message: t('orders.manualSkuRequired') }]}
+                    style={{ flex: 1, marginBottom: 0 }}
+                  >
+                    <Input placeholder={t('orders.manualSku')} />
+                  </Form.Item>
+                  <Form.Item
+                    name={[field.name, 'quantity']}
+                    rules={[{ required: true, type: 'number', min: 1, message: t('orders.manualQtyRequired') }]}
+                    style={{ width: 80, marginBottom: 0 }}
+                  >
+                    <Input type="number" min={1} placeholder={t('orders.manualQty')} />
+                  </Form.Item>
+                  <Form.Item
+                    name={[field.name, 'productName']}
+                    style={{ flex: 1, marginBottom: 0 }}
+                  >
+                    <Input placeholder={t('orders.manualProductName')} />
+                  </Form.Item>
+                  {fields.length > 1 && (
+                    <Button
+                      type="text"
+                      danger
+                      icon={<MinusCircleOutlined />}
+                      onClick={() => remove(index)}
+                      style={{ marginTop: 4 }}
+                    />
+                  )}
+                </div>
+              ))}
+              <Button
+                type="dashed"
+                onClick={() => add({ sku: '', quantity: 1, productName: '' })}
+                icon={<PlusOutlined />}
+                size="small"
+                style={{ marginBottom: 16 }}
+              >
+                {t('orders.manualAddItem')}
+              </Button>
+            </div>
+          )}
+        </Form.List>
+
+        <Form.Item
+          name="buyerName"
+          label={t('orders.manualBuyer')}
+          rules={[{ required: true, message: t('orders.manualBuyerRequired') }]}
+        >
+          <Input />
+        </Form.Item>
+        <Form.Item name="buyerPhone" label={t('orders.manualPhone')}>
+          <Input />
+        </Form.Item>
+        <Form.Item name="shippingAddress" label={t('orders.manualAddress')}>
+          <Input.TextArea rows={2} />
+        </Form.Item>
+        <Form.Item name="notes" label={t('orders.manualNotes')}>
+          <Input.TextArea rows={2} />
+        </Form.Item>
+      </Form>
+    </Modal>
   )
 }
