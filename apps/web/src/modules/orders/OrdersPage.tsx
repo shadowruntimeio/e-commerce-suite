@@ -1267,7 +1267,7 @@ function CreateManualOrderModal({ onClose, onSuccess }: { onClose: () => void; o
         <Form.Item name="buyerPhone" label={t('orders.manualPhone')}>
           <Input />
         </Form.Item>
-        <Form.Item name="shippingAddress" label={t('orders.manualAddress')}>
+        <Form.Item name="shippingAddress" label={t('orders.manualAddress')} rules={[{ required: true, message: t('orders.manualAddressRequired') }]}>
           <Input.TextArea rows={2} />
         </Form.Item>
         <Form.Item name="notes" label={t('orders.manualNotes')}>

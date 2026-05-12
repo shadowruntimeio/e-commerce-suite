@@ -241,6 +241,7 @@ export default {
     manualBuyerRequired: 'Buyer name is required',
     manualSkuRequired: 'SKU is required',
     manualQtyRequired: 'Quantity must be at least 1',
+    manualAddressRequired: 'Shipping address is required',
   },
   products: {
     title: 'Products',

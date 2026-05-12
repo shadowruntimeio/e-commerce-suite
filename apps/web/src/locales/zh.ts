@@ -241,6 +241,7 @@ export default {
     manualBuyerRequired: '请输入买家姓名',
     manualSkuRequired: '请输入 SKU',
     manualQtyRequired: '数量至少为 1',
+    manualAddressRequired: '请填写收货地址',
   },
   products: {
     title: '商品管理',

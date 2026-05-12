@@ -25,6 +25,7 @@ export async function orderRoutes(app: FastifyInstance) {
     }
     if (!items?.length) return reply.status(400).send({ success: false, error: 'items required' })
     if (!buyerName?.trim()) return reply.status(400).send({ success: false, error: 'buyerName required' })
+    if (!shippingAddress?.trim()) return reply.status(400).send({ success: false, error: 'shippingAddress required' })
 
     const platformOrderId = `MANUAL-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
 
