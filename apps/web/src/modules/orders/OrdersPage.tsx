@@ -2,7 +2,7 @@ import { Table, Input, Select, Space, DatePicker, Button, Modal, Tag, Popconfirm
 import {
   SyncOutlined, DownloadOutlined, EyeOutlined, ShoppingCartOutlined,
   PrinterOutlined, CheckOutlined, CloseOutlined, SearchOutlined,
-  PlusOutlined, CarOutlined, MinusCircleOutlined,
+  PlusOutlined, CarOutlined, MinusCircleOutlined, DeleteOutlined,
 } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
@@ -186,6 +186,15 @@ export default function OrdersPage() {
     mutationFn: (id: string) => api.post(`/orders/${id}/manual-ship`),
     onSuccess: () => {
       void message.success(t('orders.manualShipSuccess'))
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+    },
+    onError: (err: any) => message.error(err?.response?.data?.error ?? t('returns.failed')),
+  })
+
+  const deleteManualMut = useMutation({
+    mutationFn: (id: string) => api.delete(`/orders/${id}`),
+    onSuccess: () => {
+      void message.success(t('orders.manualDeleteSuccess'))
       queryClient.invalidateQueries({ queryKey: ['orders'] })
     },
     onError: (err: any) => message.error(err?.response?.data?.error ?? t('returns.failed')),
@@ -652,6 +661,7 @@ export default function OrdersPage() {
         const isPending = record.merchantConfirmStatus === 'PENDING_CONFIRM'
         const canMerchantAct = (merchantUser || user?.role === 'ADMIN') && isPending && !record.isManual
         const canManualShip = !merchantUser && record.isManual && record.manualStatus === 'PENDING'
+        const canDeleteManual = record.isManual && (merchantUser || user?.role === 'ADMIN')
         return (
           <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             {canMerchantAct && (
@@ -711,6 +721,25 @@ export default function OrdersPage() {
                   handlePrintLabel(record)
                 }}
               />
+            )}
+            {canDeleteManual && (
+              <Popconfirm
+                title={t('orders.manualDeleteTitle')}
+                description={t('orders.manualDeleteContent')}
+                okText={t('common.confirm')}
+                cancelText={t('common.cancel')}
+                okButtonProps={{ danger: true }}
+                onConfirm={() => deleteManualMut.mutate(record.id)}
+              >
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  danger
+                  title={t('orders.manualDelete')}
+                  loading={deleteManualMut.isPending}
+                />
+              </Popconfirm>
             )}
           </div>
         )

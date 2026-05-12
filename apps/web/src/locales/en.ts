@@ -242,6 +242,10 @@ export default {
     manualSkuRequired: 'SKU is required',
     manualQtyRequired: 'Quantity must be at least 1',
     manualAddressRequired: 'Shipping address is required',
+    manualDelete: 'Delete Manual Order',
+    manualDeleteTitle: 'Delete this order?',
+    manualDeleteContent: 'This manual order will be permanently deleted and cannot be recovered.',
+    manualDeleteSuccess: 'Manual order deleted',
   },
   products: {
     title: 'Products',

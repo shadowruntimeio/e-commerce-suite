@@ -137,6 +137,36 @@ export async function orderRoutes(app: FastifyInstance) {
     return { success: true, data: updated }
   })
 
+  // DELETE /:id — hard-delete a manual order (merchant/admin only)
+  app.delete('/:id', async (request, reply) => {
+    if (request.user.role !== 'MERCHANT' && request.user.role !== 'ADMIN') {
+      return reply.status(403).send({ success: false, error: 'Forbidden' })
+    }
+    const { id } = request.params as { id: string }
+    const order = await prisma.order.findFirst({
+      where: { id, tenantId: request.user.tenantId, isManual: true },
+    })
+    if (!order) return reply.status(404).send({ success: false, error: 'Manual order not found' })
+    if (request.user.role === 'MERCHANT' && order.createdByUserId !== request.user.userId) {
+      return reply.status(403).send({ success: false, error: 'Forbidden' })
+    }
+
+    await prisma.order.delete({ where: { id } })
+
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: 'order.manual_delete',
+      targetType: 'order',
+      targetId: id,
+      payload: { platformOrderId: order.platformOrderId },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
+
+    return { success: true }
+  })
+
   app.get('/', async (request) => {
     const {
       status, shopId, ownerUserId, merchantConfirm, page = 1, pageSize = 20, search, sku,
