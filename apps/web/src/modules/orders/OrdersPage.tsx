@@ -59,25 +59,20 @@ async function combineToSinglePage(pdfBytes: ArrayBuffer): Promise<Uint8Array> {
   if (indices.length <= 1) return new Uint8Array(pdfBytes)
 
   const out = await PDFDocument.create()
-  const ref = src.getPage(0)
-  const W = ref.getWidth()
-  const H = ref.getHeight()
-  const page = out.addPage([W, H])
+  // Use the widest source page as output width
   const embedded = await out.embedPdf(src, indices)
-
-  // Scale every page to fill width W, then shrink uniformly so the stack fits in H
+  const W = Math.max(...embedded.map(p => p.width))
+  // Scale each page to fill width W; output page height = natural stacked height
   const scaledHeights = embedded.map(p => p.height * (W / p.width))
   const totalH = scaledHeights.reduce((a, b) => a + b, 0)
-  const fitScale = totalH > H ? H / totalH : 1
+  const page = out.addPage([W, totalH])
 
   // Draw pages top-to-bottom (PDF y=0 is bottom)
-  let yTop = H
+  let yTop = totalH
   embedded.forEach((p, i) => {
-    const sW = W * fitScale
-    const sH = scaledHeights[i] * fitScale
-    const x = (W - sW) / 2
-    yTop -= sH
-    page.drawPage(p, { x, y: yTop, width: sW, height: sH })
+    const scale = W / p.width
+    yTop -= scaledHeights[i]
+    page.drawPage(p, { x: 0, y: yTop, width: p.width * scale, height: scaledHeights[i] })
   })
 
   return out.save()
