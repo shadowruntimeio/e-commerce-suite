@@ -71,14 +71,13 @@ async function combineToSinglePage(pdfBytes: ArrayBuffer): Promise<Uint8Array> {
   let yTop = H
   embedded.forEach((p, i) => {
     const bandH = H * weights[i]
-    const scale = Math.min(W / p.width, bandH / p.height)
-    const sW = p.width * scale
+    // Scale to fill full width; height follows aspect ratio
+    const scale = W / p.width
+    const sW = W
     const sH = p.height * scale
-    const x = (W - sW) / 2
-    // First page on top, last page on bottom. yTop is the upper edge of
-    // the current band; the source page is centered within its band.
-    const y = yTop - bandH + (bandH - sH) / 2
-    page.drawPage(p, { x, y, width: sW, height: sH })
+    // Align to top of band (label) or bottom of band (slip)
+    const y = i === 0 ? yTop - sH : yTop - bandH
+    page.drawPage(p, { x: 0, y, width: sW, height: sH })
     yTop -= bandH
   })
 
