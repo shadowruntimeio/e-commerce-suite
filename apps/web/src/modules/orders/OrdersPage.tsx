@@ -45,6 +45,46 @@ function packageIdsForOrder(order: { platformMetadata?: any }): string[] {
   return ordered
 }
 
+// TikTok's SHIPPING_LABEL_AND_PACKING_SLIP returns 2 pages — the carrier
+// label on page 1 and the SKU/qty packing slip on page 2. Sellers want a
+// single sheet, so stack both source pages on one output page sized to
+// match the first source page. The label gets 70% of the height (it has
+// fine print + barcode that must stay scannable) and the slip gets the
+// remaining 30%. Falls back to equal bands for non-2-page documents and
+// passes through already-single-page PDFs.
+async function combineToSinglePage(pdfBytes: ArrayBuffer): Promise<Uint8Array> {
+  const { PDFDocument } = await import('pdf-lib')
+  const src = await PDFDocument.load(pdfBytes)
+  const indices = src.getPageIndices()
+  if (indices.length <= 1) return new Uint8Array(pdfBytes)
+
+  const out = await PDFDocument.create()
+  const ref = src.getPage(0)
+  const W = ref.getWidth()
+  const H = ref.getHeight()
+  const page = out.addPage([W, H])
+  const embedded = await out.embedPdf(src, indices)
+  const weights = indices.length === 2
+    ? [0.7, 0.3]
+    : indices.map(() => 1 / indices.length)
+
+  let yTop = H
+  embedded.forEach((p, i) => {
+    const bandH = H * weights[i]
+    const scale = Math.min(W / p.width, bandH / p.height)
+    const sW = p.width * scale
+    const sH = p.height * scale
+    const x = (W - sW) / 2
+    // First page on top, last page on bottom. yTop is the upper edge of
+    // the current band; the source page is centered within its band.
+    const y = yTop - bandH + (bandH - sH) / 2
+    page.drawPage(p, { x, y, width: sW, height: sH })
+    yTop -= bandH
+  })
+
+  return out.save()
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -268,29 +308,28 @@ export default function OrdersPage() {
     const toastKey = `print-${order.id}`
     void message.loading({ content: t('orders.printing'), duration: 0, key: toastKey })
     try {
-      // Single package (or unknown): original single-URL flow.
-      if (pkgs.length <= 1) {
-        const res = await api.get(`/orders/${order.id}/shipping-label`, {
-          params: pkgs[0] ? { packageId: pkgs[0] } : undefined,
-        })
-        window.open(res.data.data.docUrl, '_blank')
-        message.destroy(toastKey)
-        void message.success(t('orders.printOpened'))
-        void syncQuiet()
-        return
-      }
-      // Multi-package: fetch each label, merge via pdf-lib, open one blob.
+      // Fetch each package's label URL from TikTok via our backend.
       const urls: string[] = []
-      for (const pkg of pkgs) {
-        const r = await api.get(`/orders/${order.id}/shipping-label`, { params: { packageId: pkg } })
+      if (pkgs.length === 0) {
+        const r = await api.get(`/orders/${order.id}/shipping-label`)
         if (r.data?.data?.docUrl) urls.push(r.data.data.docUrl)
+      } else {
+        for (const pkg of pkgs) {
+          const r = await api.get(`/orders/${order.id}/shipping-label`, { params: { packageId: pkg } })
+          if (r.data?.data?.docUrl) urls.push(r.data.data.docUrl)
+        }
       }
       if (urls.length === 0) throw new Error('no labels')
+
+      // Always route through label-proxy + pdf-lib so we can collapse each
+      // 2-page (label + slip) document down to a single page. Multiple
+      // packages then concatenate into one PDF.
       const { PDFDocument } = await import('pdf-lib')
       const merged = await PDFDocument.create()
       for (const u of urls) {
         const res = await api.get('/orders/label-proxy', { params: { url: u }, responseType: 'arraybuffer' })
-        const src = await PDFDocument.load(res.data as ArrayBuffer)
+        const collapsedBytes = await combineToSinglePage(res.data as ArrayBuffer)
+        const src = await PDFDocument.load(collapsedBytes)
         const pages = await merged.copyPages(src, src.getPageIndices())
         pages.forEach((p) => merged.addPage(p))
       }
@@ -388,7 +427,9 @@ export default function OrdersPage() {
       }
 
       // Merge all PDFs into a single document so the user gets one print window
-      // instead of N. Dynamic import keeps pdf-lib out of the main bundle.
+      // instead of N. Each source PDF first gets its 2 pages (label + slip)
+      // collapsed onto a single page via combineToSinglePage. Dynamic import
+      // keeps pdf-lib out of the main bundle.
       const { PDFDocument } = await import('pdf-lib')
       const merged = await PDFDocument.create()
       for (const u of urls) {
@@ -398,7 +439,8 @@ export default function OrdersPage() {
             params: { url: u },
             responseType: 'arraybuffer',
           })
-          const src = await PDFDocument.load(res.data as ArrayBuffer)
+          const collapsedBytes = await combineToSinglePage(res.data as ArrayBuffer)
+          const src = await PDFDocument.load(collapsedBytes)
           const pages = await merged.copyPages(src, src.getPageIndices())
           pages.forEach((p) => merged.addPage(p))
         } catch {
