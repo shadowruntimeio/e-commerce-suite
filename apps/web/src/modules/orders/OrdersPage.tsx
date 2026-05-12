@@ -59,10 +59,26 @@ async function combineToSinglePage(pdfBytes: ArrayBuffer): Promise<Uint8Array> {
   if (indices.length <= 1) return new Uint8Array(pdfBytes)
 
   const out = await PDFDocument.create()
-  // Use the widest source page as output width
-  const embedded = await out.embedPdf(src, indices)
+
+  // Embed each page using CropBox bounds if available (trims built-in blank margins),
+  // otherwise fall back to the full MediaBox.
+  const embedded = await Promise.all(indices.map(async (idx) => {
+    const srcPage = src.getPage(idx)
+    const mb = srcPage.getMediaBox()
+    let boundingBox: { left: number; bottom: number; right: number; top: number } | undefined
+    try {
+      const cb = srcPage.getCropBox()
+      // Only use CropBox if it is meaningfully smaller (>5% reduction in either dimension)
+      if (cb.height < mb.height * 0.95 || cb.width < mb.width * 0.95) {
+        boundingBox = { left: cb.x, bottom: cb.y, right: cb.x + cb.width, top: cb.y + cb.height }
+      }
+    } catch { /* no CropBox */ }
+    console.log(`[label] page ${idx}: media=${mb.width.toFixed(0)}×${mb.height.toFixed(0)}` +
+      (boundingBox ? ` crop→${(boundingBox.right-boundingBox.left).toFixed(0)}×${(boundingBox.top-boundingBox.bottom).toFixed(0)}` : ''))
+    return out.embedPage(srcPage, boundingBox)
+  }))
+
   const W = Math.max(...embedded.map(p => p.width))
-  // Scale each page to fill width W; output page height = natural stacked height
   const scaledHeights = embedded.map(p => p.height * (W / p.width))
   const totalH = scaledHeights.reduce((a, b) => a + b, 0)
   const page = out.addPage([W, totalH])
