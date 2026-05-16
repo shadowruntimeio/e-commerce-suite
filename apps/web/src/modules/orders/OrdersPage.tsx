@@ -46,18 +46,21 @@ function packageIdsForOrder(order: { platformMetadata?: any }): string[] {
   return ordered
 }
 
-// TikTok's SHIPPING_LABEL_AND_PACKING_SLIP returns 2 pages — the carrier
-// label on page 1 and the SKU/qty packing slip on page 2. Sellers want a
-// single sheet, so stack both source pages on one output page sized to
-// match the first source page. The label gets 70% of the height (it has
-// fine print + barcode that must stay scannable) and the slip gets the
-// remaining 30%. Falls back to equal bands for non-2-page documents and
-// passes through already-single-page PDFs.
+// Output sheets target A6 thermal label paper (105×148mm portrait). TikTok's
+// SHIPPING_LABEL_AND_PACKING_SLIP returns 2 pages — carrier label on page 1,
+// SKU/qty packing slip on page 2 — and sellers want them on a single A6 sheet.
+// Strategy: normalize both source pages to a common width, stack vertically,
+// then scale the combined block uniformly so its height fills A6 exactly.
+// Aspect ratios are preserved (no squashing), horizontal whitespace is centered.
+// Single-page inputs get the same treatment so a printer-fed A6 sheet always
+// receives an A6 PDF page — no reliance on browser/printer fit-to-page logic.
+const A6_WIDTH = 297.64  // 105mm in PDF points (1mm = 2.83465pt)
+const A6_HEIGHT = 419.53 // 148mm in PDF points
 async function combineToSinglePage(pdfBytes: ArrayBuffer): Promise<Uint8Array> {
   const { PDFDocument } = await import('pdf-lib')
   const src = await PDFDocument.load(pdfBytes)
   const indices = src.getPageIndices()
-  if (indices.length <= 1) return new Uint8Array(pdfBytes)
+  if (indices.length === 0) return new Uint8Array(pdfBytes)
 
   const out = await PDFDocument.create()
 
@@ -69,7 +72,6 @@ async function combineToSinglePage(pdfBytes: ArrayBuffer): Promise<Uint8Array> {
     let boundingBox: { left: number; bottom: number; right: number; top: number } | undefined
     try {
       const cb = srcPage.getCropBox()
-      // Only use CropBox if it is meaningfully smaller (>5% reduction in either dimension)
       if (cb.height < mb.height * 0.95 || cb.width < mb.width * 0.95) {
         boundingBox = { left: cb.x, bottom: cb.y, right: cb.x + cb.width, top: cb.y + cb.height }
       }
@@ -79,17 +81,27 @@ async function combineToSinglePage(pdfBytes: ArrayBuffer): Promise<Uint8Array> {
     return out.embedPage(srcPage, boundingBox)
   }))
 
+  // Normalize widths: each page is scaled to the max width so the stack edges line up.
   const W = Math.max(...embedded.map(p => p.width))
-  const scaledHeights = embedded.map(p => p.height * (W / p.width))
-  const totalH = scaledHeights.reduce((a, b) => a + b, 0)
-  const page = out.addPage([W, totalH])
+  const normalizedHeights = embedded.map(p => p.height * (W / p.width))
+  const totalNormalizedH = normalizedHeights.reduce((a, b) => a + b, 0)
 
-  // Draw pages top-to-bottom (PDF y=0 is bottom)
-  let yTop = totalH
+  // Pick the uniform scale that fits the stack inside A6. Height-fill is the
+  // primary goal; if the resulting width would exceed A6, fall back to width-fit.
+  const scaleByHeight = A6_HEIGHT / totalNormalizedH
+  const scale = (W * scaleByHeight <= A6_WIDTH) ? scaleByHeight : (A6_WIDTH / W)
+
+  const drawnWidth = W * scale
+  const drawnTotalHeight = totalNormalizedH * scale
+  const xOffset = (A6_WIDTH - drawnWidth) / 2
+  const yTopStart = A6_HEIGHT - (A6_HEIGHT - drawnTotalHeight) / 2
+
+  const page = out.addPage([A6_WIDTH, A6_HEIGHT])
+  let yTop = yTopStart
   embedded.forEach((p, i) => {
-    const scale = W / p.width
-    yTop -= scaledHeights[i]
-    page.drawPage(p, { x: 0, y: yTop, width: p.width * scale, height: scaledHeights[i] })
+    const drawnHeight = normalizedHeights[i] * scale
+    yTop -= drawnHeight
+    page.drawPage(p, { x: xOffset, y: yTop, width: drawnWidth, height: drawnHeight })
   })
 
   return out.save()
