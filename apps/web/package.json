@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "start": "npx serve dist -s -l ${PORT:-3000}",
+    "start": "sirv dist --single --host 0.0.0.0 --port ${PORT:-3000} --etag",
     "preview": "vite preview",
     "lint": "eslint src"
   },
@@ -26,6 +26,7 @@
     "react-i18next": "^17.0.2",
     "react-router-dom": "^7.2.0",
     "recharts": "^2.15.1",
+    "sirv-cli": "^3.0.1",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
