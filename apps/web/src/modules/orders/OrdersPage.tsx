@@ -48,14 +48,75 @@ function packageIdsForOrder(order: { platformMetadata?: any }): string[] {
 
 // Output sheets target A6 thermal label paper (105×148mm portrait). TikTok's
 // SHIPPING_LABEL_AND_PACKING_SLIP returns 2 pages — carrier label on page 1,
-// SKU/qty packing slip on page 2 — and sellers want them on a single A6 sheet.
-// Strategy: normalize both source pages to a common width, stack vertically,
-// then scale the combined block uniformly so its height fills A6 exactly.
-// Aspect ratios are preserved (no squashing), horizontal whitespace is centered.
-// Single-page inputs get the same treatment so a printer-fed A6 sheet always
-// receives an A6 PDF page — no reliance on browser/printer fit-to-page logic.
+// SKU/qty packing slip on page 2 — both at full A6 MediaBox even though the
+// slip's actual SKU table only occupies the top portion (TikTok pads the
+// bottom with whitespace, and no CropBox is set). Embedding the raw MediaBox
+// leaves that whitespace inside the output, so we render each source page to
+// a canvas via pdf.js, detect non-white pixel bounds, and embed only the
+// content rectangle. The stack then scales uniformly to fill A6 height.
 const A6_WIDTH = 297.64  // 105mm in PDF points (1mm = 2.83465pt)
 const A6_HEIGHT = 419.53 // 148mm in PDF points
+
+// Pixel-darkness threshold below which we consider a pixel "content".
+// 245 tolerates JPEG compression haze, thermal-printer dithering halos, and
+// anti-aliased grays around true black/red without absorbing real whitespace.
+const CONTENT_PIXEL_THRESHOLD = 245
+// Padding in PDF points to leave around detected content bounds, so barcodes
+// and edge text aren't shaved by a single stray bright pixel near the edge.
+const CONTENT_PAD_PT = 2
+
+async function detectContentBoundsPx(
+  pdfBytes: ArrayBuffer,
+  pageNumber: number, // 1-indexed for pdf.js
+): Promise<{ left: number; bottom: number; right: number; top: number } | null> {
+  const pdfjs = await import('pdfjs-dist')
+  if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+    const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
+    pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+  }
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(pdfBytes) }).promise
+  const page = await doc.getPage(pageNumber)
+  const scale = 2
+  const viewport = page.getViewport({ scale })
+  const canvas = document.createElement('canvas')
+  canvas.width = viewport.width
+  canvas.height = viewport.height
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return null
+  // pdf.js renders with transparent background; fill white so our pixel scan
+  // treats the unrendered backdrop as whitespace, not content.
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  await page.render({ canvasContext: ctx, viewport, canvas }).promise
+
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  let minX = canvas.width, minY = canvas.height, maxX = -1, maxY = -1
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      const i = (y * canvas.width + x) * 4
+      // Skip fully transparent pixels (shouldn't exist after white fill, but cheap).
+      if (data[i + 3] === 0) continue
+      const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3
+      if (brightness < CONTENT_PIXEL_THRESHOLD) {
+        if (x < minX) minX = x
+        if (x > maxX) maxX = x
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+      }
+    }
+  }
+  if (maxX < 0) return null // entirely white
+
+  // Convert canvas pixel bounds → PDF point bounds. PDF y is bottom-up.
+  const pageH = viewport.height / scale
+  return {
+    left:   Math.max(0,             minX / scale       - CONTENT_PAD_PT),
+    right:  Math.min(viewport.width / scale,  maxX / scale       + CONTENT_PAD_PT),
+    bottom: Math.max(0,             pageH - maxY / scale - CONTENT_PAD_PT),
+    top:    Math.min(pageH,         pageH - minY / scale + CONTENT_PAD_PT),
+  }
+}
+
 async function combineToSinglePage(pdfBytes: ArrayBuffer): Promise<Uint8Array> {
   const { PDFDocument } = await import('pdf-lib')
   const src = await PDFDocument.load(pdfBytes)
@@ -64,20 +125,23 @@ async function combineToSinglePage(pdfBytes: ArrayBuffer): Promise<Uint8Array> {
 
   const out = await PDFDocument.create()
 
-  // Embed each page using CropBox bounds if available (trims built-in blank margins),
-  // otherwise fall back to the full MediaBox.
+  // Embed each source page using its detected content bounds (trims TikTok's
+  // built-in bottom whitespace on the slip page). Falls back to MediaBox if
+  // detection fails or the page is entirely empty.
   const embedded = await Promise.all(indices.map(async (idx) => {
     const srcPage = src.getPage(idx)
     const mb = srcPage.getMediaBox()
     let boundingBox: { left: number; bottom: number; right: number; top: number } | undefined
     try {
-      const cb = srcPage.getCropBox()
-      if (cb.height < mb.height * 0.95 || cb.width < mb.width * 0.95) {
-        boundingBox = { left: cb.x, bottom: cb.y, right: cb.x + cb.width, top: cb.y + cb.height }
+      const bounds = await detectContentBoundsPx(pdfBytes, idx + 1)
+      if (bounds && (bounds.right - bounds.left) > 0 && (bounds.top - bounds.bottom) > 0) {
+        boundingBox = bounds
       }
-    } catch { /* no CropBox */ }
+    } catch (err) {
+      console.warn(`[label] content-bounds detect failed for page ${idx}:`, err)
+    }
     console.log(`[label] page ${idx}: media=${mb.width.toFixed(0)}×${mb.height.toFixed(0)}` +
-      (boundingBox ? ` crop→${(boundingBox.right-boundingBox.left).toFixed(0)}×${(boundingBox.top-boundingBox.bottom).toFixed(0)}` : ''))
+      (boundingBox ? ` content→${(boundingBox.right - boundingBox.left).toFixed(0)}×${(boundingBox.top - boundingBox.bottom).toFixed(0)} @ (${boundingBox.left.toFixed(0)},${boundingBox.bottom.toFixed(0)})` : ' (full media)'))
     return out.embedPage(srcPage, boundingBox)
   }))
 
