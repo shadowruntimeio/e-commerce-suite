@@ -65,55 +65,63 @@ const CONTENT_PIXEL_THRESHOLD = 245
 // and edge text aren't shaved by a single stray bright pixel near the edge.
 const CONTENT_PAD_PT = 2
 
-async function detectContentBoundsPx(
-  pdfBytes: ArrayBuffer,
-  pageNumber: number, // 1-indexed for pdf.js
-): Promise<{ left: number; bottom: number; right: number; top: number } | null> {
+type ContentBounds = { left: number; bottom: number; right: number; top: number }
+
+// Load pdf.js once and return a function that detects content bounds for any
+// page in the same document. Loading the doc once (rather than once per page)
+// avoids a subtle bug: pdf.js may transfer ownership of the input buffer to
+// its worker, so concurrent getDocument() calls with the same buffer cause
+// the second call to see an empty/detached buffer and render blank pages.
+async function makeContentBoundsDetector(pdfBytes: ArrayBuffer) {
   const pdfjs = await import('pdfjs-dist')
   if (!pdfjs.GlobalWorkerOptions.workerSrc) {
     const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
     pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
   }
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(pdfBytes) }).promise
-  const page = await doc.getPage(pageNumber)
-  const scale = 2
-  const viewport = page.getViewport({ scale })
-  const canvas = document.createElement('canvas')
-  canvas.width = viewport.width
-  canvas.height = viewport.height
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return null
-  // pdf.js renders with transparent background; fill white so our pixel scan
-  // treats the unrendered backdrop as whitespace, not content.
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  await page.render({ canvasContext: ctx, viewport, canvas }).promise
+  // Clone the buffer so pdf.js can transfer without affecting other readers
+  // (pdf-lib also wants to load the same bytes for embedding).
+  const bytesCopy = new Uint8Array(pdfBytes.slice(0))
+  const doc = await pdfjs.getDocument({ data: bytesCopy }).promise
 
-  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
-  let minX = canvas.width, minY = canvas.height, maxX = -1, maxY = -1
-  for (let y = 0; y < canvas.height; y++) {
-    for (let x = 0; x < canvas.width; x++) {
-      const i = (y * canvas.width + x) * 4
-      // Skip fully transparent pixels (shouldn't exist after white fill, but cheap).
-      if (data[i + 3] === 0) continue
-      const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3
-      if (brightness < CONTENT_PIXEL_THRESHOLD) {
-        if (x < minX) minX = x
-        if (x > maxX) maxX = x
-        if (y < minY) minY = y
-        if (y > maxY) maxY = y
+  return async function detect(pageNumber: number): Promise<ContentBounds | null> {
+    const page = await doc.getPage(pageNumber)
+    const scale = 2
+    const viewport = page.getViewport({ scale })
+    const canvas = document.createElement('canvas')
+    canvas.width = viewport.width
+    canvas.height = viewport.height
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return null
+    // pdf.js renders with transparent background; fill white so our pixel scan
+    // treats the unrendered backdrop as whitespace, not content.
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    await page.render({ canvasContext: ctx, viewport, canvas }).promise
+
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    let minX = canvas.width, minY = canvas.height, maxX = -1, maxY = -1
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const i = (y * canvas.width + x) * 4
+        if (data[i + 3] === 0) continue
+        const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3
+        if (brightness < CONTENT_PIXEL_THRESHOLD) {
+          if (x < minX) minX = x
+          if (x > maxX) maxX = x
+          if (y < minY) minY = y
+          if (y > maxY) maxY = y
+        }
       }
     }
-  }
-  if (maxX < 0) return null // entirely white
+    if (maxX < 0) return null
 
-  // Convert canvas pixel bounds → PDF point bounds. PDF y is bottom-up.
-  const pageH = viewport.height / scale
-  return {
-    left:   Math.max(0,             minX / scale       - CONTENT_PAD_PT),
-    right:  Math.min(viewport.width / scale,  maxX / scale       + CONTENT_PAD_PT),
-    bottom: Math.max(0,             pageH - maxY / scale - CONTENT_PAD_PT),
-    top:    Math.min(pageH,         pageH - minY / scale + CONTENT_PAD_PT),
+    const pageH = viewport.height / scale
+    return {
+      left:   Math.max(0,                       minX / scale       - CONTENT_PAD_PT),
+      right:  Math.min(viewport.width / scale,  maxX / scale       + CONTENT_PAD_PT),
+      bottom: Math.max(0,                       pageH - maxY / scale - CONTENT_PAD_PT),
+      top:    Math.min(pageH,                   pageH - minY / scale + CONTENT_PAD_PT),
+    }
   }
 }
 
@@ -125,25 +133,34 @@ async function combineToSinglePage(pdfBytes: ArrayBuffer): Promise<Uint8Array> {
 
   const out = await PDFDocument.create()
 
-  // Embed each source page using its detected content bounds (trims TikTok's
-  // built-in bottom whitespace on the slip page). Falls back to MediaBox if
-  // detection fails or the page is entirely empty.
-  const embedded = await Promise.all(indices.map(async (idx) => {
+  // Load the source once via pdf.js so we can detect content bounds per page
+  // and trim TikTok's built-in slip-page whitespace before embedding.
+  let detect: ((page: number) => Promise<ContentBounds | null>) | null = null
+  try { detect = await makeContentBoundsDetector(pdfBytes) } catch (err) {
+    console.warn('[label] content-bounds detector init failed; falling back to full media:', err)
+  }
+
+  // Embed each source page using its detected content bounds. Falls back to
+  // MediaBox if detection fails or the page is entirely empty.
+  const embedded = []
+  for (const idx of indices) {
     const srcPage = src.getPage(idx)
     const mb = srcPage.getMediaBox()
-    let boundingBox: { left: number; bottom: number; right: number; top: number } | undefined
-    try {
-      const bounds = await detectContentBoundsPx(pdfBytes, idx + 1)
-      if (bounds && (bounds.right - bounds.left) > 0 && (bounds.top - bounds.bottom) > 0) {
-        boundingBox = bounds
+    let boundingBox: ContentBounds | undefined
+    if (detect) {
+      try {
+        const bounds = await detect(idx + 1)
+        if (bounds && (bounds.right - bounds.left) > 0 && (bounds.top - bounds.bottom) > 0) {
+          boundingBox = bounds
+        }
+      } catch (err) {
+        console.warn(`[label] content-bounds detect failed for page ${idx}:`, err)
       }
-    } catch (err) {
-      console.warn(`[label] content-bounds detect failed for page ${idx}:`, err)
     }
     console.log(`[label] page ${idx}: media=${mb.width.toFixed(0)}×${mb.height.toFixed(0)}` +
       (boundingBox ? ` content→${(boundingBox.right - boundingBox.left).toFixed(0)}×${(boundingBox.top - boundingBox.bottom).toFixed(0)} @ (${boundingBox.left.toFixed(0)},${boundingBox.bottom.toFixed(0)})` : ' (full media)'))
-    return out.embedPage(srcPage, boundingBox)
-  }))
+    embedded.push(await out.embedPage(srcPage, boundingBox))
+  }
 
   // Normalize widths: each page is scaled to the max width so the stack edges line up.
   const W = Math.max(...embedded.map(p => p.width))
