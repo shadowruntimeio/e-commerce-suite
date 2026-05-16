@@ -49,29 +49,6 @@ async function processSalesFacts(
   from: Date,
   to: Date
 ): Promise<void> {
-  // Get all orders for yesterday grouped by shopId + systemSkuId via order items
-  const orders = await prisma.order.findMany({
-    where: {
-      tenantId,
-      createdAt: { gte: from, lt: to },
-      status: { notIn: ['CANCELLED'] },
-    },
-    select: {
-      id: true,
-      shopId: true,
-      totalRevenue: true,
-      platformCommission: true,
-      shippingFeeSeller: true,
-      items: {
-        select: {
-          systemSkuId: true,
-          quantity: true,
-          costPriceAtOrder: true,
-        },
-      },
-    },
-  })
-
   // Build aggregation map: key = "shopId|systemSkuId"
   type FactAccum = {
     shopId: string
@@ -85,53 +62,90 @@ async function processSalesFacts(
   }
 
   const map = new Map<string, FactAccum>()
-
   const dec = (v: unknown) => new Decimal(String(v ?? 0))
 
-  for (const order of orders) {
-    // Group per systemSkuId within each order
-    const skuGroups = new Map<string | null, { qty: number; cogs: Decimal }>()
+  // Stream yesterday's orders in batches of 500. Holding all orders + items
+  // in memory at once is the main driver of the worker's RSS spike on tenants
+  // with thousands of daily orders.
+  const BATCH_SIZE = 500
+  let cursor: string | undefined
+  let totalOrders = 0
+  while (true) {
+    const batch = await prisma.order.findMany({
+      where: {
+        tenantId,
+        createdAt: { gte: from, lt: to },
+        status: { notIn: ['CANCELLED'] },
+      },
+      select: {
+        id: true,
+        shopId: true,
+        totalRevenue: true,
+        platformCommission: true,
+        shippingFeeSeller: true,
+        items: {
+          select: {
+            systemSkuId: true,
+            quantity: true,
+            costPriceAtOrder: true,
+          },
+        },
+      },
+      orderBy: { id: 'asc' },
+      take: BATCH_SIZE,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    })
+    if (batch.length === 0) break
+    totalOrders += batch.length
 
-    for (const item of order.items) {
-      const skuId = item.systemSkuId ?? null
-      const existing = skuGroups.get(skuId) ?? { qty: 0, cogs: new Decimal(0) }
-      existing.qty += item.quantity
-      existing.cogs = existing.cogs.add(dec(item.costPriceAtOrder).mul(item.quantity))
-      skuGroups.set(skuId, existing)
-    }
+    for (const order of batch) {
+      // Group per systemSkuId within each order
+      const skuGroups = new Map<string | null, { qty: number; cogs: Decimal }>()
 
-    // If order has no items, still record it under systemSkuId=null
-    if (order.items.length === 0) {
-      skuGroups.set(null, { qty: 0, cogs: new Decimal(0) })
-    }
-
-    // Distribute revenue/commission/shipping proportionally (by sku group qty / total qty)
-    const totalQty = order.items.reduce((s: number, i: any) => s + i.quantity, 0) || 1
-    const orderRevenue = dec(order.totalRevenue)
-    const orderCommission = dec(order.platformCommission)
-    const orderShipping = dec(order.shippingFeeSeller)
-
-    for (const [skuId, grp] of skuGroups) {
-      const share = grp.qty / totalQty
-      const mapKey = `${order.shopId}|${skuId ?? '__null__'}`
-      const existing = map.get(mapKey) ?? {
-        shopId: order.shopId ?? '',
-        systemSkuId: skuId,
-        ordersCount: 0,
-        unitsSold: 0,
-        grossRevenue: new Decimal(0),
-        platformCommission: new Decimal(0),
-        shippingCost: new Decimal(0),
-        cogs: new Decimal(0),
+      for (const item of order.items) {
+        const skuId = item.systemSkuId ?? null
+        const existing = skuGroups.get(skuId) ?? { qty: 0, cogs: new Decimal(0) }
+        existing.qty += item.quantity
+        existing.cogs = existing.cogs.add(dec(item.costPriceAtOrder).mul(item.quantity))
+        skuGroups.set(skuId, existing)
       }
-      existing.ordersCount += 1
-      existing.unitsSold += grp.qty
-      existing.grossRevenue = existing.grossRevenue.add(orderRevenue.mul(share))
-      existing.platformCommission = existing.platformCommission.add(orderCommission.mul(share))
-      existing.shippingCost = existing.shippingCost.add(orderShipping.mul(share))
-      existing.cogs = existing.cogs.add(grp.cogs)
-      map.set(mapKey, existing)
+
+      // If order has no items, still record it under systemSkuId=null
+      if (order.items.length === 0) {
+        skuGroups.set(null, { qty: 0, cogs: new Decimal(0) })
+      }
+
+      // Distribute revenue/commission/shipping proportionally (by sku group qty / total qty)
+      const totalQty = order.items.reduce((s: number, i: any) => s + i.quantity, 0) || 1
+      const orderRevenue = dec(order.totalRevenue)
+      const orderCommission = dec(order.platformCommission)
+      const orderShipping = dec(order.shippingFeeSeller)
+
+      for (const [skuId, grp] of skuGroups) {
+        const share = grp.qty / totalQty
+        const mapKey = `${order.shopId}|${skuId ?? '__null__'}`
+        const existing = map.get(mapKey) ?? {
+          shopId: order.shopId ?? '',
+          systemSkuId: skuId,
+          ordersCount: 0,
+          unitsSold: 0,
+          grossRevenue: new Decimal(0),
+          platformCommission: new Decimal(0),
+          shippingCost: new Decimal(0),
+          cogs: new Decimal(0),
+        }
+        existing.ordersCount += 1
+        existing.unitsSold += grp.qty
+        existing.grossRevenue = existing.grossRevenue.add(orderRevenue.mul(share))
+        existing.platformCommission = existing.platformCommission.add(orderCommission.mul(share))
+        existing.shippingCost = existing.shippingCost.add(orderShipping.mul(share))
+        existing.cogs = existing.cogs.add(grp.cogs)
+        map.set(mapKey, existing)
+      }
     }
+
+    if (batch.length < BATCH_SIZE) break
+    cursor = batch[batch.length - 1].id
   }
 
   // Upsert each fact
@@ -175,7 +189,7 @@ async function processSalesFacts(
     })
   }
 
-  console.log(`[etl] Sales facts: tenant ${tenantId}, ${map.size} groups upserted`)
+  console.log(`[etl] Sales facts: tenant ${tenantId}, ${totalOrders} orders → ${map.size} groups upserted`)
 }
 
 async function processInventorySnapshots(tenantId: string, dateKey: Date): Promise<void> {
