@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Card, Table, Tag, Button, Modal, Form, InputNumber, Input, Select, Space, message, Popconfirm, Radio } from 'antd'
+import { Card, Table, Tag, Button, Modal, Form, InputNumber, Input, Select, Space, message, Popconfirm, Radio, Drawer, Descriptions } from 'antd'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
@@ -43,6 +43,7 @@ interface AfterSalesTicket {
   platformReturnId: string | null
   platformReturnStatus: string | null
   nextSellerActions: string[]
+  platformPayload: Record<string, any>
   expectedQty: number | null
   returnedQty: number | null
   condition: string
@@ -68,6 +69,7 @@ export default function ReturnsPage() {
   const merchantUser = isMerchant(user)
   const [processTicket, setProcessTicket] = useState<AfterSalesTicket | null>(null)
   const [rejectTicket, setRejectTicket] = useState<AfterSalesTicket | null>(null)
+  const [detailTicket, setDetailTicket] = useState<AfterSalesTicket | null>(null)
 
   // Warehouse split: "actionable" (default) vs "done" (recent processed).
   const [view, setView] = useState<'actionable' | 'done'>('actionable')
@@ -166,8 +168,9 @@ export default function ReturnsPage() {
         const warehouseActionPending = (r.nextSellerActions ?? []).includes(ACTION_WAREHOUSE_RECEIVE)
         const canApprove = isMerchantOrAdmin && merchantActionPending
         const canProcess = hasCapability(user, 'RETURN_INTAKE') && warehouseActionPending && !r.arrivedAt
+        const hasAnyAction = canApprove || canProcess
         return (
-          <Space>
+          <Space size={4}>
             {canApprove && (
               <>
                 <Popconfirm
@@ -190,6 +193,16 @@ export default function ReturnsPage() {
                 {t('returns.processBtn')}
               </Button>
             )}
+            {!hasAnyAction && (
+              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                {(r.nextSellerActions ?? []).length === 0
+                  ? t('returns.noActionNeeded')
+                  : t('returns.actionElsewhere')}
+              </span>
+            )}
+            <Button size="small" type="link" onClick={() => setDetailTicket(r)}>
+              {t('returns.detailBtn')}
+            </Button>
           </Space>
         )
       },
@@ -247,7 +260,78 @@ export default function ReturnsPage() {
           loading={processMut.isPending}
         />
       )}
+
+      <DetailDrawer ticket={detailTicket} onClose={() => setDetailTicket(null)} />
     </Card>
+  )
+}
+
+function DetailDrawer({ ticket, onClose }: { ticket: AfterSalesTicket | null; onClose: () => void }) {
+  const { t } = useTranslation()
+  if (!ticket) return null
+  const payload = ticket.platformPayload ?? {}
+  const lineItems: Array<{ seller_sku?: string; product_name?: string; sku_name?: string }> = (payload.return_line_items ?? []) as any
+  const refund = payload.refund_amount ?? {}
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      width={520}
+      title={`${t('returns.detailTitle')} · ${ticket.order.platformOrderId}`}
+    >
+      <Descriptions column={1} size="small" bordered>
+        <Descriptions.Item label={t('returns.platformStatus')}>
+          <Tag color={TK_STATUS_COLORS[ticket.platformReturnStatus ?? ''] ?? 'default'}>
+            {t(`returns.tk.${ticket.platformReturnStatus ?? ''}`, { defaultValue: ticket.platformReturnStatus ?? '—' })}
+          </Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label={t('returns.platformReturnId')}>
+          <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{ticket.platformReturnId ?? '—'}</span>
+        </Descriptions.Item>
+        <Descriptions.Item label={t('returns.reason')}>
+          {payload.return_reason_text ?? payload.return_reason ?? '—'}
+        </Descriptions.Item>
+        <Descriptions.Item label={t('returns.refundTotal')}>
+          {refund.refund_total ? `${refund.currency ?? ''} ${refund.refund_total}` : '—'}
+        </Descriptions.Item>
+        <Descriptions.Item label={t('returns.returnTracking')}>
+          <span style={{ fontFamily: 'monospace', fontSize: 12 }}>
+            {payload.return_tracking_number ?? '—'}
+            {payload.return_provider_name && <span style={{ color: 'var(--text-muted)', marginLeft: 6 }}>({payload.return_provider_name})</span>}
+          </span>
+        </Descriptions.Item>
+        <Descriptions.Item label={t('returns.warehouseStatus')}>
+          {ticket.arrivedAt
+            ? `${t(`returns.cond.${ticket.condition}`, { defaultValue: ticket.condition })} · ${ticket.returnedQty ?? '—'}${ticket.restockedAt ? ' · ' + t('returns.restocked') : ''}`
+            : t('returns.notArrived')}
+        </Descriptions.Item>
+        <Descriptions.Item label={t('returns.expectedQty')}>{ticket.expectedQty ?? '—'}</Descriptions.Item>
+        {ticket.nextSellerActions.length > 0 && (
+          <Descriptions.Item label={t('returns.nextActions')}>
+            <Space wrap size={4}>
+              {ticket.nextSellerActions.map((a) => (
+                <Tag key={a} color="orange">{a}</Tag>
+              ))}
+            </Space>
+          </Descriptions.Item>
+        )}
+      </Descriptions>
+
+      {lineItems.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{t('returns.lineItems')}</div>
+          {lineItems.map((li, i) => (
+            <div key={i} style={{ background: 'var(--bg-surface)', borderRadius: 6, padding: '8px 10px', marginBottom: 6, fontSize: 12 }}>
+              <div style={{ fontWeight: 500 }}>{li.product_name ?? '—'}</div>
+              <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
+                {li.seller_sku && <span style={{ fontFamily: 'monospace' }}>{li.seller_sku}</span>}
+                {li.sku_name && <span style={{ marginLeft: 6 }}>· {li.sku_name}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Drawer>
   )
 }
 
