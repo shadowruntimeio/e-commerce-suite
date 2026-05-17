@@ -664,6 +664,52 @@ export default function OrdersPage() {
       ),
     },
     {
+      title: t('orders.sku'),
+      dataIndex: 'items',
+      key: 'sku',
+      width: 140,
+      sorter: true,
+      sortOrder: sortBy === 'sku' ? (sortOrder === 'asc' ? 'ascend' : 'descend') : undefined,
+      render: (items: Array<{ sellerSku?: string | null; quantity: number }>) => {
+        if (!items?.length) return <span style={{ color: 'var(--text-muted)' }}>—</span>
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, fontFamily: "'Courier New', monospace" }}>
+            {items.map((it, i) => (
+              <span key={i} style={{ color: it.sellerSku ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                {it.sellerSku ?? '—'}{it.quantity > 1 ? ` × ${it.quantity}` : ''}
+              </span>
+            ))}
+          </div>
+        )
+      },
+    },
+    {
+      title: t('orders.items'),
+      dataIndex: 'items',
+      width: 60,
+      align: 'center',
+      render: (items) => (
+        <span style={{ background: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', borderRadius: 20, padding: '2px 8px', fontSize: 12, fontWeight: 500 }}>
+          {items?.length ?? 0}
+        </span>
+      ),
+    },
+    {
+      title: t('common.status'),
+      dataIndex: 'status',
+      width: 120,
+      render: (s) => <StatusBadge status={s} />,
+    },
+    {
+      title: t('orders.date'),
+      dataIndex: 'createdAt',
+      key: 'date',
+      width: 140,
+      sorter: true,
+      sortOrder: sortBy === 'date' ? (sortOrder === 'asc' ? 'ascend' : 'descend') : undefined,
+      render: (v) => dayjs(v).format('MMM D, HH:mm'),
+    },
+    {
       title: t('orders.platform'),
       dataIndex: ['shop', 'platform'],
       width: 100,
@@ -692,61 +738,6 @@ export default function OrdersPage() {
       },
     },
     { title: t('orders.buyer'), dataIndex: 'buyerName', width: 140, ellipsis: true },
-    {
-      title: t('orders.items'),
-      dataIndex: 'items',
-      width: 60,
-      align: 'center',
-      render: (items) => (
-        <span style={{ background: 'var(--badge-neutral-bg)', color: 'var(--badge-neutral-fg)', borderRadius: 20, padding: '2px 8px', fontSize: 12, fontWeight: 500 }}>
-          {items?.length ?? 0}
-        </span>
-      ),
-    },
-    {
-      title: t('orders.sku'),
-      dataIndex: 'items',
-      key: 'sku',
-      width: 140,
-      sorter: true,
-      sortOrder: sortBy === 'sku' ? (sortOrder === 'asc' ? 'ascend' : 'descend') : undefined,
-      render: (items: Array<{ sellerSku?: string | null; quantity: number }>) => {
-        if (!items?.length) return <span style={{ color: 'var(--text-muted)' }}>—</span>
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, fontFamily: "'Courier New', monospace" }}>
-            {items.map((it, i) => (
-              <span key={i} style={{ color: it.sellerSku ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                {it.sellerSku ?? '—'}{it.quantity > 1 ? ` × ${it.quantity}` : ''}
-              </span>
-            ))}
-          </div>
-        )
-      },
-    },
-    {
-      title: t('common.status'),
-      dataIndex: 'status',
-      width: 120,
-      render: (s) => <StatusBadge status={s} />,
-    },
-    {
-      title: t('orders.revenue'),
-      dataIndex: 'totalRevenue',
-      width: 120,
-      align: 'right',
-      render: (v) => (
-        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>${Number(v).toFixed(2)}</span>
-      ),
-    },
-    {
-      title: t('orders.date'),
-      dataIndex: 'createdAt',
-      key: 'date',
-      width: 140,
-      sorter: true,
-      sortOrder: sortBy === 'date' ? (sortOrder === 'asc' ? 'ascend' : 'descend') : undefined,
-      render: (v) => dayjs(v).format('MMM D, HH:mm'),
-    },
     {
       title: '',
       key: 'actions',
