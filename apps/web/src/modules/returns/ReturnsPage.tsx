@@ -338,7 +338,11 @@ function ProcessModal({
           if (v.condition === 'SELLABLE') data.warehouseSkuId = v.warehouseSkuId
           onSubmit(data)
         }}
-        initialValues={{ condition: 'SELLABLE', returnedQty: ticket.expectedQty ?? 1 }}
+        initialValues={{
+          condition: 'SELLABLE',
+          returnedQty: ticket.expectedQty ?? 1,
+          warehouseSkuId: ticket.warehouseSkuId ?? undefined,
+        }}
       >
         <Form.Item label={t('returns.condition')} name="condition" rules={[{ required: true }]}>
           <Select options={[
