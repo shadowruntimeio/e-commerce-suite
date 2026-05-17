@@ -32,6 +32,10 @@ export const AuditAction = {
   RETURN_CREATE: 'return.create',
   RETURN_INTAKE: 'return.intake',
   RETURN_INSPECT: 'return.inspect',
+  RETURN_MERCHANT_APPROVE: 'return.merchant_approve',
+  RETURN_MERCHANT_REJECT: 'return.merchant_reject',
+  RETURN_PROCESS: 'return.process',
+  RETURN_PLATFORM_STATUS_CHANGE: 'return.platform_status_change',
   // Shops / products
   SHOP_CREATE: 'shop.create',
   SHOP_UPDATE: 'shop.update',

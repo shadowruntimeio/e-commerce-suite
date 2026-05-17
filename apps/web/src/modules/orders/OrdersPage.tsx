@@ -1254,7 +1254,7 @@ function OrderDetailModal({ id, onClose }: { id: string | null; onClose: () => v
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{t('orders.detailReturns')}</div>
               {order.afterSalesTickets.map((tk: any) => (
                 <div key={tk.id} style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '6px 10px', background: 'var(--bg-surface)', borderRadius: 6, marginBottom: 4 }}>
-                  {tk.type} · {tk.status} · review={tk.reviewStatus}
+                  {tk.type} · {tk.platformReturnStatus ?? '—'}{tk.condition && tk.arrivedAt ? ` · ${tk.condition}` : ''}
                 </div>
               ))}
             </div>

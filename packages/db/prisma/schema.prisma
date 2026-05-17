@@ -52,15 +52,6 @@ enum ReturnCondition {
   DISPOSED
 }
 
-// Merchant gate for return tickets. Tickets are auto-created by sync when an
-// order moves into AFTER_SALES on the platform; the merchant must confirm
-// before warehouse receives the ticket.
-enum ReturnReviewStatus {
-  PENDING_REVIEW
-  CONFIRMED
-  REJECTED
-}
-
 // Mirrors TikTok V202309 order statuses 1:1. The legacy bucket values
 // (PENDING, TO_SHIP, SHIPPED) are kept so the schema is backwards-compatible
 // and the UI can still group statuses into broader tabs.
@@ -113,13 +104,6 @@ enum AfterSalesType {
   REFUND
   EXCHANGE
   DISPUTE
-}
-
-enum AfterSalesStatus {
-  OPEN
-  PROCESSING
-  RESOLVED
-  CLOSED
 }
 
 enum ShopStatus {
@@ -546,32 +530,34 @@ model OrderRule {
   @@map("order_rules")
 }
 
+// Single source of truth split: platform fields mirror TikTok's return state
+// (we don't transform them); warehouse fields track the physical flow that
+// TikTok doesn't know about. Lifecycle is implied: REQUEST_PENDING from TK
+// = merchant needs to approve; warehouse acts once goods physically arrive.
 model AfterSalesTicket {
-  id                  String             @id @default(cuid())
-  orderId             String
-  type                AfterSalesType
-  status              AfterSalesStatus   @default(OPEN)
-  // Merchant review gate: warehouse only sees CONFIRMED tickets.
-  reviewStatus        ReturnReviewStatus @default(PENDING_REVIEW)
-  reviewedAt          DateTime?
-  reviewedByUserId    String?
-  rejectReason        String?
-  platformTicketId    String?
-  notes               String?
-  expectedQty         Int?               // qty platform claims is being returned
-  returnedQty         Int?               // qty actually received at warehouse
-  condition           ReturnCondition    @default(PENDING_INSPECTION)
-  arrivedAt           DateTime?
-  inspectedAt         DateTime?
-  inspectedByUserId   String?
-  resolvedAt          DateTime?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  id                    String          @id @default(cuid())
+  orderId               String
+  type                  AfterSalesType
+  platformReturnId      String?         // TikTok return_id, unique per shop
+  platformReturnStatus  String?         // mirrors TK enum (REQUEST_PENDING, SHIP_PENDING, …)
+  platformPayload       Json            @default("{}")  // raw last-seen TK payload, for debugging
+  notes                 String?
+  expectedQty           Int?            // qty platform claims is being returned
+  returnedQty           Int?            // qty actually received at warehouse
+  condition             ReturnCondition @default(PENDING_INSPECTION)
+  warehouseSkuId        String?         // populated on SELLABLE intake
+  arrivedAt             DateTime?
+  inspectedAt           DateTime?
+  inspectedByUserId     String?
+  restockedAt           DateTime?       // when SELLABLE was written back to inventory
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
 
   order Order @relation(fields: [orderId], references: [id])
 
   @@unique([orderId])
-  @@index([reviewStatus])
+  @@unique([platformReturnId])
+  @@index([platformReturnStatus])
   @@map("after_sales_tickets")
 }
 

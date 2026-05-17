@@ -1,5 +1,5 @@
 import { prisma } from '@ems/db'
-import { syncOrdersQueue, syncProductsQueue, refreshTokensQueue, restockingQueue, etlQueue } from '../lib/queues'
+import { syncOrdersQueue, syncProductsQueue, refreshTokensQueue, restockingQueue, etlQueue, syncReturnsQueue } from '../lib/queues'
 import { recordAudit, AuditAction } from '../lib/audit'
 
 const SYNC_INTERVAL_MS = 60 * 1000              // 1 minute
@@ -7,6 +7,7 @@ const REFRESH_INTERVAL_MS = 30 * 60 * 1000     // 30 minutes
 const RESTOCKING_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 const ETL_INTERVAL_MS = 24 * 60 * 60 * 1000    // 24 hours
 const AUTO_CONFIRM_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
+const RETURNS_SYNC_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
 
 async function scheduleOrderSyncs() {
   try {
@@ -29,6 +30,26 @@ async function scheduleOrderSyncs() {
     }
   } catch (err) {
     console.error('[scheduler] Failed to schedule order syncs:', err)
+  }
+}
+
+async function scheduleReturnSyncs() {
+  try {
+    const activeShops = await prisma.shop.findMany({
+      where: { status: 'ACTIVE', platform: 'TIKTOK' },
+      select: { id: true, tenantId: true, name: true },
+    })
+    if (activeShops.length === 0) return
+    console.log(`[scheduler] Scheduling sync-returns for ${activeShops.length} active TikTok shops`)
+    for (const shop of activeShops) {
+      await syncReturnsQueue.add(
+        'sync-returns',
+        { shopId: shop.id, tenantId: shop.tenantId },
+        { jobId: `scheduled-returns-${shop.id}-${Math.floor(Date.now() / (5 * 60 * 1000))}` },
+      )
+    }
+  } catch (err) {
+    console.error('[scheduler] Failed to schedule return syncs:', err)
   }
 }
 
@@ -125,6 +146,7 @@ export function startScheduler() {
 
   // Run immediately on startup, then on interval
   void scheduleOrderSyncs()
+  void scheduleReturnSyncs()
   void scheduleTokenRefreshes()
   void scheduleRestocking()
   void scheduleEtl()
@@ -150,12 +172,17 @@ export function startScheduler() {
     void autoConfirmExpiredOrders()
   }, AUTO_CONFIRM_INTERVAL_MS)
 
+  const returnsSyncInterval = setInterval(() => {
+    void scheduleReturnSyncs()
+  }, RETURNS_SYNC_INTERVAL_MS)
+
   // Allow the process to exit cleanly (unref intervals)
   syncInterval.unref()
   refreshInterval.unref()
   restockingInterval.unref()
   etlInterval.unref()
   autoConfirmInterval.unref()
+  returnsSyncInterval.unref()
 
   return {
     stop() {
@@ -164,6 +191,7 @@ export function startScheduler() {
       clearInterval(restockingInterval)
       clearInterval(etlInterval)
       clearInterval(autoConfirmInterval)
+      clearInterval(returnsSyncInterval)
       console.log('[scheduler] Stopped')
     },
   }

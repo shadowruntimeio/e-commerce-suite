@@ -287,42 +287,6 @@ async function upsertOrder(
     await deductInventoryForOrder(order.id, tenantId, platformOrder.platformMetadata, 'TIKTOK')
   }
 
-  // Auto-create AfterSalesTicket the first time an order shows up in AFTER_SALES.
-  // Tickets land in PENDING_REVIEW and require merchant confirmation before
-  // they're visible to the warehouse.
-  if (platformOrder.status === 'AFTER_SALES') {
-    const totalQty = platformOrder.items.reduce((sum, it) => sum + (it.quantity ?? 0), 0)
-    const existing = await prisma.afterSalesTicket.findUnique({
-      where: { orderId: order.id },
-      select: { id: true },
-    })
-    const ticket = await prisma.afterSalesTicket.upsert({
-      where: { orderId: order.id },
-      update: {},
-      create: {
-        orderId: order.id,
-        type: 'RETURN',
-        status: 'OPEN',
-        reviewStatus: 'PENDING_REVIEW',
-        expectedQty: totalQty || null,
-        notes: 'Auto-created from platform AFTER_SALES status',
-      },
-    })
-    if (!existing) {
-      try {
-        await recordAudit({
-          tenantId,
-          actorUserId: null,
-          action: 'return.create',
-          targetType: 'after_sales_ticket',
-          targetId: ticket.id,
-          payload: { orderId: order.id, expectedQty: totalQty || null, source: 'sync-orders.worker' },
-        })
-      } catch (err) {
-        console.warn('[sync-orders] return.create audit failed:', (err as Error).message)
-      }
-    }
-  }
 }
 
 // Deduct only after pickup — the goods have actually left the warehouse.

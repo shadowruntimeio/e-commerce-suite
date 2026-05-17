@@ -338,6 +338,47 @@ interface TikTokProductSearchResponse {
   }
 }
 
+// ─── Return API types (V202309) ───────────────────────────────────────────────
+
+export interface TikTokReturnItem {
+  product_id?: string
+  sku_id?: string
+  quantity?: number
+}
+
+// Captures only the fields we actually use. TK returns more (refund detail,
+// shipping info, buyer message, …) but we keep the raw payload on the ticket
+// for debugging, so there's no need to model the whole schema here.
+export interface TikTokReturn {
+  return_id: string
+  order_id: string
+  return_status: string
+  seller_next_action?: string
+  return_reason?: string
+  return_type?: string
+  update_time?: number
+  create_time?: number
+  items?: TikTokReturnItem[]
+  refund_amount?: string
+}
+
+interface TikTokReturnSearchResponse {
+  code: number
+  message?: string
+  data: {
+    return_orders?: TikTokReturn[]
+    returns?: TikTokReturn[]
+    total_count?: number
+    next_page_token?: string
+  }
+}
+
+interface TikTokReturnGetResponse {
+  code: number
+  message?: string
+  data: TikTokReturn
+}
+
 // ─── Adapter ──────────────────────────────────────────────────────────────────
 
 export class TikTokAdapter implements PlatformAdapter {
@@ -816,6 +857,72 @@ export class TikTokAdapter implements PlatformAdapter {
 
   async updateStock(shop: ShopRecord, updates: StockUpdate[]): Promise<void> {
     console.log(`[tiktok] updateStock not yet implemented for shop ${shop.id}, ${updates.length} updates queued`)
+  }
+
+  // ─── Returns (V202309) ─────────────────────────────────────────────────────
+
+  /**
+   * Paged search of returns. TK uses POST for paged search endpoints in V202309
+   * (same shape as /order/202309/orders/search). Time filter goes in the body
+   * as `update_time_ge`. Caller supplies `since` (unix seconds) and gets back
+   * a page plus a cursor; pass `pageToken` to fetch the next page.
+   */
+  async searchReturns(
+    shop: ShopRecord,
+    params: { since: number; status?: string; pageToken?: string; pageSize?: number },
+  ): Promise<{ returns: TikTokReturn[]; nextPageToken: string | null }> {
+    const { accessToken, shopCipher } = getCredentials(shop)
+    const path = '/return_refund/202309/returns/search'
+
+    const queryParams: Record<string, string> = {
+      page_size: String(params.pageSize ?? 20),
+    }
+    if (params.pageToken) queryParams.page_token = params.pageToken
+
+    const body: Record<string, unknown> = {
+      update_time_ge: params.since,
+    }
+    if (params.status) body.return_status = params.status
+
+    const resp = await tiktokRequest<TikTokReturnSearchResponse>(
+      'POST', path, accessToken, shopCipher, queryParams, body, this.appCreds,
+    )
+    const list = resp.data?.return_orders ?? resp.data?.returns ?? []
+    return {
+      returns: list,
+      nextPageToken: resp.data?.next_page_token ?? null,
+    }
+  }
+
+  async getReturn(shop: ShopRecord, returnId: string): Promise<TikTokReturn> {
+    const { accessToken, shopCipher } = getCredentials(shop)
+    const resp = await tiktokRequest<TikTokReturnGetResponse>(
+      'GET',
+      `/return_refund/202309/returns/${returnId}`,
+      accessToken, shopCipher, {}, undefined, this.appCreds,
+    )
+    if (!resp.data) throw new Error(`TikTok getReturn ${returnId}: empty data`)
+    return resp.data
+  }
+
+  async approveReturn(shop: ShopRecord, returnId: string): Promise<void> {
+    const { accessToken, shopCipher } = getCredentials(shop)
+    await tiktokRequest<{ code: number }>(
+      'POST',
+      `/return_refund/202309/returns/${returnId}/approve`,
+      accessToken, shopCipher, {}, {}, this.appCreds,
+    )
+  }
+
+  async rejectReturn(shop: ShopRecord, returnId: string, reason: string): Promise<void> {
+    const { accessToken, shopCipher } = getCredentials(shop)
+    await tiktokRequest<{ code: number }>(
+      'POST',
+      `/return_refund/202309/returns/${returnId}/reject`,
+      accessToken, shopCipher, {},
+      { reject_reason: reason },
+      this.appCreds,
+    )
   }
 }
 

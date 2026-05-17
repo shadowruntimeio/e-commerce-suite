@@ -70,3 +70,13 @@ export const syncMessagesQueue = new Queue('sync-messages', {
     removeOnFail: { count: 200 },
   },
 })
+
+export const syncReturnsQueue = new Queue('sync-returns', {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 5000 },
+    removeOnComplete: { count: 100 },
+    removeOnFail: { count: 200 },
+  },
+})

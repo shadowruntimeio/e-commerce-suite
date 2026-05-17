@@ -5,35 +5,56 @@ import { authenticate } from '../../middleware/authenticate'
 import { requireCapabilities } from '../../middleware/authorize'
 import { recordAudit, AuditAction } from '../../lib/audit'
 import { createInventoryEvent } from '../inventory/inventory.service'
+import { TikTokAdapter } from '../../platform/tiktok/tiktok.adapter'
+import { getShopTikTokAppCreds } from '../../platform/tiktok/tiktok-app-creds'
 
-const intakeSchema = z.object({
-  arrivedAt: z.string().datetime().optional(),
-  notes: z.string().max(2000).optional(),
-})
-
-const inspectSchema = z.object({
-  condition: z.enum(['SELLABLE', 'DAMAGED', 'DISPOSED']),
-  returnedQty: z.number().int().min(0),
-  warehouseSkuId: z.string().optional(), // required when condition=SELLABLE
-  notes: z.string().max(2000).optional(),
-})
+// Statuses where the package is in-flight toward the warehouse. We allow
+// process() even on later statuses (COMPLETED etc.) because TK occasionally
+// refunds before goods arrive physically.
+const RECEIVING_STATUSES = new Set(['RECEIVE_PENDING', 'RETURN_OR_REFUND_PROCESSING'])
 
 const rejectSchema = z.object({
   reason: z.string().min(1).max(500),
 })
 
+const processSchema = z.object({
+  condition: z.enum(['SELLABLE', 'DAMAGED', 'DISPOSED']),
+  returnedQty: z.number().int().min(0),
+  warehouseSkuId: z.string().optional(),
+  notes: z.string().max(2000).optional(),
+})
+
+async function loadTicketWithShop(id: string, tenantId: string) {
+  return prisma.afterSalesTicket.findFirst({
+    where: { id, order: { tenantId } },
+    include: {
+      order: {
+        include: {
+          shop: true,
+        },
+      },
+    },
+  })
+}
+
+async function buildAdapter(shopId: string): Promise<TikTokAdapter> {
+  const appCreds = await getShopTikTokAppCreds(shopId)
+  return new TikTokAdapter(appCreds)
+}
+
 export async function returnsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
-  // GET /returns — scoped by role
-  // - MERCHANT: sees own (any reviewStatus). Default UI lands on PENDING_REVIEW.
-  // - WAREHOUSE/ADMIN: only sees CONFIRMED tickets (where the merchant has
-  //   approved the return). PENDING/REJECTED never reach warehouse.
+  // GET /returns
+  // - MERCHANT: own shops' returns, filterable by platformReturnStatus.
+  // - WAREHOUSE/ADMIN:
+  //     view=actionable (default): platformReturnStatus IN RECEIVING_STATUSES
+  //       AND arrivedAt IS NULL — packages they need to process.
+  //     view=done: arrivedAt IS NOT NULL within last 7d — review their work.
   app.get('/', async (request) => {
     const q = request.query as {
-      status?: string
-      condition?: string
-      reviewStatus?: string
+      platformReturnStatus?: string
+      view?: 'actionable' | 'done'
       ownerUserId?: string
       page?: string
       pageSize?: string
@@ -48,17 +69,23 @@ export async function returnsRoutes(app: FastifyInstance) {
       orderFilter.shop = { ownerUserId: q.ownerUserId }
     }
 
-    const where: Record<string, unknown> = {
-      order: orderFilter,
-      ...(q.status ? { status: q.status } : {}),
-      ...(q.condition ? { condition: q.condition } : {}),
-    }
+    const where: Record<string, unknown> = { order: orderFilter }
+
     if (request.user.role === 'MERCHANT') {
-      // merchant: optional explicit filter
-      if (q.reviewStatus) where.reviewStatus = q.reviewStatus
+      if (q.platformReturnStatus) where.platformReturnStatus = q.platformReturnStatus
     } else {
-      // warehouse/admin default: only show what merchant has confirmed
-      where.reviewStatus = q.reviewStatus ?? 'CONFIRMED'
+      const view = q.view ?? 'actionable'
+      if (view === 'done') {
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+        where.arrivedAt = { gte: sevenDaysAgo, not: null }
+      } else {
+        where.arrivedAt = null
+        where.platformReturnStatus = { in: Array.from(RECEIVING_STATUSES) }
+      }
+      if (q.platformReturnStatus) {
+        // explicit filter overrides the default IN-clause
+        where.platformReturnStatus = q.platformReturnStatus
+      }
     }
 
     const [items, total] = await Promise.all([
@@ -86,146 +113,116 @@ export async function returnsRoutes(app: FastifyInstance) {
     return { success: true, data: { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) } }
   })
 
-  // POST /returns/:id/merchant-confirm — merchant approves the platform return
-  app.post('/:id/merchant-confirm', async (request, reply) => {
+  // POST /returns/:id/approve — merchant/admin approves the return on TikTok
+  app.post('/:id/approve', async (request, reply) => {
     if (request.user.role !== 'MERCHANT' && request.user.role !== 'ADMIN') {
       return reply.status(403).send({ success: false, error: 'Forbidden' })
     }
     const { id } = request.params as { id: string }
-    const ticket = await prisma.afterSalesTicket.findFirst({
-      where: {
-        id,
-        order: {
-          tenantId: request.user.tenantId,
-          ...(request.user.role === 'MERCHANT' ? { shop: { ownerUserId: request.user.userId } } : {}),
-        },
-      },
-    })
+    const ticket = await loadTicketWithShop(id, request.user.tenantId)
     if (!ticket) return reply.status(404).send({ success: false, error: 'Ticket not found' })
-    if (ticket.reviewStatus !== 'PENDING_REVIEW') {
-      return reply.status(400).send({ success: false, error: `Ticket is already ${ticket.reviewStatus}` })
+    if (request.user.role === 'MERCHANT' && ticket.order.shop?.ownerUserId !== request.user.userId) {
+      return reply.status(404).send({ success: false, error: 'Ticket not found' })
+    }
+    if (!ticket.platformReturnId || !ticket.order.shop) {
+      return reply.status(400).send({ success: false, error: 'Ticket missing platform linkage' })
     }
 
-    const updated = await prisma.afterSalesTicket.update({
-      where: { id },
-      data: {
-        reviewStatus: 'CONFIRMED',
-        reviewedAt: new Date(),
-        reviewedByUserId: request.user.userId,
-        status: 'PROCESSING',
-      },
-    })
+    const adapter = await buildAdapter(ticket.order.shop.id)
+    try {
+      await adapter.approveReturn(ticket.order.shop, ticket.platformReturnId)
+      const fresh = await adapter.getReturn(ticket.order.shop, ticket.platformReturnId)
+      const updated = await prisma.afterSalesTicket.update({
+        where: { id },
+        data: {
+          platformReturnStatus: fresh.return_status,
+          platformPayload: fresh as any,
+        },
+      })
 
-    await recordAudit({
-      tenantId: request.user.tenantId,
-      actorUserId: request.user.userId,
-      action: 'return.merchant_confirm',
-      targetType: 'after_sales_ticket',
-      targetId: id,
-      payload: {},
-      ip: request.ip,
-      userAgent: request.headers['user-agent'] ?? undefined,
-    })
+      await recordAudit({
+        tenantId: request.user.tenantId,
+        actorUserId: request.user.userId,
+        action: AuditAction.RETURN_MERCHANT_APPROVE,
+        targetType: 'after_sales_ticket',
+        targetId: id,
+        payload: {
+          platformReturnId: ticket.platformReturnId,
+          newStatus: fresh.return_status,
+        },
+        ip: request.ip,
+        userAgent: request.headers['user-agent'] ?? undefined,
+      })
 
-    return { success: true, data: updated }
+      return { success: true, data: updated }
+    } catch (err) {
+      const msg = (err as Error).message
+      console.error(`[returns] approve ${id} failed:`, msg)
+      return reply.status(502).send({ success: false, error: `TikTok approve failed: ${msg}` })
+    }
   })
 
-  // POST /returns/:id/merchant-reject — merchant rejects the return claim
-  // (e.g. buyer wrong, fraud). Ticket moves to REJECTED and is closed.
-  app.post('/:id/merchant-reject', async (request, reply) => {
+  // POST /returns/:id/reject — merchant/admin rejects the return on TikTok
+  app.post('/:id/reject', async (request, reply) => {
     if (request.user.role !== 'MERCHANT' && request.user.role !== 'ADMIN') {
       return reply.status(403).send({ success: false, error: 'Forbidden' })
     }
     const { id } = request.params as { id: string }
     const body = rejectSchema.parse(request.body)
-    const ticket = await prisma.afterSalesTicket.findFirst({
-      where: {
-        id,
-        order: {
-          tenantId: request.user.tenantId,
-          ...(request.user.role === 'MERCHANT' ? { shop: { ownerUserId: request.user.userId } } : {}),
+    const ticket = await loadTicketWithShop(id, request.user.tenantId)
+    if (!ticket) return reply.status(404).send({ success: false, error: 'Ticket not found' })
+    if (request.user.role === 'MERCHANT' && ticket.order.shop?.ownerUserId !== request.user.userId) {
+      return reply.status(404).send({ success: false, error: 'Ticket not found' })
+    }
+    if (!ticket.platformReturnId || !ticket.order.shop) {
+      return reply.status(400).send({ success: false, error: 'Ticket missing platform linkage' })
+    }
+
+    const adapter = await buildAdapter(ticket.order.shop.id)
+    try {
+      await adapter.rejectReturn(ticket.order.shop, ticket.platformReturnId, body.reason)
+      const fresh = await adapter.getReturn(ticket.order.shop, ticket.platformReturnId)
+      const updated = await prisma.afterSalesTicket.update({
+        where: { id },
+        data: {
+          platformReturnStatus: fresh.return_status,
+          platformPayload: fresh as any,
         },
-      },
-    })
-    if (!ticket) return reply.status(404).send({ success: false, error: 'Ticket not found' })
-    if (ticket.reviewStatus !== 'PENDING_REVIEW') {
-      return reply.status(400).send({ success: false, error: `Ticket is already ${ticket.reviewStatus}` })
+      })
+
+      await recordAudit({
+        tenantId: request.user.tenantId,
+        actorUserId: request.user.userId,
+        action: AuditAction.RETURN_MERCHANT_REJECT,
+        targetType: 'after_sales_ticket',
+        targetId: id,
+        payload: {
+          platformReturnId: ticket.platformReturnId,
+          newStatus: fresh.return_status,
+          reason: body.reason,
+        },
+        ip: request.ip,
+        userAgent: request.headers['user-agent'] ?? undefined,
+      })
+
+      return { success: true, data: updated }
+    } catch (err) {
+      const msg = (err as Error).message
+      console.error(`[returns] reject ${id} failed:`, msg)
+      return reply.status(502).send({ success: false, error: `TikTok reject failed: ${msg}` })
     }
-
-    const updated = await prisma.afterSalesTicket.update({
-      where: { id },
-      data: {
-        reviewStatus: 'REJECTED',
-        reviewedAt: new Date(),
-        reviewedByUserId: request.user.userId,
-        rejectReason: body.reason,
-        status: 'CLOSED',
-        resolvedAt: new Date(),
-      },
-    })
-
-    await recordAudit({
-      tenantId: request.user.tenantId,
-      actorUserId: request.user.userId,
-      action: 'return.merchant_reject',
-      targetType: 'after_sales_ticket',
-      targetId: id,
-      payload: { reason: body.reason },
-      ip: request.ip,
-      userAgent: request.headers['user-agent'] ?? undefined,
-    })
-
-    return { success: true, data: updated }
   })
 
-  // POST /returns/:id/intake — warehouse marks the package as arrived
-  app.post('/:id/intake', { preHandler: requireCapabilities(['RETURN_INTAKE']) }, async (request, reply) => {
+  // POST /returns/:id/process — warehouse intake + inspect in one atomic write
+  app.post('/:id/process', { preHandler: requireCapabilities(['RETURN_INTAKE']) }, async (request, reply) => {
     const { id } = request.params as { id: string }
-    const body = intakeSchema.parse(request.body)
-    const ticket = await prisma.afterSalesTicket.findFirst({
-      where: { id, order: { tenantId: request.user.tenantId } },
-    })
+    const body = processSchema.parse(request.body)
+    const ticket = await loadTicketWithShop(id, request.user.tenantId)
     if (!ticket) return reply.status(404).send({ success: false, error: 'Ticket not found' })
-    if (ticket.reviewStatus !== 'CONFIRMED') {
-      return reply.status(400).send({ success: false, error: 'Ticket has not been confirmed by the merchant yet' })
+
+    if (ticket.arrivedAt) {
+      return reply.status(400).send({ success: false, error: 'Return already processed' })
     }
-
-    const updated = await prisma.afterSalesTicket.update({
-      where: { id },
-      data: {
-        status: 'PROCESSING',
-        arrivedAt: body.arrivedAt ? new Date(body.arrivedAt) : new Date(),
-        notes: body.notes ?? ticket.notes,
-      },
-    })
-
-    await recordAudit({
-      tenantId: request.user.tenantId,
-      actorUserId: request.user.userId,
-      action: AuditAction.RETURN_INTAKE,
-      targetType: 'after_sales_ticket',
-      targetId: id,
-      payload: { arrivedAt: updated.arrivedAt },
-      ip: request.ip,
-      userAgent: request.headers['user-agent'] ?? undefined,
-    })
-
-    return { success: true, data: updated }
-  })
-
-  // POST /returns/:id/inspect — warehouse grades the goods
-  app.post('/:id/inspect', { preHandler: requireCapabilities(['RETURN_INTAKE']) }, async (request, reply) => {
-    const { id } = request.params as { id: string }
-    const body = inspectSchema.parse(request.body)
-    const ticket = await prisma.afterSalesTicket.findFirst({
-      where: { id, order: { tenantId: request.user.tenantId } },
-      include: { order: { include: { shop: true, items: true } } },
-    })
-    if (!ticket) return reply.status(404).send({ success: false, error: 'Ticket not found' })
-    if (ticket.reviewStatus !== 'CONFIRMED') {
-      return reply.status(400).send({ success: false, error: 'Ticket has not been confirmed by the merchant yet' })
-    }
-    if (!ticket.arrivedAt) return reply.status(400).send({ success: false, error: 'Goods have not been marked as arrived (intake required first)' })
 
     if (body.condition === 'SELLABLE') {
       if (body.returnedQty <= 0) {
@@ -234,51 +231,62 @@ export async function returnsRoutes(app: FastifyInstance) {
       if (!body.warehouseSkuId) {
         return reply.status(400).send({ success: false, error: 'warehouseSkuId required for SELLABLE condition' })
       }
-      const wsku = await prisma.warehouseSku.findFirst({
+    }
+
+    let warehouseSku: { id: string; warehouseId: string } | null = null
+    if (body.condition === 'SELLABLE' && body.warehouseSkuId) {
+      warehouseSku = await prisma.warehouseSku.findFirst({
         where: {
           id: body.warehouseSkuId,
           ownerUserId: ticket.order.shop?.ownerUserId ?? '',
           warehouse: { tenantId: request.user.tenantId },
         },
+        select: { id: true, warehouseId: true },
       })
-      if (!wsku) {
+      if (!warehouseSku) {
         return reply.status(400).send({ success: false, error: 'WarehouseSku not found or does not belong to this merchant' })
       }
+    }
+
+    const now = new Date()
+    const updated = await prisma.afterSalesTicket.update({
+      where: { id },
+      data: {
+        arrivedAt: now,
+        inspectedAt: now,
+        inspectedByUserId: request.user.userId,
+        condition: body.condition,
+        returnedQty: body.returnedQty,
+        warehouseSkuId: body.condition === 'SELLABLE' ? body.warehouseSkuId : null,
+        notes: body.notes ?? ticket.notes,
+        restockedAt: body.condition === 'SELLABLE' ? now : ticket.restockedAt,
+      },
+    })
+
+    if (body.condition === 'SELLABLE' && warehouseSku) {
       await createInventoryEvent({
         tenantId: request.user.tenantId,
-        warehouseSkuId: wsku.id,
-        warehouseId: wsku.warehouseId,
+        warehouseSkuId: warehouseSku.id,
+        warehouseId: warehouseSku.warehouseId,
         eventType: 'RETURN',
         quantityDelta: body.returnedQty,
         referenceType: 'after_sales_ticket',
         referenceId: id,
-        notes: `Return inspected: SELLABLE × ${body.returnedQty}. ${body.notes ?? ''}`.trim(),
+        notes: `Return processed: SELLABLE × ${body.returnedQty}. ${body.notes ?? ''}`.trim(),
         createdBy: request.user.userId,
       })
     }
 
-    const updated = await prisma.afterSalesTicket.update({
-      where: { id },
-      data: {
-        condition: body.condition,
-        returnedQty: body.returnedQty,
-        inspectedAt: new Date(),
-        inspectedByUserId: request.user.userId,
-        status: 'RESOLVED',
-        resolvedAt: new Date(),
-      },
-    })
-
     await recordAudit({
       tenantId: request.user.tenantId,
       actorUserId: request.user.userId,
-      action: AuditAction.RETURN_INSPECT,
+      action: AuditAction.RETURN_PROCESS,
       targetType: 'after_sales_ticket',
       targetId: id,
       payload: {
         condition: body.condition,
         returnedQty: body.returnedQty,
-        warehouseSkuId: body.warehouseSkuId,
+        warehouseSkuId: body.condition === 'SELLABLE' ? body.warehouseSkuId : null,
         notes: body.notes,
       },
       ip: request.ip,

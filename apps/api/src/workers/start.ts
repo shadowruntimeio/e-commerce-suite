@@ -7,6 +7,7 @@ import { etlProcessor } from './etl.worker'
 import { syncAdsProcessor } from './sync-ads.worker'
 import { syncMessagesProcessor } from './sync-messages.worker'
 import { syncProductsProcessor } from './sync-products.worker'
+import { syncReturnsProcessor } from './sync-returns.worker'
 
 export function startWorkers() {
   console.log('[workers] Starting BullMQ workers...')
@@ -54,6 +55,14 @@ export function startWorkers() {
   })
   productWorker.on('failed', (job, err) => {
     console.error(`[sync-products] Job ${job?.id} FAILED:`, err.message)
+  })
+
+  const returnsWorker = new Worker('sync-returns', syncReturnsProcessor, {
+    connection: redis,
+    concurrency: 3,
+  })
+  returnsWorker.on('failed', (job, err) => {
+    console.error(`[sync-returns] Job ${job?.id} FAILED:`, err.message)
   })
 
   console.log('[workers] All workers running')

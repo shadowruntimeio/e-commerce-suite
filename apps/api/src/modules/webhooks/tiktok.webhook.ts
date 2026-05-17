@@ -2,7 +2,9 @@ import { createHmac } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@ems/db'
 import { syncOrdersQueue } from '../../lib/queues'
-import { decryptUserTikTokCreds } from '../../platform/tiktok/tiktok-app-creds'
+import { decryptUserTikTokCreds, getShopTikTokAppCreds } from '../../platform/tiktok/tiktok-app-creds'
+import { TikTokAdapter } from '../../platform/tiktok/tiktok.adapter'
+import { upsertReturnFromPlatform } from '../returns/returns.service'
 
 /**
  * Verify TikTok webhook signature.
@@ -92,8 +94,7 @@ export async function tiktokWebhookRoutes(app: FastifyInstance) {
     // Handle event types
     switch (body.type) {
       case EVENT_ORDER_STATUS_CHANGE:
-      case EVENT_ORDER_SHIPMENT:
-      case EVENT_RETURN_STATUS_CHANGE: {
+      case EVENT_ORDER_SHIPMENT: {
         const orderId = (eventData.order_id ?? eventData.order_sn) as string | undefined
         const orderStatus = eventData.order_status as string | undefined
 
@@ -119,6 +120,29 @@ export async function tiktokWebhookRoutes(app: FastifyInstance) {
             priority: 1, // high priority
           },
         )
+        break
+      }
+
+      case EVENT_RETURN_STATUS_CHANGE: {
+        // TK field naming for returns is inconsistent across messages; check
+        // the common variants and log the raw payload when we miss.
+        const returnId =
+          (eventData.return_id
+            ?? eventData.return_order_id
+            ?? eventData.returnId
+            ?? eventData.id) as string | undefined
+        if (!returnId) {
+          console.warn(`[webhook/tiktok] event 10 had no return_id; raw payload:`, JSON.stringify(eventData))
+          break
+        }
+        try {
+          const appCreds = await getShopTikTokAppCreds(shop.id)
+          const adapter = new TikTokAdapter(appCreds)
+          const detail = await adapter.getReturn(shop, returnId)
+          await upsertReturnFromPlatform({ id: shop.id, tenantId: shop.tenantId }, detail)
+        } catch (err) {
+          console.warn(`[webhook/tiktok] failed to fetch/upsert return ${returnId}:`, (err as Error).message)
+        }
         break
       }
 

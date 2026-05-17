@@ -8,6 +8,7 @@ import { etlProcessor } from './etl.worker'
 import { syncAdsProcessor } from './sync-ads.worker'
 import { syncMessagesProcessor } from './sync-messages.worker'
 import { syncProductsProcessor } from './sync-products.worker'
+import { syncReturnsProcessor } from './sync-returns.worker'
 
 console.log('Starting BullMQ workers...')
 
@@ -43,6 +44,11 @@ new Worker('sync-messages', syncMessagesProcessor, {
 })
 
 new Worker('sync-products', syncProductsProcessor, {
+  connection: redis,
+  concurrency: 3,
+})
+
+new Worker('sync-returns', syncReturnsProcessor, {
   connection: redis,
   concurrency: 3,
 })
