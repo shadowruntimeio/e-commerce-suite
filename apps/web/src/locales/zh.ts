@@ -25,7 +25,7 @@ export default {
     logout: '退出登录',
     admin: '管理',
     adminUsers: '子账号管理',
-    adminAudit: '审计日志',
+    adminAudit: '操作日志',
     returns: '退货',
     role: {
       ADMIN: '管理员',
@@ -49,7 +49,7 @@ export default {
     inbox: '客服消息',
     warehouses: '仓库管理',
     adminUsers: '子账号管理',
-    adminAudit: '审计日志',
+    adminAudit: '操作日志',
     returns: '退货管理',
   },
   common: {
@@ -502,7 +502,9 @@ export default {
     },
   },
   audit: {
-    title: '审计日志',
+    title: '操作日志',
+    tabSystem: '系统日志',
+    tabUser: '人员操作日志',
     actor: '操作人',
     system: '系统',
     action: '操作',

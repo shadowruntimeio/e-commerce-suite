@@ -16,6 +16,7 @@ export async function auditRoutes(app: FastifyInstance) {
       actorUserId?: string
       targetType?: string
       targetId?: string
+      kind?: 'system' | 'user'
     }
     const page = Math.max(1, Number(q.page ?? 1))
     const pageSize = Math.min(200, Math.max(1, Number(q.pageSize ?? 50)))
@@ -25,6 +26,8 @@ export async function auditRoutes(app: FastifyInstance) {
     if (q.actorUserId) where.actorUserId = q.actorUserId
     if (q.targetType) where.targetType = q.targetType
     if (q.targetId) where.targetId = q.targetId
+    if (q.kind === 'system') where.actorUserId = null
+    else if (q.kind === 'user') where.actorUserId = { not: null }
 
     const [items, total] = await Promise.all([
       prisma.auditLog.findMany({

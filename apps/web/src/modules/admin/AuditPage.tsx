@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import { Card, Table, Tag, Input, Space } from 'antd'
+import { Card, Table, Tag, Input, Space, Tabs } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import dayjs from 'dayjs'
+
+type AuditKind = 'system' | 'user'
 
 interface AuditEntry {
   id: string
@@ -18,6 +20,7 @@ interface AuditEntry {
 
 export default function AuditPage() {
   const { t } = useTranslation()
+  const [kind, setKind] = useState<AuditKind>('user')
   const [page, setPage] = useState(1)
   const pageSize = 30
   const [actionFilter, setActionFilter] = useState('')
@@ -29,9 +32,9 @@ export default function AuditPage() {
   const targetLabels = t('audit.targets', { returnObjects: true }) as Record<string, string>
 
   const q = useQuery({
-    queryKey: ['audit', page, pageSize, actionFilter],
+    queryKey: ['audit', kind, page, pageSize, actionFilter],
     queryFn: async () => {
-      const params: Record<string, string> = { page: String(page), pageSize: String(pageSize) }
+      const params: Record<string, string> = { page: String(page), pageSize: String(pageSize), kind }
       if (actionFilter) params.action = actionFilter
       const res = await api.get('/audit', { params })
       return res.data.data as { items: AuditEntry[]; total: number; totalPages: number }
@@ -44,7 +47,7 @@ export default function AuditPage() {
       render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm:ss'),
       width: 180,
     },
-    {
+    ...(kind === 'system' ? [] : [{
       title: t('audit.actor'), key: 'actor',
       render: (_: unknown, e: AuditEntry) =>
         e.actor ? (
@@ -53,7 +56,7 @@ export default function AuditPage() {
             <Tag>{t(`nav.role.${e.actor.role}`)}</Tag>
           </Space>
         ) : <Tag color="default">{t('audit.system')}</Tag>,
-    },
+    }]),
     { title: t('audit.action'), dataIndex: 'action', key: 'action',
       render: (v: string) => <Tag color="blue">{actionLabels[v] ?? v}</Tag>,
     },
@@ -91,6 +94,14 @@ export default function AuditPage() {
         />
       }
     >
+      <Tabs
+        activeKey={kind}
+        onChange={(k) => { setKind(k as AuditKind); setPage(1) }}
+        items={[
+          { key: 'user', label: t('audit.tabUser') },
+          { key: 'system', label: t('audit.tabSystem') },
+        ]}
+      />
       <Table
         rowKey="id"
         loading={q.isLoading}

@@ -6,6 +6,7 @@ import { TikTokAdapter, encryptCredentials as encryptTikTokCredentials, decryptC
 import type { TikTokCredentials } from '../platform/tiktok/tiktok.adapter'
 import { getShopTikTokAppCreds } from '../platform/tiktok/tiktok-app-creds'
 import type { PlatformAdapter, PlatformOrder } from '../platform/adapter.interface'
+import { recordAudit } from '../lib/audit'
 
 interface SyncOrdersJob {
   shopId: string
@@ -444,6 +445,18 @@ async function deductInventoryForOrder(
         })
       }
     })
+    try {
+      await recordAudit({
+        tenantId,
+        actorUserId: null,
+        action: 'inventory.outbound',
+        targetType: 'warehouse_sku',
+        targetId: warehouseSku.id,
+        payload: { orderId, systemSkuId, sellerSku: item.sellerSku, quantity: item.quantity },
+      })
+    } catch (err) {
+      console.warn(`[sync-orders] failed to record audit for order ${orderId} item ${item.id}:`, err)
+    }
     deducted++
   }
   console.log(`[sync-orders] order ${orderId}: deducted ${deducted}/${items.length} items from inventory`)

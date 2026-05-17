@@ -25,7 +25,7 @@ export default {
     logout: 'Logout',
     admin: 'ADMIN',
     adminUsers: 'Sub-accounts',
-    adminAudit: 'Audit Log',
+    adminAudit: 'Operation Log',
     returns: 'Returns',
     role: {
       ADMIN: 'Administrator',
@@ -49,7 +49,7 @@ export default {
     inbox: 'Inbox',
     warehouses: 'Warehouses',
     adminUsers: 'Sub-accounts',
-    adminAudit: 'Audit Log',
+    adminAudit: 'Operation Log',
     returns: 'Returns',
   },
   common: {
@@ -502,7 +502,9 @@ export default {
     },
   },
   audit: {
-    title: 'Audit Log',
+    title: 'Operation Log',
+    tabSystem: 'System log',
+    tabUser: 'User actions',
     actor: 'Actor',
     system: 'system',
     action: 'Action',
