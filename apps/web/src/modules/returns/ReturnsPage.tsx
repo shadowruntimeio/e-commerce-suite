@@ -197,7 +197,11 @@ export default function ReturnsPage() {
               <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
                 {(r.nextSellerActions ?? []).length === 0
                   ? t('returns.noActionNeeded')
-                  : t('returns.actionElsewhere')}
+                  : warehouseActionPending
+                    ? t('returns.waitingWarehouse')
+                    : merchantActionPending
+                      ? t('returns.waitingMerchant')
+                      : t('returns.actionElsewhere')}
               </span>
             )}
             <Button size="small" type="link" onClick={() => setDetailTicket(r)}>

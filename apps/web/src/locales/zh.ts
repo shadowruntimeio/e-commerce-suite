@@ -721,6 +721,8 @@ export default {
     allPlatformStates: '全部平台状态',
     failed: '操作失败',
     noActionNeeded: '无需操作',
+    waitingWarehouse: '等待仓库确认入库',
+    waitingMerchant: '等待商家审核',
     actionElsewhere: '等待其他角色',
     detailBtn: '详情',
     detailTitle: '退货详情',

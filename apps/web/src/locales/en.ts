@@ -721,6 +721,8 @@ export default {
     allPlatformStates: 'All platform statuses',
     failed: 'Failed',
     noActionNeeded: 'No action needed',
+    waitingWarehouse: 'Waiting for warehouse to confirm receipt',
+    waitingMerchant: 'Waiting for merchant review',
     actionElsewhere: 'Waiting on another party',
     detailBtn: 'Details',
     detailTitle: 'Return detail',
