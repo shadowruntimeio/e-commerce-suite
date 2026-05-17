@@ -363,10 +363,22 @@ export default function OrdersPage() {
     await queryClient.invalidateQueries({ queryKey: ['orders'] })
   }
 
-  function handleBulkConfirm() {
-    const eligibleIds = (data?.items ?? [])
-      .filter((o: any) => selectedKeys.includes(o.id) && o.merchantConfirmStatus === 'PENDING_CONFIRM')
+  // Confirm/cancel only applies to orders that are (1) awaiting merchant
+  // review AND (2) still in a to-ship status. Selecting a mix of statuses
+  // is fine — we silently drop the ineligible ones and act on the rest.
+  function pickConfirmable(): string[] {
+    return (data?.items ?? [])
+      .filter((o: any) =>
+        selectedKeys.includes(o.id)
+        && o.merchantConfirmStatus === 'PENDING_CONFIRM'
+        && STATUS_GROUPS.TO_SHIP.includes(o.status)
+        && !o.isManual,
+      )
       .map((o: any) => o.id as string)
+  }
+
+  function handleBulkConfirm() {
+    const eligibleIds = pickConfirmable()
     if (eligibleIds.length === 0) {
       void message.info(t('orders.bulkNoneEligible'))
       return
@@ -381,9 +393,7 @@ export default function OrdersPage() {
   }
 
   function handleBulkCancel() {
-    const eligibleIds = (data?.items ?? [])
-      .filter((o: any) => selectedKeys.includes(o.id) && o.merchantConfirmStatus === 'PENDING_CONFIRM')
-      .map((o: any) => o.id as string)
+    const eligibleIds = pickConfirmable()
     if (eligibleIds.length === 0) {
       void message.info(t('orders.bulkNoneEligible'))
       return
@@ -745,7 +755,8 @@ export default function OrdersPage() {
       fixed: 'right',
       render: (_: any, record: any) => {
         const isPending = record.merchantConfirmStatus === 'PENDING_CONFIRM'
-        const canMerchantAct = merchantUser && isPending && !record.isManual
+        const isToShip = STATUS_GROUPS.TO_SHIP.includes(record.status)
+        const canMerchantAct = merchantUser && isPending && isToShip && !record.isManual
         const canManualShip = !merchantUser && record.isManual && record.manualStatus === 'PENDING'
         const canDeleteManual = record.isManual && (merchantUser || user?.role === 'ADMIN')
         return (
