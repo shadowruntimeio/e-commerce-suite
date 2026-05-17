@@ -742,6 +742,7 @@ export default function OrdersPage() {
       title: '',
       key: 'actions',
       width: 180,
+      fixed: 'right',
       render: (_: any, record: any) => {
         const isPending = record.merchantConfirmStatus === 'PENDING_CONFIRM'
         const canMerchantAct = (merchantUser || user?.role === 'ADMIN') && isPending && !record.isManual
@@ -1026,15 +1027,26 @@ export default function OrdersPage() {
             </Button>
           </div>
           <Space>
-            {!isManualTab && (
-              <Button
-                icon={<PrinterOutlined />}
-                loading={bulkPrinting}
-                onClick={handlePrintSelected}
-                style={{ borderRadius: 8, fontWeight: 500 }}
-              >
-                {t('orders.bulkPrintSelected')}
-              </Button>
+            {!isManualTab && (merchantUser || user?.role === 'ADMIN') && (
+              <>
+                <Button
+                  icon={<CheckOutlined />}
+                  loading={bulkActing}
+                  onClick={handleBulkConfirm}
+                  style={{ borderRadius: 8, fontWeight: 500 }}
+                >
+                  {t('orders.bulkConfirm')}
+                </Button>
+                <Button
+                  icon={<CloseOutlined />}
+                  danger
+                  loading={bulkActing}
+                  onClick={handleBulkCancel}
+                  style={{ borderRadius: 8, fontWeight: 500 }}
+                >
+                  {t('orders.bulkCancel')}
+                </Button>
+              </>
             )}
             {isManualTab && !merchantUser && (
               <Button
@@ -1061,26 +1073,15 @@ export default function OrdersPage() {
                 {t('orders.manualShip')}
               </Button>
             )}
-            {!isManualTab && (merchantUser || user?.role === 'ADMIN') && (
-              <>
-                <Button
-                  icon={<CheckOutlined />}
-                  loading={bulkActing}
-                  onClick={handleBulkConfirm}
-                  style={{ borderRadius: 8, fontWeight: 500 }}
-                >
-                  {t('orders.bulkConfirm')}
-                </Button>
-                <Button
-                  icon={<CloseOutlined />}
-                  danger
-                  loading={bulkActing}
-                  onClick={handleBulkCancel}
-                  style={{ borderRadius: 8, fontWeight: 500 }}
-                >
-                  {t('orders.bulkCancel')}
-                </Button>
-              </>
+            {!isManualTab && (
+              <Button
+                icon={<PrinterOutlined />}
+                loading={bulkPrinting}
+                onClick={handlePrintSelected}
+                style={{ borderRadius: 8, fontWeight: 500 }}
+              >
+                {t('orders.bulkPrintSelected')}
+              </Button>
             )}
           </Space>
         </div>
