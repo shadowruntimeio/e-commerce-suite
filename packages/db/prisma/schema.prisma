@@ -539,8 +539,9 @@ model AfterSalesTicket {
   orderId               String
   type                  AfterSalesType
   platformReturnId      String?         // TikTok return_id, unique per shop
-  platformReturnStatus  String?         // mirrors TK enum (REQUEST_PENDING, SHIP_PENDING, …)
+  platformReturnStatus  String?         // mirrors TK enum
   platformPayload       Json            @default("{}")  // raw last-seen TK payload, for debugging
+  nextSellerActions     String[]        @default([])    // TK's seller_next_action_response[].action — drives routing
   notes                 String?
   expectedQty           Int?            // qty platform claims is being returned
   returnedQty           Int?            // qty actually received at warehouse

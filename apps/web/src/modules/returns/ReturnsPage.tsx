@@ -6,33 +6,27 @@ import { api } from '../../lib/api'
 import { useAuthStore, hasCapability, isMerchant } from '../../store/auth.store'
 import dayjs from 'dayjs'
 
-// Statuses where the merchant still has a pending action on TikTok's side.
-const PENDING_MERCHANT_REVIEW = new Set(['REQUEST_PENDING'])
-// Statuses where the warehouse should expect / has just received goods.
-const WAREHOUSE_ACTIONABLE_TK_STATUSES = new Set(['RECEIVE_PENDING', 'RETURN_OR_REFUND_PROCESSING'])
+// TK tells us exactly what the seller must do via nextSellerActions; we
+// route buttons off these instead of guessing from return_status.
+const ACTION_WAREHOUSE_RECEIVE = 'SELLER_RESPOND_RECEIVE_PACKAGE'
+const isMerchantAction = (a: string) => a.startsWith('SELLER_RESPOND_') && a !== ACTION_WAREHOUSE_RECEIVE
 
+// Real return_status values observed against live TK shops. Anything not
+// listed here will fall back to the raw string via i18n's defaultValue.
 const TK_STATUS_OPTIONS = [
-  'REQUEST_PENDING',
-  'SHIP_PENDING',
-  'RECEIVE_PENDING',
-  'RETURN_OR_REFUND_PROCESSING',
-  'COMPLETED',
-  'CLOSED',
-  'RETURN_OR_REFUND_REJECT_BY_SELLER',
-  'RETURN_OR_REFUND_REJECT_BY_PLATFORM',
-  'BUYER_CANCEL',
+  'AWAITING_BUYER_SHIP',
+  'BUYER_SHIPPED_ITEM',
+  'RETURN_OR_REFUND_REQUEST_SUCCESS',
+  'RETURN_OR_REFUND_REQUEST_COMPLETE',
+  'RETURN_OR_REFUND_REQUEST_CANCEL',
 ]
 
 const TK_STATUS_COLORS: Record<string, string> = {
-  REQUEST_PENDING: 'gold',
-  SHIP_PENDING: 'blue',
-  RECEIVE_PENDING: 'cyan',
-  RETURN_OR_REFUND_PROCESSING: 'geekblue',
-  COMPLETED: 'green',
-  CLOSED: 'default',
-  RETURN_OR_REFUND_REJECT_BY_SELLER: 'red',
-  RETURN_OR_REFUND_REJECT_BY_PLATFORM: 'red',
-  BUYER_CANCEL: 'default',
+  AWAITING_BUYER_SHIP: 'gold',
+  BUYER_SHIPPED_ITEM: 'cyan',
+  RETURN_OR_REFUND_REQUEST_SUCCESS: 'geekblue',
+  RETURN_OR_REFUND_REQUEST_COMPLETE: 'green',
+  RETURN_OR_REFUND_REQUEST_CANCEL: 'default',
 }
 
 const CONDITION_COLORS: Record<string, string> = {
@@ -48,6 +42,7 @@ interface AfterSalesTicket {
   type: string
   platformReturnId: string | null
   platformReturnStatus: string | null
+  nextSellerActions: string[]
   expectedQty: number | null
   returnedQty: number | null
   condition: string
@@ -167,8 +162,10 @@ export default function ReturnsPage() {
       title: t('returns.actions'), key: 'actions',
       render: (_: unknown, r: AfterSalesTicket) => {
         const isMerchantOrAdmin = merchantUser || user?.role === 'ADMIN'
-        const canApprove = isMerchantOrAdmin && PENDING_MERCHANT_REVIEW.has(r.platformReturnStatus ?? '')
-        const canProcess = hasCapability(user, 'RETURN_INTAKE') && !r.arrivedAt
+        const merchantActionPending = (r.nextSellerActions ?? []).some(isMerchantAction)
+        const warehouseActionPending = (r.nextSellerActions ?? []).includes(ACTION_WAREHOUSE_RECEIVE)
+        const canApprove = isMerchantOrAdmin && merchantActionPending
+        const canProcess = hasCapability(user, 'RETURN_INTAKE') && warehouseActionPending && !r.arrivedAt
         return (
           <Space>
             {canApprove && (
@@ -304,8 +301,8 @@ function ProcessModal({
     })).data.data.items,
   })
 
-  const tkStatusHint = ticket.platformReturnStatus && !WAREHOUSE_ACTIONABLE_TK_STATUSES.has(ticket.platformReturnStatus)
-    ? t('returns.processTkStatusWarn', { status: t(`returns.tk.${ticket.platformReturnStatus}`, { defaultValue: ticket.platformReturnStatus }) })
+  const tkStatusHint = !(ticket.nextSellerActions ?? []).includes('SELLER_RESPOND_RECEIVE_PACKAGE')
+    ? t('returns.processTkStatusWarn', { status: t(`returns.tk.${ticket.platformReturnStatus ?? ''}`, { defaultValue: ticket.platformReturnStatus ?? '—' }) })
     : null
 
   return (

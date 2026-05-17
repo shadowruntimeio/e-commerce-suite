@@ -8,10 +8,10 @@ import { createInventoryEvent } from '../inventory/inventory.service'
 import { TikTokAdapter } from '../../platform/tiktok/tiktok.adapter'
 import { getShopTikTokAppCreds } from '../../platform/tiktok/tiktok-app-creds'
 
-// Statuses where the package is in-flight toward the warehouse. We allow
-// process() even on later statuses (COMPLETED etc.) because TK occasionally
-// refunds before goods arrive physically.
-const RECEIVING_STATUSES = new Set(['RECEIVE_PENDING', 'RETURN_OR_REFUND_PROCESSING'])
+// TK signals "warehouse must confirm receipt" via this next-seller-action;
+// any other SELLER_RESPOND_* is a merchant-side decision. We rely on this
+// instead of guessing from return_status.
+const ACTION_WAREHOUSE_RECEIVE = 'SELLER_RESPOND_RECEIVE_PACKAGE'
 
 const rejectSchema = z.object({
   reason: z.string().min(1).max(500),
@@ -48,8 +48,8 @@ export async function returnsRoutes(app: FastifyInstance) {
   // GET /returns
   // - MERCHANT: own shops' returns, filterable by platformReturnStatus.
   // - WAREHOUSE/ADMIN:
-  //     view=actionable (default): platformReturnStatus IN RECEIVING_STATUSES
-  //       AND arrivedAt IS NULL — packages they need to process.
+  //     view=actionable (default): nextSellerActions has SELLER_RESPOND_RECEIVE_PACKAGE
+  //       AND arrivedAt IS NULL — packages TK explicitly says we must confirm receipt of.
   //     view=done: arrivedAt IS NOT NULL within last 7d — review their work.
   app.get('/', async (request) => {
     const q = request.query as {
@@ -80,12 +80,9 @@ export async function returnsRoutes(app: FastifyInstance) {
         where.arrivedAt = { gte: sevenDaysAgo, not: null }
       } else {
         where.arrivedAt = null
-        where.platformReturnStatus = { in: Array.from(RECEIVING_STATUSES) }
+        where.nextSellerActions = { has: ACTION_WAREHOUSE_RECEIVE }
       }
-      if (q.platformReturnStatus) {
-        // explicit filter overrides the default IN-clause
-        where.platformReturnStatus = q.platformReturnStatus
-      }
+      if (q.platformReturnStatus) where.platformReturnStatus = q.platformReturnStatus
     }
 
     const [items, total] = await Promise.all([

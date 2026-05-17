@@ -879,9 +879,8 @@ export class TikTokAdapter implements PlatformAdapter {
     }
     if (params.pageToken) queryParams.page_token = params.pageToken
 
-    const body: Record<string, unknown> = {
-      update_time_ge: params.since,
-    }
+    const body: Record<string, unknown> = {}
+    if (params.since > 0) body.update_time_ge = params.since
     if (params.status) body.return_status = params.status
 
     const resp = await tiktokRequest<TikTokReturnSearchResponse>(

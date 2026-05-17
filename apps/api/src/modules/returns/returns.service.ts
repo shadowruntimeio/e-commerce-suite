@@ -30,6 +30,7 @@ export async function upsertReturnFromPlatform(
 
   const expectedQty = (ret.items ?? []).reduce((sum, it) => sum + (it.quantity ?? 0), 0)
   const payload = ret as unknown as Record<string, unknown>
+  const nextSellerActions = extractNextSellerActions(payload)
 
   const existing = await prisma.afterSalesTicket.findUnique({
     where: { platformReturnId: ret.return_id },
@@ -45,6 +46,7 @@ export async function upsertReturnFromPlatform(
       data: {
         platformReturnStatus: ret.return_status,
         platformPayload: payload as any,
+        nextSellerActions,
         expectedQty: expectedQty > 0 ? expectedQty : undefined,
       },
     })
@@ -57,6 +59,7 @@ export async function upsertReturnFromPlatform(
         platformReturnId: ret.return_id,
         platformReturnStatus: ret.return_status,
         platformPayload: payload as any,
+        nextSellerActions,
         expectedQty: expectedQty > 0 ? expectedQty : null,
       },
     })
@@ -83,4 +86,15 @@ export async function upsertReturnFromPlatform(
   }
 
   return { created, ticketId }
+}
+
+// TK tells us exactly what the seller needs to do next via
+// seller_next_action_response. Extract the action strings so we can filter
+// on them with Postgres array operators instead of digging through JSON.
+function extractNextSellerActions(payload: Record<string, unknown>): string[] {
+  const raw = payload['seller_next_action_response']
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((a) => (a && typeof a === 'object' && 'action' in a ? String((a as { action: unknown }).action) : null))
+    .filter((s): s is string => !!s)
 }

@@ -9,8 +9,10 @@ interface SyncReturnsJob {
   tenantId: string
 }
 
-// Overlap window keeps us idempotent (upsert) and covers webhook misses.
-const SYNC_WINDOW_SECONDS = 60 * 60 // last hour
+// Sync window covers webhook misses + initial backfill. 30 days catches any
+// long-tail status updates (e.g. a refund completing weeks after the request).
+// Upserts are idempotent so re-pulling old returns is harmless.
+const SYNC_WINDOW_SECONDS = 30 * 24 * 60 * 60
 
 export async function syncReturnsProcessor(job: Job<SyncReturnsJob>) {
   const { shopId, tenantId } = job.data
