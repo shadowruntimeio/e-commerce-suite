@@ -745,7 +745,7 @@ export default function OrdersPage() {
       fixed: 'right',
       render: (_: any, record: any) => {
         const isPending = record.merchantConfirmStatus === 'PENDING_CONFIRM'
-        const canMerchantAct = (merchantUser || user?.role === 'ADMIN') && isPending && !record.isManual
+        const canMerchantAct = merchantUser && isPending && !record.isManual
         const canManualShip = !merchantUser && record.isManual && record.manualStatus === 'PENDING'
         const canDeleteManual = record.isManual && (merchantUser || user?.role === 'ADMIN')
         return (
@@ -1027,7 +1027,7 @@ export default function OrdersPage() {
             </Button>
           </div>
           <Space>
-            {!isManualTab && (merchantUser || user?.role === 'ADMIN') && (
+            {!isManualTab && merchantUser && (
               <>
                 <Button
                   icon={<CheckOutlined />}
