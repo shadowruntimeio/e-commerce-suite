@@ -131,7 +131,6 @@ export default function InboxPage() {
     <div>
       {/* Page Header */}
       <div style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>{t('cs.title')}</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>{t('cs.subtitle')}</p>
       </div>
 

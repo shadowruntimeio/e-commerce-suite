@@ -135,7 +135,6 @@ export default function ProfitReportPage() {
     <div>
       {/* Page Header */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Profit Report</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Profitability breakdown by SKU</p>
       </div>
 

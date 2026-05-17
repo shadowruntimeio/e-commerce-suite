@@ -183,7 +183,6 @@ export default function RestockingPage() {
     <div>
       {/* Page Header */}
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)' }}>Restocking Suggestions</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 14 }}>Auto-generated based on 30-day sales velocity</p>
       </div>
 

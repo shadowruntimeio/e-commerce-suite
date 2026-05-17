@@ -103,10 +103,10 @@ export default function AdminUsersPage() {
   ]
 
   return (
-    <Card
-      title={t('admin.users.title')}
-      extra={<Button type="primary" onClick={() => setCreateOpen(true)}>{t('admin.users.addNew')}</Button>}
-    >
+    <Card>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 12 }}>
+        <Button type="primary" onClick={() => setCreateOpen(true)}>{t('admin.users.addNew')}</Button>
+      </div>
       <Table
         rowKey="id"
         loading={usersQ.isLoading}

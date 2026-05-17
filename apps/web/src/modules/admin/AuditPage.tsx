@@ -101,9 +101,8 @@ export default function AuditPage() {
   ]
 
   return (
-    <Card
-      title={t('audit.title')}
-      extra={
+    <Card>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 12 }}>
         <Select
           showSearch
           allowClear
@@ -124,8 +123,7 @@ export default function AuditPage() {
             !!option && (option as { haystack: string }).haystack.includes(input.toLowerCase())
           }
         />
-      }
-    >
+      </div>
       <Tabs
         activeKey={kind}
         onChange={(k) => { setKind(k as AuditKind); setPage(1) }}
