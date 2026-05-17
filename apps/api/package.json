@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "bash scripts/ensure-redis.sh",
     "dev": "tsx watch src/index.ts",
     "build": "pnpm --filter @ems/shared build && npx prisma generate --schema=../../packages/db/prisma/schema.prisma && pnpm --filter @ems/db build && tsc",
     "start": "prisma db push --schema=../../packages/db/prisma/schema.prisma --skip-generate --accept-data-loss && node dist/index.js",
