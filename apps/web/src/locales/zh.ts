@@ -512,7 +512,7 @@ export default {
     payload: '载荷',
     ip: 'IP',
     time: '时间',
-    filterPlaceholder: '按动作筛选 (如 order.merchant_confirm)',
+    filterPlaceholder: '按操作类型筛选（支持中英文 / 代码）',
     actions: {
       'user.create': '创建用户',
       'user.update': '更新用户',

@@ -1,9 +1,11 @@
-import { useState } from 'react'
-import { Card, Table, Tag, Input, Space, Tabs } from 'antd'
+import { useMemo, useState } from 'react'
+import { Card, Table, Tag, Select, Space, Tabs } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import dayjs from 'dayjs'
+import zhLocale from '../../locales/zh'
+import enLocale from '../../locales/en'
 
 type AuditKind = 'system' | 'user'
 
@@ -30,6 +32,22 @@ export default function AuditPage() {
   // bulk via returnObjects and index them as plain JS maps instead.
   const actionLabels = t('audit.actions', { returnObjects: true }) as Record<string, string>
   const targetLabels = t('audit.targets', { returnObjects: true }) as Record<string, string>
+
+  // For the filter we want the user to search across both languages so they
+  // can type "登录" or "login" and still find user.login. Build options from
+  // the raw locale objects (i18next's getResource isn't reliable until both
+  // bundles are loaded), and tag each option with a haystack of code + zh +
+  // en labels for filterOption to match against.
+  const actionOptions = useMemo(() => {
+    const zhMap = zhLocale.audit.actions as Record<string, string>
+    const enMap = enLocale.audit.actions as Record<string, string>
+    const codes = Array.from(new Set([...Object.keys(zhMap), ...Object.keys(enMap)])).sort()
+    return codes.map((code) => ({
+      value: code,
+      label: actionLabels[code] ?? code,
+      haystack: [code, zhMap[code], enMap[code]].filter(Boolean).join(' ').toLowerCase(),
+    }))
+  }, [actionLabels])
 
   const q = useQuery({
     queryKey: ['audit', kind, page, pageSize, actionFilter],
@@ -86,11 +104,25 @@ export default function AuditPage() {
     <Card
       title={t('audit.title')}
       extra={
-        <Input.Search
-          placeholder={t('audit.filterPlaceholder')}
-          onSearch={(v) => { setActionFilter(v); setPage(1) }}
+        <Select
+          showSearch
           allowClear
+          placeholder={t('audit.filterPlaceholder')}
           style={{ width: 320 }}
+          value={actionFilter || undefined}
+          onChange={(v: string | undefined) => { setActionFilter(v ?? ''); setPage(1) }}
+          options={actionOptions}
+          optionRender={(option) => (
+            <Space size={8}>
+              <span>{option.data.label}</span>
+              <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)' }}>
+                {option.data.value}
+              </span>
+            </Space>
+          )}
+          filterOption={(input, option) =>
+            !!option && (option as { haystack: string }).haystack.includes(input.toLowerCase())
+          }
         />
       }
     >

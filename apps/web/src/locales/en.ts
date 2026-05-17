@@ -512,7 +512,7 @@ export default {
     payload: 'Payload',
     ip: 'IP',
     time: 'Time',
-    filterPlaceholder: 'Filter by action (e.g. order.merchant_confirm)',
+    filterPlaceholder: 'Filter by action (English / 中文 / code)',
     actions: {
       'user.create': 'Create user',
       'user.update': 'Update user',
