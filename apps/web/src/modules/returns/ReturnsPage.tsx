@@ -214,30 +214,26 @@ export default function ReturnsPage() {
   ]
 
   return (
-    <Card
-      title={t('returns.title')}
-      extra={
-        <Space>
-          {!merchantUser && (
-            <Radio.Group value={view} onChange={(e) => setView(e.target.value)} optionType="button" buttonStyle="solid">
-              <Radio.Button value="actionable">{t('returns.viewActionable')}</Radio.Button>
-              <Radio.Button value="done">{t('returns.viewDone')}</Radio.Button>
-            </Radio.Group>
-          )}
-          <Select
-            allowClear
-            placeholder={t('returns.allPlatformStates')}
-            style={{ width: 240 }}
-            value={statusFilter}
-            onChange={setStatusFilter}
-            options={TK_STATUS_OPTIONS.map((s) => ({
-              value: s,
-              label: t(`returns.tk.${s}`, { defaultValue: s }),
-            }))}
-          />
-        </Space>
-      }
-    >
+    <Card>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 12 }}>
+        {!merchantUser && (
+          <Radio.Group value={view} onChange={(e) => setView(e.target.value)} optionType="button" buttonStyle="solid">
+            <Radio.Button value="actionable">{t('returns.viewActionable')}</Radio.Button>
+            <Radio.Button value="done">{t('returns.viewDone')}</Radio.Button>
+          </Radio.Group>
+        )}
+        <Select
+          allowClear
+          placeholder={t('returns.allPlatformStates')}
+          style={{ width: 240 }}
+          value={statusFilter}
+          onChange={setStatusFilter}
+          options={TK_STATUS_OPTIONS.map((s) => ({
+            value: s,
+            label: t(`returns.tk.${s}`, { defaultValue: s }),
+          }))}
+        />
+      </div>
       <Table
         rowKey="id"
         loading={ticketsQ.isLoading}
