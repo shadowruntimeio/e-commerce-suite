@@ -400,8 +400,15 @@ export default function OrdersPage() {
     }
     Modal.confirm({
       title: t('orders.bulkCancelTitle'),
-      content: t('orders.bulkCancelContent', { n: eligibleIds.length }),
-      okText: t('common.confirm'),
+      content: (
+        <div>
+          <div>{t('orders.bulkCancelContent', { n: eligibleIds.length })}</div>
+          <div style={{ marginTop: 8, padding: '8px 12px', background: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)', borderRadius: 6, fontSize: 13 }}>
+            ⚠️ {t('orders.cancelTkWarning')}
+          </div>
+        </div>
+      ),
+      okText: t('orders.cancelOk'),
       cancelText: t('common.cancel'),
       okButtonProps: { danger: true },
       onOk: () => runBulkAction(eligibleIds, 'cancel'),
@@ -771,14 +778,23 @@ export default function OrdersPage() {
                 >
                   <Button type="text" size="small" icon={<CheckOutlined />} style={{ color: 'var(--success-color, #16a34a)' }} title={t('orders.confirmTitle')} />
                 </Popconfirm>
-                <Popconfirm
-                  title={t('orders.popconfirmCancel')}
-                  okText={t('common.confirm')}
-                  cancelText={t('common.cancel')}
-                  onConfirm={() => confirmMut.mutate({ id: record.id, action: 'cancel' })}
-                >
-                  <Button type="text" size="small" icon={<CloseOutlined />} danger title={t('orders.cancelTitle')} />
-                </Popconfirm>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CloseOutlined />}
+                  danger
+                  title={t('orders.cancelTitle')}
+                  onClick={() => {
+                    Modal.confirm({
+                      title: t('orders.cancelOneTitle'),
+                      content: t('orders.cancelTkWarning'),
+                      okText: t('orders.cancelOk'),
+                      cancelText: t('common.cancel'),
+                      okButtonProps: { danger: true },
+                      onOk: () => confirmMut.mutateAsync({ id: record.id, action: 'cancel' }),
+                    })
+                  }}
+                />
               </>
             )}
             {canManualShip && (
