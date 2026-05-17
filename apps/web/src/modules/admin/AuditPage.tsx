@@ -22,6 +22,12 @@ export default function AuditPage() {
   const pageSize = 30
   const [actionFilter, setActionFilter] = useState('')
 
+  // Action/target codes contain dots (e.g. order.merchant_confirm), which
+  // collide with i18next's default key separator. Pull the lookup tables in
+  // bulk via returnObjects and index them as plain JS maps instead.
+  const actionLabels = t('audit.actions', { returnObjects: true }) as Record<string, string>
+  const targetLabels = t('audit.targets', { returnObjects: true }) as Record<string, string>
+
   const q = useQuery({
     queryKey: ['audit', page, pageSize, actionFilter],
     queryFn: async () => {
@@ -48,10 +54,19 @@ export default function AuditPage() {
           </Space>
         ) : <Tag color="default">{t('audit.system')}</Tag>,
     },
-    { title: t('audit.action'), dataIndex: 'action', key: 'action', render: (v: string) => <Tag color="blue">{v}</Tag> },
+    { title: t('audit.action'), dataIndex: 'action', key: 'action',
+      render: (v: string) => <Tag color="blue">{actionLabels[v] ?? v}</Tag>,
+    },
     { title: t('audit.target'), key: 'target',
       render: (_: unknown, e: AuditEntry) =>
-        e.targetType ? <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{e.targetType}: {e.targetId?.slice(-8)}</span> : '—',
+        e.targetType ? (
+          <span style={{ fontSize: 12 }}>
+            {targetLabels[e.targetType] ?? e.targetType}
+            <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace', marginLeft: 6 }}>
+              {e.targetId?.slice(-8)}
+            </span>
+          </span>
+        ) : '—',
     },
     {
       title: t('audit.payload'), dataIndex: 'payload', key: 'payload',
