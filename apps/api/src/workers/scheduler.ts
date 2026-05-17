@@ -1,6 +1,7 @@
 import { prisma } from '@ems/db'
 import { syncOrdersQueue, syncProductsQueue, refreshTokensQueue, restockingQueue, etlQueue, syncReturnsQueue } from '../lib/queues'
 import { recordAudit, AuditAction } from '../lib/audit'
+import { reserveStockForOrder } from '../modules/inventory/inventory.service'
 
 const SYNC_INTERVAL_MS = 60 * 1000              // 1 minute
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000     // 30 minutes
@@ -110,6 +111,12 @@ async function autoConfirmExpiredOrders() {
             merchantConfirmStatus: 'AUTO_CONFIRMED',
             merchantConfirmedAt: new Date(),
           },
+        })
+        // Mirror the merchant-confirm path: reserve stock so the available
+        // count stays honest. Best-effort — sync the missing SKU later if it
+        // throws.
+        await reserveStockForOrder(o.id, o.tenantId, null).catch((err) => {
+          console.warn(`[scheduler] reserveStockForOrder failed for ${o.id}:`, (err as Error).message)
         })
         await recordAudit({
           tenantId: o.tenantId,

@@ -27,7 +27,7 @@ export async function createInventoryEvent(data: {
   referenceType?: string
   referenceId?: string
   notes?: string
-  createdBy?: string
+  createdBy?: string | null
 }) {
   // Append event AND update the denormalized counters on WarehouseSku in one tx
   return prisma.$transaction(async (tx) => {
@@ -56,7 +56,7 @@ export async function createInventoryEvent(data: {
 // Reserve stock for each order item for a merchant. Best-effort: if SKU is not
 // in the warehouse's catalog yet, log and skip (warehouse staff will resolve it
 // when picking).
-export async function reserveStockForOrder(orderId: string, tenantId: string, actorUserId: string) {
+export async function reserveStockForOrder(orderId: string, tenantId: string, actorUserId: string | null) {
   const order = await prisma.order.findFirst({
     where: { id: orderId, tenantId },
     include: {
@@ -116,32 +116,50 @@ export async function reserveStockForOrder(orderId: string, tenantId: string, ac
   }
 }
 
-export async function releaseStockForOrder(orderId: string, tenantId: string, actorUserId: string) {
+// Idempotent: nets RESERVED minus prior UNRESERVED per warehouseSku and only
+// releases the outstanding balance. Calling twice (e.g. once from
+// /merchant-cancel and once from sync-orders' OUTBOUND deduction) is safe.
+export async function releaseStockForOrder(orderId: string, tenantId: string, actorUserId: string | null) {
   const events = await prisma.inventoryEvent.findMany({
     where: {
       tenantId,
       referenceType: 'order',
       referenceId: orderId,
-      eventType: 'RESERVED',
+      eventType: { in: ['RESERVED', 'UNRESERVED'] },
     },
-    select: { warehouseSkuId: true, warehouseId: true, quantityDelta: true },
+    select: { warehouseSkuId: true, warehouseId: true, eventType: true, quantityDelta: true },
   })
-  let totalReleased = 0
+
+  // Net per warehouseSku. RESERVED stored as negative delta, UNRESERVED as
+  // positive. Sum: if still negative, that absolute value is what's currently
+  // reserved and needs releasing.
+  const netByWsku = new Map<string, { warehouseId: string; netDelta: number }>()
   for (const e of events) {
+    const cur = netByWsku.get(e.warehouseSkuId) ?? { warehouseId: e.warehouseId, netDelta: 0 }
+    cur.netDelta += e.quantityDelta
+    netByWsku.set(e.warehouseSkuId, cur)
+  }
+
+  let totalReleased = 0
+  let releasedLines = 0
+  for (const [warehouseSkuId, { warehouseId, netDelta }] of netByWsku) {
+    if (netDelta >= 0) continue
+    const qty = -netDelta
     await createInventoryEvent({
       tenantId,
-      warehouseSkuId: e.warehouseSkuId,
-      warehouseId: e.warehouseId,
+      warehouseSkuId,
+      warehouseId,
       eventType: 'UNRESERVED',
-      quantityDelta: -e.quantityDelta, // sign-flip: reserved was negative, unreserve is positive
+      quantityDelta: qty,
       referenceType: 'order',
       referenceId: orderId,
       createdBy: actorUserId,
     })
-    totalReleased += -e.quantityDelta
+    totalReleased += qty
+    releasedLines += 1
   }
 
-  if (events.length > 0) {
+  if (releasedLines > 0) {
     try {
       await recordAudit({
         tenantId,
@@ -149,7 +167,7 @@ export async function releaseStockForOrder(orderId: string, tenantId: string, ac
         action: AuditAction.INVENTORY_RELEASE,
         targetType: 'order',
         targetId: orderId,
-        payload: { lineCount: events.length, totalQuantity: totalReleased },
+        payload: { lineCount: releasedLines, totalQuantity: totalReleased },
       })
     } catch (err) {
       console.warn('[inventory] inventory.release audit failed:', (err as Error).message)

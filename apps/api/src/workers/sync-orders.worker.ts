@@ -7,6 +7,7 @@ import type { TikTokCredentials } from '../platform/tiktok/tiktok.adapter'
 import { getShopTikTokAppCreds } from '../platform/tiktok/tiktok-app-creds'
 import type { PlatformAdapter, PlatformOrder } from '../platform/adapter.interface'
 import { recordAudit } from '../lib/audit'
+import { releaseStockForOrder } from '../modules/inventory/inventory.service'
 
 interface SyncOrdersJob {
   shopId: string
@@ -169,8 +170,12 @@ async function upsertOrder(
     where: { ownedShops: { some: { id: shopId } } },
     select: { settings: true },
   })
+  // 0 (or negative) means "never auto-confirm" — leave the deadline null so
+  // the scheduler's `lt: now` filter skips it forever.
   const autoConfirmHours = (merchant?.settings as { autoConfirmHours?: number })?.autoConfirmHours ?? 24
-  const merchantConfirmExpiresAt = new Date(Date.now() + autoConfirmHours * 60 * 60 * 1000)
+  const merchantConfirmExpiresAt = autoConfirmHours > 0
+    ? new Date(Date.now() + autoConfirmHours * 60 * 60 * 1000)
+    : null
 
   // Wrap upsert + items rebuild in a transaction with a per-order advisory
   // lock. Without this, two concurrent sync workers (e.g. scheduled + webhook)
@@ -362,6 +367,14 @@ async function deductInventoryForOrder(
     select: { id: true },
   })
   if (existing) return
+
+  // Release the merchant-confirm reservation BEFORE deducting onHand. Without
+  // this the order's quantity stays in `quantityReserved` even though the
+  // goods are already gone, double-counting against availability for any
+  // subsequent order. releaseStockForOrder is idempotent so re-runs are safe.
+  await releaseStockForOrder(orderId, tenantId, null).catch((err) => {
+    console.warn(`[sync-orders] releaseStockForOrder failed for ${orderId}:`, (err as Error).message)
+  })
 
   const warehouse = await resolveDeductionWarehouse(tenantId, platformMetadata, platform)
   if (!warehouse) {

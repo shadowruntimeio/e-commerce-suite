@@ -31,7 +31,7 @@ const createUserSchema = z.discriminatedUnion('role', [
     password: z.string().min(8),
     name: z.string().min(1),
     settings: z.object({
-      autoConfirmHours: z.number().int().min(1).max(168).default(24),
+      autoConfirmHours: z.number().int().min(0).max(168).default(24),
     }).default({ autoConfirmHours: 24 }),
   }),
 ])

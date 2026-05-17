@@ -69,7 +69,7 @@ export default function AdminUsersPage() {
         if (u.role === 'ADMIN') return <i style={{ color: 'var(--text-muted)' }}>{t('admin.users.allCapabilities')}</i>
         if (u.role === 'MERCHANT') {
           const hours = (u.settings as { autoConfirmHours?: number } | null)?.autoConfirmHours ?? 24
-          return <span>{t('admin.users.autoConfirm', { hours })}</span>
+          return <span>{hours > 0 ? t('admin.users.autoConfirm', { hours }) : t('admin.users.autoConfirmDisabled')}</span>
         }
         return (
           <Space size={4} wrap>
@@ -214,7 +214,7 @@ function CreateUserModal({
         )}
         {role === 'MERCHANT' && (
           <Form.Item label={t('admin.users.autoConfirmHours')} name="autoConfirmHours" tooltip={t('admin.users.autoConfirmTooltip')}>
-            <InputNumber min={1} max={168} />
+            <InputNumber min={0} max={168} />
           </Form.Item>
         )}
       </Form>
@@ -293,7 +293,7 @@ function EditUserModal({
         )}
         {user.role === 'MERCHANT' && (
           <Form.Item label={t('admin.users.autoConfirmHours')} name="autoConfirmHours">
-            <InputNumber min={1} max={168} />
+            <InputNumber min={0} max={168} />
           </Form.Item>
         )}
       </Form>
