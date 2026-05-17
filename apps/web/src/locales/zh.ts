@@ -242,6 +242,7 @@ export default {
     manualSkuRequired: '请输入 SKU',
     manualQtyRequired: '数量至少为 1',
     manualAddressRequired: '请填写收货地址',
+    manualPhoneRequired: '请填写买家手机号',
     manualDelete: '删除手工单',
     manualDeleteTitle: '删除该手工单？',
     manualDeleteContent: '该手工单将被永久删除，无法恢复。',

@@ -1294,8 +1294,8 @@ function CreateManualOrderModal({ onClose, onSuccess }: { onClose: () => void; o
     try {
       await api.post('/orders/manual', {
         items: values.items,
-        buyerName: values.buyerName,
-        buyerPhone: values.buyerPhone || undefined,
+        buyerName: values.buyerName || undefined,
+        buyerPhone: values.buyerPhone,
         shippingAddress: values.shippingAddress || undefined,
         notes: values.notes || undefined,
       })
@@ -1379,14 +1379,14 @@ function CreateManualOrderModal({ onClose, onSuccess }: { onClose: () => void; o
           )}
         </Form.List>
 
-        <Form.Item
-          name="buyerName"
-          label={t('orders.manualBuyer')}
-          rules={[{ required: true, message: t('orders.manualBuyerRequired') }]}
-        >
+        <Form.Item name="buyerName" label={t('orders.manualBuyer')}>
           <Input />
         </Form.Item>
-        <Form.Item name="buyerPhone" label={t('orders.manualPhone')}>
+        <Form.Item
+          name="buyerPhone"
+          label={t('orders.manualPhone')}
+          rules={[{ required: true, message: t('orders.manualPhoneRequired') }]}
+        >
           <Input />
         </Form.Item>
         <Form.Item name="shippingAddress" label={t('orders.manualAddress')} rules={[{ required: true, message: t('orders.manualAddressRequired') }]}>

@@ -24,7 +24,7 @@ export async function orderRoutes(app: FastifyInstance) {
       notes?: string
     }
     if (!items?.length) return reply.status(400).send({ success: false, error: 'items required' })
-    if (!buyerName?.trim()) return reply.status(400).send({ success: false, error: 'buyerName required' })
+    if (!buyerPhone?.trim()) return reply.status(400).send({ success: false, error: 'buyerPhone required' })
     if (!shippingAddress?.trim()) return reply.status(400).send({ success: false, error: 'shippingAddress required' })
 
     const platformOrderId = `MANUAL-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
@@ -34,8 +34,8 @@ export async function orderRoutes(app: FastifyInstance) {
         tenantId: request.user.tenantId,
         platformOrderId,
         status: 'TO_SHIP',
-        buyerName: buyerName.trim(),
-        buyerPhone: buyerPhone?.trim() ?? null,
+        buyerName: buyerName?.trim() || null,
+        buyerPhone: buyerPhone.trim(),
         shippingAddress: shippingAddress ? { address: shippingAddress } : undefined,
         platformMetadata: notes ? { notes } : {},
         merchantConfirmStatus: 'CONFIRMED',
@@ -70,7 +70,7 @@ export async function orderRoutes(app: FastifyInstance) {
           userId: wu.id,
           type: 'MANUAL_ORDER_CREATED' as const,
           title: '新手工单',
-          body: `${buyerName} — ${itemSummary}`,
+          body: `${buyerName?.trim() || buyerPhone} — ${itemSummary}`,
           payload: { orderId: order.id },
         })),
       })
