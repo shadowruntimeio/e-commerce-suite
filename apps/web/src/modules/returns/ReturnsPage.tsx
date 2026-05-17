@@ -432,7 +432,6 @@ function ProcessModal({
           <Select options={[
             { value: 'SELLABLE', label: t('returns.cond.SELLABLE') },
             { value: 'DAMAGED', label: t('returns.cond.DAMAGED') },
-            { value: 'DISPOSED', label: t('returns.cond.DISPOSED') },
           ]} />
         </Form.Item>
         <Form.Item label={t('returns.returnedQty')} name="returnedQty" rules={[{ required: true }]}>

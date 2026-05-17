@@ -18,7 +18,7 @@ const rejectSchema = z.object({
 })
 
 const processSchema = z.object({
-  condition: z.enum(['SELLABLE', 'DAMAGED', 'DISPOSED']),
+  condition: z.enum(['SELLABLE', 'DAMAGED']),
   returnedQty: z.number().int().min(0),
   warehouseSkuId: z.string().optional(),
   notes: z.string().max(2000).optional(),
