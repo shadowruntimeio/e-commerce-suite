@@ -786,7 +786,11 @@ export default function OrdersPage() {
                   onClick={() => {
                     Modal.confirm({
                       title: t('orders.cancelOneTitle'),
-                      content: t('orders.cancelTkWarning'),
+                      content: (
+                        <div style={{ marginTop: 8, padding: '10px 14px', background: 'var(--badge-warning-bg)', color: 'var(--badge-warning-fg)', borderRadius: 6, fontSize: 13, lineHeight: 1.5 }}>
+                          ⚠️ {t('orders.cancelTkWarning')}
+                        </div>
+                      ),
                       okText: t('orders.cancelOk'),
                       cancelText: t('common.cancel'),
                       okButtonProps: { danger: true },
