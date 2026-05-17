@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '@ems/db'
 import { authenticate } from '../../middleware/authenticate'
+import { recordAudit, AuditAction } from '../../lib/audit'
 import {
   evaluateConditions,
   type RuleConditions,
@@ -69,6 +70,16 @@ export async function rulesRoutes(app: FastifyInstance) {
         isActive: body.isActive,
       },
     })
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.ORDER_RULE_CREATE,
+      targetType: 'order_rule',
+      targetId: rule.id,
+      payload: { name: body.name, priority: body.priority, shopId: body.shopId ?? null, isActive: body.isActive },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
     return reply.status(201).send({ success: true, data: rule })
   })
 
@@ -96,6 +107,16 @@ export async function rulesRoutes(app: FastifyInstance) {
         ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
       } as any,
     })
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.ORDER_RULE_UPDATE,
+      targetType: 'order_rule',
+      targetId: id,
+      payload: { name: rule.name, changes: Object.keys(body) },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
     return { success: true, data: rule }
   })
 
@@ -109,6 +130,16 @@ export async function rulesRoutes(app: FastifyInstance) {
       return reply.status(404).send({ success: false, error: 'Rule not found' })
     }
     await prisma.orderRule.delete({ where: { id } })
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.ORDER_RULE_DELETE,
+      targetType: 'order_rule',
+      targetId: id,
+      payload: { name: existing.name },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
     return { success: true, data: { message: 'Rule deleted' } }
   })
 

@@ -321,6 +321,15 @@ export async function inventoryRoutes(app: FastifyInstance) {
         userId: request.user.userId,
         token,
       })
+      await recordAudit({
+        tenantId: request.user.tenantId,
+        actorUserId: request.user.userId,
+        action: AuditAction.INVENTORY_IMPORT_APPLIED,
+        targetType: 'inventory_import',
+        payload: { applied: result.applied, skipped: result.skipped },
+        ip: request.ip,
+        userAgent: request.headers['user-agent'] ?? undefined,
+      })
       return { success: true, data: result }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

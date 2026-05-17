@@ -1,5 +1,6 @@
 import { prisma, Prisma } from '@ems/db'
 import type { InventoryEventType, AdjustmentReason, StockRow } from '@ems/shared'
+import { recordAudit, AuditAction } from '../../lib/audit'
 
 export async function getCurrentStock(warehouseSkuId: string) {
   // Read denormalized counters directly from WarehouseSku (kept in sync by
@@ -70,6 +71,7 @@ export async function reserveStockForOrder(orderId: string, tenantId: string, ac
   if (!order) return
   const ownerUserId = order.shop?.ownerUserId ?? null
 
+  const reservedLines: Array<{ systemSkuId: string; quantity: number }> = []
   for (const item of order.items) {
     const sysSkuId = item.systemSkuId
     if (!sysSkuId) continue
@@ -92,6 +94,25 @@ export async function reserveStockForOrder(orderId: string, tenantId: string, ac
       referenceId: orderId,
       createdBy: actorUserId,
     })
+    reservedLines.push({ systemSkuId: sysSkuId, quantity: item.quantity })
+  }
+
+  if (reservedLines.length > 0) {
+    try {
+      await recordAudit({
+        tenantId,
+        actorUserId: null,
+        action: AuditAction.INVENTORY_RESERVE,
+        targetType: 'order',
+        targetId: orderId,
+        payload: {
+          lines: reservedLines,
+          totalQuantity: reservedLines.reduce((s, l) => s + l.quantity, 0),
+        },
+      })
+    } catch (err) {
+      console.warn('[inventory] inventory.reserve audit failed:', (err as Error).message)
+    }
   }
 }
 
@@ -105,6 +126,7 @@ export async function releaseStockForOrder(orderId: string, tenantId: string, ac
     },
     select: { warehouseSkuId: true, warehouseId: true, quantityDelta: true },
   })
+  let totalReleased = 0
   for (const e of events) {
     await createInventoryEvent({
       tenantId,
@@ -116,6 +138,22 @@ export async function releaseStockForOrder(orderId: string, tenantId: string, ac
       referenceId: orderId,
       createdBy: actorUserId,
     })
+    totalReleased += -e.quantityDelta
+  }
+
+  if (events.length > 0) {
+    try {
+      await recordAudit({
+        tenantId,
+        actorUserId: null,
+        action: AuditAction.INVENTORY_RELEASE,
+        targetType: 'order',
+        targetId: orderId,
+        payload: { lineCount: events.length, totalQuantity: totalReleased },
+      })
+    } catch (err) {
+      console.warn('[inventory] inventory.release audit failed:', (err as Error).message)
+    }
   }
 }
 

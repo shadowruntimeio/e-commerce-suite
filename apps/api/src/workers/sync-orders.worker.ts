@@ -292,7 +292,11 @@ async function upsertOrder(
   // they're visible to the warehouse.
   if (platformOrder.status === 'AFTER_SALES') {
     const totalQty = platformOrder.items.reduce((sum, it) => sum + (it.quantity ?? 0), 0)
-    await prisma.afterSalesTicket.upsert({
+    const existing = await prisma.afterSalesTicket.findUnique({
+      where: { orderId: order.id },
+      select: { id: true },
+    })
+    const ticket = await prisma.afterSalesTicket.upsert({
       where: { orderId: order.id },
       update: {},
       create: {
@@ -304,6 +308,20 @@ async function upsertOrder(
         notes: 'Auto-created from platform AFTER_SALES status',
       },
     })
+    if (!existing) {
+      try {
+        await recordAudit({
+          tenantId,
+          actorUserId: null,
+          action: 'return.create',
+          targetType: 'after_sales_ticket',
+          targetId: ticket.id,
+          payload: { orderId: order.id, expectedQty: totalQty || null, source: 'sync-orders.worker' },
+        })
+      } catch (err) {
+        console.warn('[sync-orders] return.create audit failed:', (err as Error).message)
+      }
+    }
   }
 }
 

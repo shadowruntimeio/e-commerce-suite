@@ -235,6 +235,7 @@ export async function inboundShipmentRoutes(app: FastifyInstance) {
     // opens its own). Events are idempotent; the shipment row is now CONFIRMED
     // so even on partial failure here, a retry sees CONFIRMED and won't
     // double-write — but for robustness check shipment status before each event.
+    const inboundLines: Array<{ systemSkuId: string; quantity: number }> = []
     for (const item of shipment.items) {
       const confirmedQty = updates.has(item.id) ? updates.get(item.id)! : item.expectedQuantity
       if (confirmedQty <= 0) continue
@@ -253,6 +254,27 @@ export async function inboundShipmentRoutes(app: FastifyInstance) {
         notes: `Inbound shipment ${shipment.trackingNumber} (${shipment.carrier})`,
         createdBy: request.user.userId,
       })
+      inboundLines.push({ systemSkuId: item.systemSkuId, quantity: confirmedQty })
+    }
+
+    if (inboundLines.length > 0) {
+      try {
+        await recordAudit({
+          tenantId: shipment.tenantId,
+          actorUserId: null,
+          action: AuditAction.INVENTORY_INBOUND,
+          targetType: 'inbound_shipment',
+          targetId: shipment.id,
+          payload: {
+            warehouseId: shipment.warehouseId,
+            trackingNumber: shipment.trackingNumber,
+            lines: inboundLines,
+            totalQuantity: inboundLines.reduce((s, l) => s + l.quantity, 0),
+          },
+        })
+      } catch (err) {
+        console.warn('[inbound-shipments] inventory.inbound audit failed:', (err as Error).message)
+      }
     }
 
     if (adjustments.length > 0) {

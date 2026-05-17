@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '@ems/db'
 import { authenticate } from '../../middleware/authenticate'
+import { recordAudit, AuditAction } from '../../lib/audit'
 
 const createProductSchema = z.object({
   spuCode: z.string().min(1),
@@ -107,6 +108,16 @@ export async function productRoutes(app: FastifyInstance) {
         },
       },
       include: { skus: true },
+    })
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.PRODUCT_CREATE,
+      targetType: 'product',
+      targetId: product.id,
+      payload: { spuCode: body.spuCode, name: body.name, skuCount: body.skus.length, ownerUserId },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
     })
     return reply.status(201).send({ success: true, data: product })
   })

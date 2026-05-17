@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@ems/db'
 import { authenticate } from '../../middleware/authenticate'
+import { recordAudit, AuditAction } from '../../lib/audit'
 
 export async function restockingRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
@@ -95,6 +96,24 @@ export async function restockingRoutes(app: FastifyInstance) {
         data: { status: 'accepted' },
       }),
     ])
+
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.PO_CREATE,
+      targetType: 'purchase_order',
+      targetId: po.id,
+      payload: {
+        supplierId: supplier.id,
+        warehouseId: suggestion.warehouseSku.warehouseId,
+        totalAmount,
+        currency: 'USD',
+        source: 'restocking_suggestion',
+        suggestionId: suggestion.id,
+      },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
 
     return reply.status(201).send({ success: true, data: po })
   })

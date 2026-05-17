@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '@ems/db'
 import { authenticate } from '../../middleware/authenticate'
 import { z } from 'zod'
+import { recordAudit, AuditAction } from '../../lib/audit'
 
 const createShipmentSchema = z.object({
   warehouseId: z.string(),
@@ -93,6 +94,22 @@ export async function logisticsRoutes(app: FastifyInstance) {
       include: { warehouse: { select: { name: true } } },
     })
 
+    await recordAudit({
+      tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.LOGISTICS_SHIPMENT_CREATE,
+      targetType: 'first_leg_shipment',
+      targetId: shipment.id,
+      payload: {
+        warehouseId: body.warehouseId,
+        shipmentType: body.shipmentType,
+        trackingNumber: body.trackingNumber ?? null,
+        carrier: body.carrier ?? null,
+      },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
+
     return reply.status(201).send({ success: true, data: shipment })
   })
 
@@ -123,6 +140,17 @@ export async function logisticsRoutes(app: FastifyInstance) {
         ...(body.notes !== undefined ? { notes: body.notes } : {}),
       },
       include: { warehouse: { select: { name: true } } },
+    })
+
+    await recordAudit({
+      tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.LOGISTICS_SHIPMENT_UPDATE,
+      targetType: 'first_leg_shipment',
+      targetId: id,
+      payload: { changes: Object.keys(body), status: updated.status },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
     })
 
     return { success: true, data: updated }

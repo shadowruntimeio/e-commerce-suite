@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '@ems/db'
 import { authenticate } from '../../middleware/authenticate'
+import { recordAudit, AuditAction } from '../../lib/audit'
 
 const createPoSchema = z.object({
   supplierId: z.string(),
@@ -61,6 +62,24 @@ export async function purchaseRoutes(app: FastifyInstance) {
       },
       include: { items: true, supplier: true },
     })
+
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.PO_CREATE,
+      targetType: 'purchase_order',
+      targetId: po.id,
+      payload: {
+        supplierId: body.supplierId,
+        warehouseId: body.warehouseId,
+        totalAmount,
+        currency: body.currency,
+        itemCount: body.items.length,
+      },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
+
     return reply.status(201).send({ success: true, data: po })
   })
 }

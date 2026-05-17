@@ -11,6 +11,7 @@ import {
 } from '../../platform/tiktok/tiktok-app-creds'
 import { z } from 'zod'
 import { syncOrdersQueue, syncProductsQueue } from '../../lib/queues'
+import { recordAudit, AuditAction } from '../../lib/audit'
 
 const SHOPEE_REDIRECT_URI =
   process.env.SHOPEE_REDIRECT_URI ?? 'http://localhost:3001/api/v1/shops/shopee/callback'
@@ -60,6 +61,17 @@ export async function shopRoutes(app: FastifyInstance) {
           return reply.status(400).send({ success: false, error: 'Could not determine merchant from OAuth state' })
         }
 
+        const preExisting = await prisma.shop.findUnique({
+          where: {
+            tenantId_platform_externalShopId: {
+              tenantId,
+              platform: 'SHOPEE',
+              externalShopId: tokens.shopId,
+            },
+          },
+          select: { id: true },
+        })
+
         const shop = await prisma.shop.upsert({
           where: {
             tenantId_platform_externalShopId: {
@@ -88,6 +100,17 @@ export async function shopRoutes(app: FastifyInstance) {
             credentialsEncrypted: credentials as any,
             tokenExpiresAt: tokens.expiresAt,
           },
+        })
+
+        await recordAudit({
+          tenantId,
+          actorUserId: ownerUserId,
+          action: preExisting ? AuditAction.SHOP_UPDATE : AuditAction.SHOP_CREATE,
+          targetType: 'shop',
+          targetId: shop.id,
+          payload: { platform: 'SHOPEE', externalShopId: tokens.shopId, name: tokens.shopName },
+          ip: request.ip,
+          userAgent: request.headers['user-agent'] ?? undefined,
         })
 
         const ts = Date.now()
@@ -170,6 +193,16 @@ export async function shopRoutes(app: FastifyInstance) {
         }
 
         console.log('[tiktok/callback] step 4: upserting shop. tenantId:', tenantId, 'ownerUserId:', ownerUserId, 'externalShopId:', tokens.shopId)
+        const preExisting = await prisma.shop.findUnique({
+          where: {
+            tenantId_platform_externalShopId: {
+              tenantId,
+              platform: 'TIKTOK',
+              externalShopId: tokens.shopId,
+            },
+          },
+          select: { id: true },
+        })
         const shop = await prisma.shop.upsert({
           where: {
             tenantId_platform_externalShopId: {
@@ -203,6 +236,17 @@ export async function shopRoutes(app: FastifyInstance) {
           },
         })
         console.log('[tiktok/callback] step 4 ok. queueing initial sync jobs')
+
+        await recordAudit({
+          tenantId,
+          actorUserId: ownerUserId,
+          action: preExisting ? AuditAction.SHOP_UPDATE : AuditAction.SHOP_CREATE,
+          targetType: 'shop',
+          targetId: shop.id,
+          payload: { platform: 'TIKTOK', externalShopId: tokens.shopId, name: tokens.shopName },
+          ip: request.ip,
+          userAgent: request.headers['user-agent'] ?? undefined,
+        })
 
         const ts = Date.now()
         await syncOrdersQueue.add(
@@ -328,6 +372,17 @@ export async function shopRoutes(app: FastifyInstance) {
         data: { settings: merged as object },
       })
 
+      await recordAudit({
+        tenantId: request.user.tenantId,
+        actorUserId: request.user.userId,
+        action: AuditAction.TIKTOK_APP_SAVE,
+        targetType: 'user',
+        targetId: request.user.userId,
+        payload: { appKey: newTiktok.appKey, secretUpdated: !!appSecret },
+        ip: request.ip,
+        userAgent: request.headers['user-agent'] ?? undefined,
+      })
+
       return {
         success: true,
         data: { appKey: newTiktok.appKey, hasAppSecret: true },
@@ -414,6 +469,17 @@ export async function shopRoutes(app: FastifyInstance) {
       await prisma.shop.update({
         where: { id },
         data: { status: 'INACTIVE' },
+      })
+
+      await recordAudit({
+        tenantId: request.user.tenantId,
+        actorUserId: request.user.userId,
+        action: AuditAction.SHOP_DISCONNECT,
+        targetType: 'shop',
+        targetId: id,
+        payload: { platform: shop.platform, name: shop.name },
+        ip: request.ip,
+        userAgent: request.headers['user-agent'] ?? undefined,
       })
 
       return reply.send({ success: true, data: { message: 'Shop deactivated' } })

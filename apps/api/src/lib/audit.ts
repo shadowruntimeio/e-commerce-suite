@@ -35,8 +35,24 @@ export const AuditAction = {
   // Shops / products
   SHOP_CREATE: 'shop.create',
   SHOP_UPDATE: 'shop.update',
+  SHOP_DISCONNECT: 'shop.disconnect',
+  TIKTOK_APP_SAVE: 'tiktok_app.save',
   PRODUCT_CREATE: 'product.create',
   PRODUCT_UPDATE: 'product.update',
+  // Warehouses
+  WAREHOUSE_CREATE: 'warehouse.create',
+  WAREHOUSE_UPDATE: 'warehouse.update',
+  WAREHOUSE_DELETE: 'warehouse.delete',
+  // Suppliers
+  SUPPLIER_CREATE: 'supplier.create',
+  SUPPLIER_UPDATE: 'supplier.update',
+  // Order rules
+  ORDER_RULE_CREATE: 'order_rule.create',
+  ORDER_RULE_UPDATE: 'order_rule.update',
+  ORDER_RULE_DELETE: 'order_rule.delete',
+  // First-leg (warehouse → fulfillment center) shipments
+  LOGISTICS_SHIPMENT_CREATE: 'logistics_shipment.create',
+  LOGISTICS_SHIPMENT_UPDATE: 'logistics_shipment.update',
 } as const
 
 export type AuditActionValue = (typeof AuditAction)[keyof typeof AuditAction]
