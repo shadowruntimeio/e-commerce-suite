@@ -296,8 +296,7 @@ export default function OrdersPage() {
   function toggleStatus(key: string) {
     setPage(1)
     setIsManualTab(false)
-    if (key === '') { setStatuses([]); return }
-    setStatuses((prev) => prev.includes(key) ? prev.filter((s) => s !== key) : [...prev, key])
+    setStatuses(key === '' ? [] : [key])
   }
 
   function applyFilters() {
