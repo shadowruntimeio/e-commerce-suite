@@ -932,6 +932,36 @@ export class TikTokAdapter implements PlatformAdapter {
       this.appCreds,
     )
   }
+
+  // POST /order/202309/orders/cancel — cancel an order on TK's side. TK only
+  // allows this before pickup (AWAITING_SHIPMENT etc.); already-shipped
+  // orders throw and we surface the message back. reasonKey is the platform
+  // enum; common values: SELLER_OUT_OF_STOCK, SELLER_DUPLICATE_ORDER,
+  // SELLER_PRICING_ERROR, BUYER_REQUEST.
+  async cancelOrder(
+    shop: ShopRecord,
+    orderId: string,
+    reasonKey: string = 'SELLER_OUT_OF_STOCK',
+  ): Promise<void> {
+    const { accessToken, shopCipher } = getCredentials(shop)
+    const resp = await tiktokRequest<{
+      code: number
+      message?: string
+      data?: { failed_orders?: Array<{ order_id: string; fail_reason?: string }> }
+    }>(
+      'POST',
+      '/order/202309/orders/cancel',
+      accessToken, shopCipher, {},
+      { cancel_reason_key: reasonKey, order_ids: [orderId] },
+      this.appCreds,
+    )
+    // TK's bulk endpoint returns 200 with per-order failures in data.failed_orders.
+    // Surface them as a thrown error so the route can map to 502.
+    const failed = resp.data?.failed_orders?.find((f) => f.order_id === orderId)
+    if (failed) {
+      throw new Error(failed.fail_reason ?? `TikTok refused to cancel order ${orderId}`)
+    }
+  }
 }
 
 // ─── Utility ──────────────────────────────────────────────────────────────────

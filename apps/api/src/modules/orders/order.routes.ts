@@ -384,22 +384,37 @@ export async function orderRoutes(app: FastifyInstance) {
     return { success: true, data: updated }
   })
 
-  // POST /:id/merchant-cancel — merchant cancels (e.g. out of stock). Updates status
-  // to CANCELLED and notes which side cancelled. Releases any reservations.
+  // POST /:id/merchant-cancel — merchant cancels the order. For TikTok orders
+  // this calls the platform cancel API first; if TK refuses (already shipped,
+  // etc.) we bail without touching local state. For manual orders it's purely
+  // a local flag. Either way, releases any inventory reservation.
   app.post('/:id/merchant-cancel', async (request, reply) => {
     if (request.user.role !== 'MERCHANT' && request.user.role !== 'ADMIN') {
       return reply.status(403).send({ success: false, error: 'Forbidden' })
     }
     const { id } = request.params as { id: string }
-    const { reason } = (request.body ?? {}) as { reason?: string }
+    const { reason, reasonKey } = (request.body ?? {}) as { reason?: string; reasonKey?: string }
     const order = await prisma.order.findFirst({
       where: {
         id,
         tenantId: request.user.tenantId,
         ...(request.user.role === 'MERCHANT' ? { shop: { ownerUserId: request.user.userId } } : {}),
       },
+      include: { shop: true },
     })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
+
+    if (order.shop?.platform === 'TIKTOK' && !order.isManual) {
+      try {
+        const appCreds = await getShopTikTokAppCreds(order.shop.id)
+        const adapter = new TikTokAdapter(appCreds)
+        await adapter.cancelOrder(order.shop, order.platformOrderId, reasonKey ?? 'SELLER_OUT_OF_STOCK')
+      } catch (err) {
+        const msg = (err as Error).message
+        console.error(`[orders] cancelOrder ${id} failed on TK:`, msg)
+        return reply.status(502).send({ success: false, error: `TikTok refused cancel: ${msg}` })
+      }
+    }
 
     const wasConfirmed = order.merchantConfirmStatus === 'CONFIRMED' || order.merchantConfirmStatus === 'AUTO_CONFIRMED'
 
@@ -423,7 +438,7 @@ export async function orderRoutes(app: FastifyInstance) {
       action: AuditAction.ORDER_MERCHANT_CANCEL,
       targetType: 'order',
       targetId: id,
-      payload: { reason: reason ?? null, wasConfirmed },
+      payload: { reason: reason ?? null, reasonKey: reasonKey ?? null, wasConfirmed },
       ip: request.ip,
       userAgent: request.headers['user-agent'] ?? undefined,
     })
