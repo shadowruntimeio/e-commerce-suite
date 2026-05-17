@@ -295,6 +295,7 @@ export default function OrdersPage() {
 
   function toggleStatus(key: string) {
     setPage(1)
+    setIsManualTab(false)
     if (key === '') { setStatuses([]); return }
     setStatuses((prev) => prev.includes(key) ? prev.filter((s) => s !== key) : [...prev, key])
   }
@@ -891,8 +892,8 @@ export default function OrdersPage() {
 
       {/* Status Tabs + Manual Orders tab */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
-        {!isManualTab && statusTabs.map((tab) => {
-          const isActive = tab.key === '' ? statuses.length === 0 : statuses.includes(tab.key)
+        {statusTabs.map((tab) => {
+          const isActive = !isManualTab && (tab.key === '' ? statuses.length === 0 : statuses.includes(tab.key))
           return (
             <button
               key={tab.key}
