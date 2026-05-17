@@ -340,9 +340,17 @@ interface TikTokProductSearchResponse {
 
 // ─── Return API types (V202309) ───────────────────────────────────────────────
 
-export interface TikTokReturnItem {
-  product_id?: string
+// TK calls this return_line_items in the live payload (not "items" as the
+// docs sometimes suggest). Each entry is one returnable unit linked back to
+// an original order line. Quantity, when present, lets us aggregate; when
+// absent we treat each line_item as 1 unit.
+export interface TikTokReturnLineItem {
+  return_line_item_id?: string
+  order_line_item_id?: string
+  seller_sku?: string
   sku_id?: string
+  sku_name?: string
+  product_name?: string
   quantity?: number
 }
 
@@ -353,13 +361,14 @@ export interface TikTokReturn {
   return_id: string
   order_id: string
   return_status: string
-  seller_next_action?: string
+  seller_next_action_response?: Array<{ action: string; deadline?: number }>
   return_reason?: string
+  return_reason_text?: string
   return_type?: string
   update_time?: number
   create_time?: number
-  items?: TikTokReturnItem[]
-  refund_amount?: string
+  return_line_items?: TikTokReturnLineItem[]
+  refund_amount?: { currency?: string; refund_total?: string } | string
 }
 
 interface TikTokReturnSearchResponse {
