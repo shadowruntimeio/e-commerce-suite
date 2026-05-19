@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
-import { Button, Dropdown, Space, message, Spin, Input, Form } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { Button, Dropdown, Space, message, Spin, Input, Form, Modal, Steps, Tooltip } from 'antd'
 import {
   SyncOutlined, ShopOutlined, DownOutlined, MoreOutlined,
-  ThunderboltOutlined, KeyOutlined,
+  ThunderboltOutlined, KeyOutlined, QuestionCircleOutlined, CopyOutlined,
 } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -155,6 +155,99 @@ function EmptyState({ onConnectShopee, onConnectTikTok }: { onConnectShopee: () 
   )
 }
 
+// ─── TikTok setup guide modal ────────────────────────────────────────────────
+
+const PARTNER_CENTER_URL = 'https://partner.tiktokshop.com/'
+
+function getTikTokRedirectUri() {
+  const apiOrigin = (import.meta.env.VITE_API_URL as string | undefined) || window.location.origin
+  return `${apiOrigin.replace(/\/$/, '')}/api/v1/shops/tiktok/callback`
+}
+
+function TikTokGuideModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useTranslation()
+  const redirectUri = useMemo(getTikTokRedirectUri, [])
+  const [copied, setCopied] = useState(false)
+
+  async function copyRedirectUri() {
+    try {
+      await navigator.clipboard.writeText(redirectUri)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      void message.error(t('shops.tiktokGuideCopyFailed'))
+    }
+  }
+
+  const linkStyle: React.CSSProperties = { color: '#cc97ff', fontWeight: 500 }
+
+  const steps = [
+    {
+      title: t('shops.tiktokGuideStep1Title'),
+      description: (
+        <span>
+          {t('shops.tiktokGuideStep1Desc')}{' '}
+          <a href={PARTNER_CENTER_URL} target="_blank" rel="noreferrer" style={linkStyle}>
+            partner.tiktokshop.com
+          </a>
+        </span>
+      ),
+    },
+    { title: t('shops.tiktokGuideStep2Title'), description: t('shops.tiktokGuideStep2Desc') },
+    {
+      title: t('shops.tiktokGuideStep3Title'),
+      description: (
+        <div>
+          <div style={{ marginBottom: 8 }}>{t('shops.tiktokGuideStep3Desc')}</div>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            padding: '8px 12px',
+          }}>
+            <code style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 12,
+              color: 'var(--text-primary)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}>
+              {redirectUri}
+            </code>
+            <Tooltip title={copied ? t('shops.tiktokGuideCopied') : t('shops.tiktokGuideCopy')}>
+              <Button size="small" icon={<CopyOutlined />} onClick={copyRedirectUri} />
+            </Tooltip>
+          </div>
+        </div>
+      ),
+    },
+    { title: t('shops.tiktokGuideStep4Title'), description: t('shops.tiktokGuideStep4Desc') },
+    { title: t('shops.tiktokGuideStep5Title'), description: t('shops.tiktokGuideStep5Desc') },
+    { title: t('shops.tiktokGuideStep6Title'), description: t('shops.tiktokGuideStep6Desc') },
+  ]
+
+  return (
+    <Modal
+      open={open}
+      title={t('shops.tiktokGuideTitle')}
+      onCancel={onClose}
+      footer={<Button type="primary" onClick={onClose} style={{ background: 'var(--accent-gradient)', border: 'none' }}>{t('common.close')}</Button>}
+      width={640}
+      destroyOnClose
+    >
+      <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 0, marginBottom: 20 }}>
+        {t('shops.tiktokGuideIntro')}
+      </p>
+      <Steps direction="vertical" size="small" current={-1} items={steps} />
+    </Modal>
+  )
+}
+
 // ─── TikTok app credentials card (merchant-only) ─────────────────────────────
 // Each merchant owns their own TikTok partner app and configures its key/secret
 // here. Stored on user.settings.tiktok; secret encrypted server-side.
@@ -163,6 +256,7 @@ function TikTokAppCard() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(false)
   const [appKey, setAppKey] = useState('')
   const [appSecret, setAppSecret] = useState('')
 
@@ -208,7 +302,18 @@ function TikTokAppCard() {
             <KeyOutlined style={{ fontSize: 18, color: '#cc97ff' }} />
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{t('shops.tiktokAppTitle')}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{t('shops.tiktokAppTitle')}</div>
+              <Button
+                type="link"
+                size="small"
+                icon={<QuestionCircleOutlined />}
+                onClick={() => setGuideOpen(true)}
+                style={{ padding: 0, height: 'auto', fontSize: 12, color: '#cc97ff' }}
+              >
+                {t('shops.tiktokGuideOpen')}
+              </Button>
+            </div>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
               {isLoading ? '…' : configured
                 ? t('shops.tiktokAppConfigured', { appKey: data!.appKey })
@@ -222,6 +327,8 @@ function TikTokAppCard() {
           </Button>
         )}
       </div>
+
+      <TikTokGuideModal open={guideOpen} onClose={() => setGuideOpen(false)} />
 
       {editing && (
         <Form
