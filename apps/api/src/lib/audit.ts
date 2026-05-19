@@ -13,6 +13,7 @@ export const AuditAction = {
   ORDER_MERCHANT_CANCEL: 'order.merchant_cancel',
   ORDER_AUTO_CONFIRM: 'order.auto_confirm',
   ORDER_STATUS_UPDATE: 'order.status_update',
+  ORDER_ITEM_REPLACE_SKU: 'order.item_replace_sku',
   // Inventory
   INVENTORY_ADJUST: 'inventory.adjust',
   INVENTORY_RESERVE: 'inventory.reserve',

@@ -3,6 +3,7 @@ import {
   SyncOutlined, DownloadOutlined, EyeOutlined, ShoppingCartOutlined,
   PrinterOutlined, CheckOutlined, CloseOutlined, SearchOutlined,
   PlusOutlined, CarOutlined, MinusCircleOutlined, DeleteOutlined,
+  SwapOutlined,
 } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
@@ -125,8 +126,19 @@ async function makeContentBoundsDetector(pdfBytes: ArrayBuffer) {
   }
 }
 
-async function combineToSinglePage(pdfBytes: ArrayBuffer): Promise<Uint8Array> {
-  const { PDFDocument } = await import('pdf-lib')
+// Build the visible stamp text for a label, or null if no item in this order
+// was SKU-replaced. Format keeps it readable on a 105mm-wide thermal print.
+function buildSkuReplacementStamp(
+  items: Array<{ sellerSku?: string | null; originalSellerSku?: string | null; replacedAt?: string | null }> | undefined,
+): string | null {
+  const swaps = (items ?? [])
+    .filter((it) => it.replacedAt && it.originalSellerSku && it.originalSellerSku !== it.sellerSku)
+    .map((it) => `${it.originalSellerSku} -> ${it.sellerSku ?? '?'}`)
+  return swaps.length > 0 ? swaps.join('  /  ') : null
+}
+
+async function combineToSinglePage(pdfBytes: ArrayBuffer, stamp?: string | null): Promise<Uint8Array> {
+  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib')
   const src = await PDFDocument.load(pdfBytes)
   const indices = src.getPageIndices()
   if (indices.length === 0) return new Uint8Array(pdfBytes)
@@ -184,6 +196,40 @@ async function combineToSinglePage(pdfBytes: ArrayBuffer): Promise<Uint8Array> {
     yTop -= drawnHeight
     page.drawPage(p, { x: xOffset, y: yTop, width: drawnWidth, height: drawnHeight })
   })
+
+  // SKU-replacement stamp: red banner along the top of the label, above the
+  // carrier artwork. Thermal printers ignore color (renders as bold black) but
+  // the contrast still reads clearly. We use Helvetica-Bold from the standard
+  // 14, which embeds without shipping a font file.
+  if (stamp && stamp.trim().length > 0) {
+    const font = await out.embedFont(StandardFonts.HelveticaBold)
+    const bannerH = 18
+    const padX = 6
+    // Lay the banner above any drawn content; if the content stack already
+    // butts the top edge, draw flush with the page top.
+    const bannerY = Math.min(A6_HEIGHT - bannerH, yTopStart + 2)
+    page.drawRectangle({
+      x: 0,
+      y: bannerY,
+      width: A6_WIDTH,
+      height: bannerH,
+      color: rgb(0.86, 0.15, 0.15),
+    })
+    // Fit-to-width: shrink font size until the longest line fits.
+    let fontSize = 11
+    const text = `SKU REPLACED  ${stamp}`
+    while (fontSize > 6 && font.widthOfTextAtSize(text, fontSize) > A6_WIDTH - padX * 2) {
+      fontSize -= 0.5
+    }
+    const textWidth = font.widthOfTextAtSize(text, fontSize)
+    page.drawText(text, {
+      x: Math.max(padX, (A6_WIDTH - textWidth) / 2),
+      y: bannerY + (bannerH - fontSize) / 2 + 1,
+      size: fontSize,
+      font,
+      color: rgb(1, 1, 1),
+    })
+  }
 
   return out.save()
 }
@@ -256,6 +302,7 @@ export default function OrdersPage() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [isManualTab, setIsManualTab] = useState(false)
   const [showCreateManual, setShowCreateManual] = useState(false)
+  const [replaceSkuOrderId, setReplaceSkuOrderId] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   // Sub-account list (for warehouse/admin merchant filter)
@@ -443,7 +490,7 @@ export default function OrdersPage() {
     queryFn: () => api.get('/shops').then((r) => r.data.data as Array<{ id: string; name: string; platform: string }>),
   })
 
-  async function handlePrintLabel(order: { id: string; platformMetadata?: any }) {
+  async function handlePrintLabel(order: { id: string; platformMetadata?: any; items?: Array<{ sellerSku?: string | null; originalSellerSku?: string | null; replacedAt?: string | null }> }) {
     const pkgs = packageIdsForOrder(order)
     const toastKey = `print-${order.id}`
     void message.loading({ content: t('orders.printing'), duration: 0, key: toastKey })
@@ -464,11 +511,12 @@ export default function OrdersPage() {
       // Always route through label-proxy + pdf-lib so we can collapse each
       // 2-page (label + slip) document down to a single page. Multiple
       // packages then concatenate into one PDF.
+      const stamp = buildSkuReplacementStamp(order.items)
       const { PDFDocument } = await import('pdf-lib')
       const merged = await PDFDocument.create()
       for (const u of urls) {
         const res = await api.get('/orders/label-proxy', { params: { url: u }, responseType: 'arraybuffer' })
-        const collapsedBytes = await combineToSinglePage(res.data as ArrayBuffer)
+        const collapsedBytes = await combineToSinglePage(res.data as ArrayBuffer, stamp)
         const src = await PDFDocument.load(collapsedBytes)
         const pages = await merged.copyPages(src, src.getPageIndices())
         pages.forEach((p) => merged.addPage(p))
@@ -526,13 +574,15 @@ export default function OrdersPage() {
   // Expand a list of orders into one print task per (order, package). Multi-
   // package orders produce multiple tasks; orders without package_ids fall back
   // to a single task with no packageId. Order-then-package ordering keeps the
-  // merged PDF's pages grouped by order.
-  function ordersToPrintTasks(orders: Array<{ id: string; platformMetadata?: any }>) {
-    const tasks: Array<{ orderId: string; packageId?: string }> = []
+  // merged PDF's pages grouped by order. Tasks carry the per-order SKU
+  // replacement stamp so each label is overlaid with its own old→new diff.
+  function ordersToPrintTasks(orders: Array<{ id: string; platformMetadata?: any; items?: any[] }>) {
+    const tasks: Array<{ orderId: string; packageId?: string; stamp?: string | null }> = []
     for (const o of orders) {
       const pkgs = packageIdsForOrder(o)
-      if (pkgs.length === 0) tasks.push({ orderId: o.id })
-      else for (const pkg of pkgs) tasks.push({ orderId: o.id, packageId: pkg })
+      const stamp = buildSkuReplacementStamp(o.items)
+      if (pkgs.length === 0) tasks.push({ orderId: o.id, stamp })
+      else for (const pkg of pkgs) tasks.push({ orderId: o.id, packageId: pkg, stamp })
     }
     return tasks
   }
@@ -540,12 +590,14 @@ export default function OrdersPage() {
   // Fetch each task's label URL, merge into a single PDF, open it. Shared by
   // both "print all filtered" and "print selected". Returns counts so the
   // caller can show a unified success/warning toast.
-  async function runPrintTasks(tasks: Array<{ orderId: string; packageId?: string }>) {
+  async function runPrintTasks(tasks: Array<{ orderId: string; packageId?: string; stamp?: string | null }>) {
     setBulkPrinting(true)
     let hide = message.loading(t('orders.bulkPrintProgress', { done: 0, total: tasks.length }), 0)
     let done = 0
     let failed = 0
-    const urls: string[] = []
+    // Pair each fetched URL with the per-order SKU-replacement stamp so the
+    // overlay travels with the right page in the final merged PDF.
+    const labels: Array<{ url: string; stamp?: string | null }> = []
     try {
       for (const task of tasks) {
         try {
@@ -553,7 +605,7 @@ export default function OrdersPage() {
             params: task.packageId ? { packageId: task.packageId } : undefined,
           })
           const url = r.data?.data?.docUrl
-          if (url) urls.push(url)
+          if (url) labels.push({ url, stamp: task.stamp ?? null })
           else failed++
         } catch {
           failed++
@@ -563,7 +615,7 @@ export default function OrdersPage() {
         hide = message.loading(t('orders.bulkPrintProgress', { done, total: tasks.length }), 0)
       }
 
-      if (urls.length === 0) {
+      if (labels.length === 0) {
         void message.error(t('orders.bulkPrintDone', { done: 0, failed }))
         return { done: 0, failed }
       }
@@ -574,14 +626,14 @@ export default function OrdersPage() {
       // keeps pdf-lib out of the main bundle.
       const { PDFDocument } = await import('pdf-lib')
       const merged = await PDFDocument.create()
-      for (const u of urls) {
+      for (const { url, stamp } of labels) {
         try {
           // Fetch via our backend proxy — TikTok's CDN blocks browser CORS.
           const res = await api.get('/orders/label-proxy', {
-            params: { url: u },
+            params: { url },
             responseType: 'arraybuffer',
           })
-          const collapsedBytes = await combineToSinglePage(res.data as ArrayBuffer)
+          const collapsedBytes = await combineToSinglePage(res.data as ArrayBuffer, stamp)
           const src = await PDFDocument.load(collapsedBytes)
           const pages = await merged.copyPages(src, src.getPageIndices())
           pages.forEach((p) => merged.addPage(p))
@@ -595,9 +647,9 @@ export default function OrdersPage() {
       hide()
       setBulkPrinting(false)
     }
-    void message[failed === 0 ? 'success' : 'warning'](t('orders.bulkPrintDone', { done: urls.length, failed }))
+    void message[failed === 0 ? 'success' : 'warning'](t('orders.bulkPrintDone', { done: labels.length, failed }))
     void syncQuiet()
-    return { done: urls.length, failed }
+    return { done: labels.length, failed }
   }
 
   async function handlePrintAll() {
@@ -613,7 +665,7 @@ export default function OrdersPage() {
         pageSize: 200,
       },
     })
-    const all = (res.data.data?.items ?? []) as Array<{ id: string; platformOrderId: string; status: string; platformMetadata?: any; isManual?: boolean }>
+    const all = (res.data.data?.items ?? []) as Array<{ id: string; platformOrderId: string; status: string; platformMetadata?: any; isManual?: boolean; items?: any[] }>
     const printable = all.filter((o) => PRINTABLE_STATUSES.has(o.status) && !o.isManual)
     const skipped = all.length - printable.length
 
@@ -683,18 +735,34 @@ export default function OrdersPage() {
       title: t('orders.sku'),
       dataIndex: 'items',
       key: 'sku',
-      width: 140,
+      width: 180,
       sorter: true,
       sortOrder: sortBy === 'sku' ? (sortOrder === 'asc' ? 'ascend' : 'descend') : undefined,
-      render: (items: Array<{ sellerSku?: string | null; quantity: number }>) => {
+      render: (items: Array<{ sellerSku?: string | null; quantity: number; originalSellerSku?: string | null; replacedAt?: string | null }>) => {
         if (!items?.length) return <span style={{ color: 'var(--text-muted)' }}>—</span>
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, fontFamily: "'Courier New', monospace" }}>
-            {items.map((it, i) => (
-              <span key={i} style={{ color: it.sellerSku ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                {it.sellerSku ?? '—'}{it.quantity > 1 ? ` × ${it.quantity}` : ''}
-              </span>
-            ))}
+            {items.map((it, i) => {
+              const wasReplaced = !!it.replacedAt && !!it.originalSellerSku && it.originalSellerSku !== it.sellerSku
+              const qtySuffix = it.quantity > 1 ? ` × ${it.quantity}` : ''
+              if (wasReplaced) {
+                return (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <span style={{ color: '#dc2626', textDecoration: 'line-through' }}>
+                      {it.originalSellerSku}{qtySuffix}
+                    </span>
+                    <span style={{ color: '#16a34a', fontWeight: 600 }}>
+                      {it.sellerSku ?? '—'}{qtySuffix}
+                    </span>
+                  </div>
+                )
+              }
+              return (
+                <span key={i} style={{ color: it.sellerSku ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                  {it.sellerSku ?? '—'}{qtySuffix}
+                </span>
+              )
+            })}
           </div>
         )
       },
@@ -761,8 +829,10 @@ export default function OrdersPage() {
       fixed: 'right',
       render: (_: any, record: any) => {
         const isPending = record.merchantConfirmStatus === 'PENDING_CONFIRM'
+        const isConfirmed = record.merchantConfirmStatus === 'CONFIRMED' || record.merchantConfirmStatus === 'AUTO_CONFIRMED'
         const isToShip = STATUS_GROUPS.TO_SHIP.includes(record.status)
         const canMerchantAct = merchantUser && isPending && isToShip && !record.isManual
+        const canReplaceSku = merchantUser && (isPending || isConfirmed) && isToShip && !record.isManual && (record.items?.length ?? 0) > 0
         const canManualShip = !merchantUser && record.isManual && record.manualStatus === 'PENDING'
         const canDeleteManual = record.isManual && (merchantUser || user?.role === 'ADMIN')
         return (
@@ -799,6 +869,16 @@ export default function OrdersPage() {
                   }}
                 />
               </>
+            )}
+            {canReplaceSku && (
+              <Button
+                type="text"
+                size="small"
+                icon={<SwapOutlined />}
+                style={{ color: 'var(--accent-color, #7c3aed)' }}
+                title={t('orders.replaceSkuButton')}
+                onClick={(e) => { e.stopPropagation(); setReplaceSkuOrderId(record.id) }}
+              />
             )}
             {canManualShip && (
               <Popconfirm
@@ -1182,6 +1262,17 @@ export default function OrdersPage() {
       </div>
 
       <OrderDetailModal id={detailId} onClose={() => setDetailId(null)} />
+      {replaceSkuOrderId && (
+        <ReplaceSkuModal
+          orderId={replaceSkuOrderId}
+          onClose={() => setReplaceSkuOrderId(null)}
+          onSuccess={() => {
+            setReplaceSkuOrderId(null)
+            queryClient.invalidateQueries({ queryKey: ['orders'] })
+            queryClient.invalidateQueries({ queryKey: ['order-detail'] })
+          }}
+        />
+      )}
       {showCreateManual && (
         <CreateManualOrderModal
           onClose={() => setShowCreateManual(false)}
@@ -1268,8 +1359,41 @@ function OrderDetailModal({ id, onClose }: { id: string | null; onClose: () => v
               pagination={false}
               dataSource={order.items ?? []}
               columns={[
-                { title: t('orders.detailItemSku'), dataIndex: 'sellerSku', key: 'sellerSku', render: (v: string | null) => v || <span style={{ color: 'var(--text-muted)' }}>—</span> },
-                { title: t('orders.detailItemName'), dataIndex: 'productName', key: 'productName', ellipsis: true },
+                {
+                  title: t('orders.detailItemSku'),
+                  dataIndex: 'sellerSku',
+                  key: 'sellerSku',
+                  render: (v: string | null, row: any) => {
+                    const wasReplaced = !!row.replacedAt && !!row.originalSellerSku && row.originalSellerSku !== v
+                    if (wasReplaced) {
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 1, fontFamily: "'Courier New', monospace", fontSize: 12 }}>
+                          <span style={{ color: '#dc2626', textDecoration: 'line-through' }}>{row.originalSellerSku}</span>
+                          <span style={{ color: '#16a34a', fontWeight: 600 }}>{v ?? '—'}</span>
+                        </div>
+                      )
+                    }
+                    return v || <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  },
+                },
+                {
+                  title: t('orders.detailItemName'),
+                  dataIndex: 'productName',
+                  key: 'productName',
+                  ellipsis: true,
+                  render: (v: string | null, row: any) => {
+                    const wasReplaced = !!row.replacedAt && !!row.originalProductName && row.originalProductName !== v
+                    if (wasReplaced) {
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          <span style={{ color: '#dc2626', textDecoration: 'line-through', fontSize: 12 }}>{row.originalProductName}</span>
+                          <span style={{ color: '#16a34a', fontSize: 12, fontWeight: 600 }}>{v}</span>
+                        </div>
+                      )
+                    }
+                    return v
+                  },
+                },
                 { title: t('orders.detailItemVariant'), dataIndex: 'skuName', key: 'skuName', render: (v: string | null) => v || <span style={{ color: 'var(--text-muted)' }}>—</span> },
                 { title: t('orders.detailItemQty'), dataIndex: 'quantity', key: 'quantity', width: 70, align: 'right' as const },
                 { title: t('orders.detailItemPrice'), dataIndex: 'unitPrice', key: 'unitPrice', width: 100, align: 'right' as const, render: (v: any) => `${order.currency ?? ''} ${v ?? 0}` },
@@ -1300,6 +1424,172 @@ function DetailField({ label, value, span = 1 }: { label: string; value: React.R
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
       <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>{value}</div>
     </div>
+  )
+}
+
+// ─── Replace-SKU Modal ────────────────────────────────────────────────────────
+
+// Per-item replacement picker. The merchant sees each item's current SKU and
+// optionally selects a replacement SystemSku from their catalog (via the
+// /inventory/stock search endpoint, deduped by systemSkuId). Submitting fires
+// one /items/:itemId/replace-sku call per changed row, in parallel.
+function ReplaceSkuModal({ orderId, onClose, onSuccess }: { orderId: string; onClose: () => void; onSuccess: () => void }) {
+  const { t } = useTranslation()
+  // selection[itemId] = chosen systemSkuId | undefined
+  const [selection, setSelection] = useState<Record<string, string | undefined>>({})
+  const [submitting, setSubmitting] = useState(false)
+
+  const { data: order, isLoading } = useQuery({
+    queryKey: ['order-detail', orderId],
+    queryFn: () => api.get(`/orders/${orderId}`).then((r) => r.data.data),
+  })
+
+  return (
+    <Modal
+      open
+      onCancel={onClose}
+      width={760}
+      title={t('orders.replaceSkuTitle')}
+      okText={t('orders.replaceSkuOk')}
+      cancelText={t('common.cancel')}
+      confirmLoading={submitting}
+      onOk={async () => {
+        const changes = Object.entries(selection).filter(([, v]) => !!v) as Array<[string, string]>
+        if (changes.length === 0) {
+          void message.info(t('orders.replaceSkuNoChanges'))
+          return
+        }
+        setSubmitting(true)
+        try {
+          const results = await Promise.allSettled(
+            changes.map(([itemId, newSystemSkuId]) =>
+              api.post(`/orders/${orderId}/items/${itemId}/replace-sku`, { newSystemSkuId }),
+            ),
+          )
+          const failed = results.filter((r) => r.status === 'rejected')
+          if (failed.length === 0) {
+            void message.success(t('orders.replaceSkuSuccess'))
+            onSuccess()
+          } else {
+            const firstErr = (failed[0] as PromiseRejectedResult).reason
+            void message.error(firstErr?.response?.data?.error ?? t('returns.failed'))
+          }
+        } finally {
+          setSubmitting(false)
+        }
+      }}
+      destroyOnClose
+    >
+      {isLoading || !order ? (
+        <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--text-muted)' }}>{t('common.loading')}</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            {t('orders.replaceSkuIntro')}
+          </div>
+          <Table
+            size="small"
+            rowKey="id"
+            pagination={false}
+            dataSource={order.items ?? []}
+            columns={[
+              {
+                title: t('orders.replaceSkuTableItem'),
+                key: 'current',
+                render: (_: any, row: any) => (
+                  <div style={{ fontFamily: "'Courier New', monospace", fontSize: 12 }}>
+                    <div>{row.sellerSku ?? '—'}</div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: 11, fontFamily: 'inherit' }}>{row.productName}</div>
+                  </div>
+                ),
+              },
+              {
+                title: t('orders.replaceSkuTableQty'),
+                dataIndex: 'quantity',
+                key: 'qty',
+                width: 60,
+                align: 'right' as const,
+              },
+              {
+                title: t('orders.replaceSkuTableNew'),
+                key: 'new',
+                render: (_: any, row: any) => (
+                  <SystemSkuPicker
+                    value={selection[row.id]}
+                    onChange={(v) => setSelection((prev) => ({ ...prev, [row.id]: v }))}
+                    excludeSystemSkuId={row.systemSkuId ?? undefined}
+                  />
+                ),
+              },
+            ]}
+          />
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+// Async-search picker for SystemSkus, backed by /inventory/stock. Rows from
+// that endpoint are warehouseSku-scoped (one per warehouse × sku), so we
+// dedupe by systemSkuId client-side and sum the available quantity across
+// warehouses so the merchant sees one row per replacement option.
+function SystemSkuPicker({
+  value, onChange, excludeSystemSkuId,
+}: {
+  value: string | undefined
+  onChange: (v: string | undefined) => void
+  excludeSystemSkuId?: string
+}) {
+  const { t } = useTranslation()
+  const [search, setSearch] = useState('')
+  const { data, isFetching } = useQuery({
+    queryKey: ['system-sku-picker', search],
+    queryFn: () => api.get('/inventory/stock', {
+      params: { skuSearch: search || undefined, pageSize: 50 },
+    }).then((r) => r.data.data?.items as Array<{
+      systemSkuId: string; skuCode: string; productName: string; quantityAvailable: number
+    }>),
+  })
+
+  // Dedupe by systemSkuId, sum quantityAvailable across warehouses.
+  const options = (() => {
+    const byId = new Map<string, { systemSkuId: string; skuCode: string; productName: string; quantityAvailable: number }>()
+    for (const row of data ?? []) {
+      if (excludeSystemSkuId && row.systemSkuId === excludeSystemSkuId) continue
+      const cur = byId.get(row.systemSkuId)
+      if (cur) cur.quantityAvailable += row.quantityAvailable
+      else byId.set(row.systemSkuId, { ...row })
+    }
+    return Array.from(byId.values())
+  })()
+
+  return (
+    <Select
+      showSearch
+      allowClear
+      value={value}
+      placeholder={t('orders.replaceSkuPickerPlaceholder')}
+      style={{ width: '100%' }}
+      filterOption={false}
+      onSearch={setSearch}
+      onChange={(v) => onChange(v || undefined)}
+      loading={isFetching}
+      notFoundContent={isFetching ? t('common.loading') : null}
+      options={options.map((o) => ({
+        value: o.systemSkuId,
+        label: (
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              <span style={{ fontFamily: "'Courier New', monospace", fontSize: 12 }}>{o.skuCode}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.productName}</span>
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+              {t('orders.replaceSkuStockHint', { n: o.quantityAvailable })}
+            </span>
+          </div>
+        ),
+      }))}
+    />
   )
 }
 

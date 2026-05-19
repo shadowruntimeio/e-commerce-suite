@@ -177,6 +177,7 @@ model User {
   reviewedShipments   InboundShipment[]   @relation("ShipmentReviewer")
   notifications       MerchantNotification[] @relation("UserNotifications")
   createdManualOrders Order[]                @relation("ManualOrderCreator")
+  replacedOrderItems  OrderItem[]            @relation("OrderItemSkuReplacer")
 
   @@unique([tenantId, email])
   @@map("users")
@@ -506,9 +507,23 @@ model OrderItem {
   discount       Decimal @default(0) @db.Decimal(12, 4)
   costPriceAtOrder Decimal @default(0) @db.Decimal(12, 4)
 
+  // SKU replacement audit. When a merchant swaps an item's SKU (out-of-stock
+  // workaround), the live fields above point at the NEW SKU and the original
+  // values are snapshotted here so the warehouse can render an old→new diff
+  // and the shipping label can be stamped with the replacement. Set once on
+  // the first replacement; subsequent replacements update the live fields but
+  // keep the original-snapshot intact.
+  originalSellerSku   String?
+  originalSystemSkuId String?
+  originalSkuName     String?
+  originalProductName String?
+  replacedAt          DateTime?
+  replacedByUserId    String?
+
   order     Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
   onlineSku OnlineSku? @relation(fields: [onlineSkuId], references: [id])
   systemSku SystemSku? @relation(fields: [systemSkuId], references: [id])
+  replacedBy User?     @relation("OrderItemSkuReplacer", fields: [replacedByUserId], references: [id])
 
   @@map("order_items")
 }

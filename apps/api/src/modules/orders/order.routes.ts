@@ -8,6 +8,14 @@ import { getShopTikTokAppCreds } from '../../platform/tiktok/tiktok-app-creds'
 import { recordAudit, AuditAction } from '../../lib/audit'
 import { reserveStockForOrder, releaseStockForOrder } from '../inventory/inventory.service'
 
+// Render SystemSku.attributes (e.g. { color: 'red', size: 'XL' }) into the
+// human-readable variant string we store on OrderItem.skuName.
+function formatAttributes(attrs: Record<string, unknown> | null | undefined): string | null {
+  if (!attrs || typeof attrs !== 'object') return null
+  const parts = Object.values(attrs).filter((v) => typeof v === 'string' && v.length > 0)
+  return parts.length > 0 ? parts.join(' / ') : null
+}
+
 export async function orderRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate)
 
@@ -444,6 +452,191 @@ export async function orderRoutes(app: FastifyInstance) {
     })
 
     return { success: true, data: updated }
+  })
+
+  // POST /:id/items/:itemId/replace-sku — merchant swaps an out-of-stock item
+  // for a different SystemSku. Snapshots the original SKU on first replacement
+  // so the warehouse can render an old→new diff (and the shipping label can be
+  // stamped). If the order is already CONFIRMED/AUTO_CONFIRMED, releases the
+  // old SKU's reservation and reserves the new one. Quantity is preserved.
+  // Allowed only while the order is still in a TO_SHIP-like status.
+  app.post('/:id/items/:itemId/replace-sku', async (request, reply) => {
+    if (request.user.role !== 'MERCHANT' && request.user.role !== 'ADMIN') {
+      return reply.status(403).send({ success: false, error: 'Forbidden' })
+    }
+    const { id, itemId } = request.params as { id: string; itemId: string }
+    const { newSystemSkuId } = (request.body ?? {}) as { newSystemSkuId?: string }
+    if (!newSystemSkuId) return reply.status(400).send({ success: false, error: 'newSystemSkuId required' })
+
+    const order = await prisma.order.findFirst({
+      where: {
+        id,
+        tenantId: request.user.tenantId,
+        ...(request.user.role === 'MERCHANT' ? { shop: { ownerUserId: request.user.userId } } : {}),
+      },
+      include: { shop: { select: { ownerUserId: true } }, items: { where: { id: itemId } } },
+    })
+    if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
+    const item = order.items[0]
+    if (!item) return reply.status(404).send({ success: false, error: 'Order item not found' })
+
+    // SKU swap only makes sense pre-shipment. TO_SHIP-family statuses are the
+    // window where the warehouse hasn't picked yet (or hasn't shipped yet).
+    const ALLOWED_STATUSES = ['ON_HOLD', 'AWAITING_SHIPMENT', 'AWAITING_COLLECTION', 'PARTIALLY_SHIPPING', 'TO_SHIP', 'PENDING'] as const
+    if (!(ALLOWED_STATUSES as readonly string[]).includes(order.status)) {
+      return reply.status(400).send({ success: false, error: `Cannot replace SKU when order status is ${order.status}` })
+    }
+    const ALLOWED_CONFIRM = ['PENDING_CONFIRM', 'CONFIRMED', 'AUTO_CONFIRMED'] as const
+    if (!(ALLOWED_CONFIRM as readonly string[]).includes(order.merchantConfirmStatus)) {
+      return reply.status(400).send({ success: false, error: `Cannot replace SKU when order is ${order.merchantConfirmStatus}` })
+    }
+
+    // Resolve target SystemSku — must belong to this merchant's catalog.
+    const newSku = await prisma.systemSku.findFirst({
+      where: {
+        id: newSystemSkuId,
+        systemProduct: {
+          tenantId: request.user.tenantId,
+          ...(request.user.role === 'MERCHANT' ? { ownerUserId: request.user.userId } : {}),
+        },
+      },
+      include: { systemProduct: { select: { name: true, ownerUserId: true } } },
+    })
+    if (!newSku) return reply.status(400).send({ success: false, error: 'Invalid replacement SKU' })
+
+    if (item.systemSkuId === newSku.id) {
+      return reply.status(400).send({ success: false, error: 'New SKU is identical to current SKU' })
+    }
+
+    // Reservation accounting — only meaningful once the order is past the
+    // merchant gate. PENDING_CONFIRM never reserved anything, so there's no
+    // movement to do.
+    const wasReserved = order.merchantConfirmStatus === 'CONFIRMED' || order.merchantConfirmStatus === 'AUTO_CONFIRMED'
+
+    // Capture original snapshot only on the FIRST replacement so re-edits
+    // don't clobber the buyer-facing values with intermediate state.
+    const isFirstReplacement = !item.replacedAt
+
+    // Compute the new sellerSku. Prefer skuCode (the merchant's internal code)
+    // as the human-readable seller SKU shown to the warehouse — this is the
+    // pattern used elsewhere in the system.
+    const newSellerSku = newSku.skuCode
+    const newSkuVariantName = formatAttributes(newSku.attributes as Record<string, unknown> | null)
+
+    await prisma.$transaction(async (tx) => {
+      // 1) Release old reservation (best-effort, by warehouseSku lookup).
+      if (wasReserved && item.systemSkuId) {
+        const oldWsku = await tx.warehouseSku.findFirst({
+          where: {
+            systemSkuId: item.systemSkuId,
+            ...(order.shop?.ownerUserId ? { ownerUserId: order.shop.ownerUserId } : {}),
+          },
+          select: { id: true, warehouseId: true },
+        })
+        if (oldWsku) {
+          await tx.inventoryEvent.create({
+            data: {
+              tenantId: request.user.tenantId,
+              warehouseSkuId: oldWsku.id,
+              warehouseId: oldWsku.warehouseId,
+              eventType: 'UNRESERVED',
+              quantityDelta: item.quantity,
+              referenceType: 'order',
+              referenceId: id,
+              createdBy: request.user.userId,
+            },
+          })
+          await tx.warehouseSku.update({
+            where: { id: oldWsku.id },
+            data: { quantityReserved: { increment: -item.quantity } },
+          })
+        }
+      }
+
+      // 2) Reserve against new SKU (best-effort — if not in the merchant's
+      // warehouse catalog, warehouse staff will resolve when picking).
+      if (wasReserved) {
+        const newWsku = await tx.warehouseSku.findFirst({
+          where: {
+            systemSkuId: newSku.id,
+            ...(order.shop?.ownerUserId ? { ownerUserId: order.shop.ownerUserId } : {}),
+          },
+          select: { id: true, warehouseId: true },
+        })
+        if (newWsku) {
+          await tx.inventoryEvent.create({
+            data: {
+              tenantId: request.user.tenantId,
+              warehouseSkuId: newWsku.id,
+              warehouseId: newWsku.warehouseId,
+              eventType: 'RESERVED',
+              quantityDelta: -item.quantity,
+              referenceType: 'order',
+              referenceId: id,
+              createdBy: request.user.userId,
+            },
+          })
+          await tx.warehouseSku.update({
+            where: { id: newWsku.id },
+            data: { quantityReserved: { increment: item.quantity } },
+          })
+        }
+      }
+
+      // 3) Update the order item itself.
+      await tx.orderItem.update({
+        where: { id: itemId },
+        data: {
+          systemSkuId: newSku.id,
+          sellerSku: newSellerSku,
+          productName: newSku.systemProduct.name,
+          skuName: newSkuVariantName,
+          replacedAt: new Date(),
+          replacedByUserId: request.user.userId,
+          ...(isFirstReplacement
+            ? {
+                originalSellerSku: item.sellerSku,
+                originalSystemSkuId: item.systemSkuId,
+                originalSkuName: item.skuName,
+                originalProductName: item.productName,
+              }
+            : {}),
+        },
+      })
+
+      // 4) Refresh denormalized firstSellerSku on the order if this item
+      // was the first one (or the only one with a sellerSku set).
+      const firstItem = await tx.orderItem.findFirst({
+        where: { orderId: id },
+        orderBy: { id: 'asc' },
+        select: { sellerSku: true },
+      })
+      if (firstItem) {
+        await tx.order.update({
+          where: { id },
+          data: { firstSellerSku: firstItem.sellerSku ?? null },
+        })
+      }
+    })
+
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.ORDER_ITEM_REPLACE_SKU,
+      targetType: 'order_item',
+      targetId: itemId,
+      payload: {
+        orderId: id,
+        from: { systemSkuId: item.systemSkuId, sellerSku: item.sellerSku, productName: item.productName, skuName: item.skuName },
+        to:   { systemSkuId: newSku.id,        sellerSku: newSellerSku,    productName: newSku.systemProduct.name, skuName: newSkuVariantName },
+        quantity: item.quantity,
+        wasReserved,
+      },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
+
+    return { success: true }
   })
 
   // GET /:id/shipping-label — fetch shipping label from platform
