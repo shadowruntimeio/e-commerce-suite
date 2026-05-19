@@ -1513,6 +1513,7 @@ function ReplaceSkuModal({ orderId, onClose, onSuccess }: { orderId: string; onC
               {
                 title: t('orders.replaceSkuTableNew'),
                 key: 'new',
+                width: 260,
                 render: (_: any, row: any) => (
                   <SystemSkuPicker
                     value={selection[row.id]}
@@ -1575,6 +1576,9 @@ function SystemSkuPicker({
       onChange={(v) => onChange(v || undefined)}
       loading={isFetching}
       notFoundContent={isFetching ? t('common.loading') : null}
+      // Decouple the dropdown's width from the trigger so the rich two-line
+      // options have room regardless of how short the selected SKU code is.
+      popupMatchSelectWidth={360}
       // Show only the plain SKU code in the collapsed selector; the rich
       // two-line label is for the dropdown options only.
       optionLabelProp="skuCode"
