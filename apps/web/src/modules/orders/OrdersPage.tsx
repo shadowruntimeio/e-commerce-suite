@@ -1575,8 +1575,12 @@ function SystemSkuPicker({
       onChange={(v) => onChange(v || undefined)}
       loading={isFetching}
       notFoundContent={isFetching ? t('common.loading') : null}
+      // Show only the plain SKU code in the collapsed selector; the rich
+      // two-line label is for the dropdown options only.
+      optionLabelProp="skuCode"
       options={options.map((o) => ({
         value: o.systemSkuId,
+        skuCode: o.skuCode,
         label: (
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
             <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>

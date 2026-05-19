@@ -158,6 +158,28 @@
       *, *::before, *::after {
         transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
       }
+
+      /* Fixed-right table columns: the row-hover var is intentionally
+         semi-transparent (rgba(...,0.04)) for the visual style, but a sticky
+         right column on top of a translucent layer lets content from the
+         scrolled cells beneath bleed through. Force an opaque background that
+         tracks both default and hover states. Applies anywhere we use
+         fixed: 'right' (orders, inventory). */
+      .ant-table-cell-fix-right,
+      .ant-table-cell-fix-left {
+        background: var(--bg-card) !important;
+      }
+      .ant-table-row:hover > .ant-table-cell-fix-right,
+      .ant-table-row:hover > .ant-table-cell-fix-left,
+      .ant-table-row-hover > .ant-table-cell-fix-right,
+      .ant-table-row-hover > .ant-table-cell-fix-left {
+        background: var(--bg-card) !important;
+        background-image: linear-gradient(var(--row-hover), var(--row-hover)) !important;
+      }
+      .ant-table-thead .ant-table-cell-fix-right,
+      .ant-table-thead .ant-table-cell-fix-left {
+        background: var(--bg-card) !important;
+      }
     </style>
   </head>
   <body>
