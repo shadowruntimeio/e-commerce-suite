@@ -6,7 +6,7 @@ import {
   SwapOutlined,
 } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { message } from 'antd'
 import { api } from '../../lib/api'
@@ -303,6 +303,11 @@ export default function OrdersPage() {
   const [isManualTab, setIsManualTab] = useState(false)
   const [showCreateManual, setShowCreateManual] = useState(false)
   const [replaceSkuOrderId, setReplaceSkuOrderId] = useState<string | null>(null)
+  // True from the moment we kick off the mount auto-sync until the worker has
+  // had a chance to land fresh orders (or the 20s ceiling is reached). Drives
+  // the table's spinner so merchants don't briefly see an empty list while
+  // the BullMQ job is still running in the background.
+  const [autoSyncing, setAutoSyncing] = useState(false)
   const queryClient = useQueryClient()
 
   // Sub-account list (for warehouse/admin merchant filter)
@@ -353,25 +358,41 @@ export default function OrdersPage() {
   }
 
   // Quiet sync: fire-and-forget trigger for all active shops, no UI. Used on
-  // page mount and after order-mutating actions (print). Fires the sync and
-  // invalidates the list after a delay long enough for (a) the worker to run
-  // and (b) TikTok's own update-time propagation to settle (roughly 20s).
+  // page mount and after order-mutating actions (print). POST /shops/sync-all
+  // returns immediately after enqueuing the BullMQ job — actual TikTok pull
+  // takes 2–15s in the worker, so we stagger invalidations to refresh the
+  // list as soon as the worker lands rows rather than after a single long
+  // wait. Marks `autoSyncing` so the table shows a spinner during the window.
+  // Timers are tracked in a ref so navigation away cancels pending refetches.
+  const syncTimersRef = useRef<number[]>([])
+  const clearSyncTimers = useCallback(() => {
+    for (const id of syncTimersRef.current) window.clearTimeout(id)
+    syncTimersRef.current = []
+  }, [])
   const syncQuiet = useCallback(async () => {
+    clearSyncTimers()
+    setAutoSyncing(true)
     try {
       await api.post('/shops/sync-all')
-      window.setTimeout(() => {
-        void queryClient.invalidateQueries({ queryKey: ['orders'] })
-      }, 20000)
+      for (const delayMs of [2500, 6000, 12000, 20000]) {
+        syncTimersRef.current.push(window.setTimeout(() => {
+          void queryClient.invalidateQueries({ queryKey: ['orders'] })
+        }, delayMs))
+      }
+      syncTimersRef.current.push(window.setTimeout(() => setAutoSyncing(false), 20000))
     } catch {
       // Silent — this is a background nicety, not user-triggered.
+      setAutoSyncing(false)
     }
-  }, [queryClient])
+  }, [clearSyncTimers, queryClient])
 
   // On mount (including when returning to this page from another route),
-  // enqueue a sync so the list reflects fresh platform state.
+  // enqueue a sync so the list reflects fresh platform state. Cancel pending
+  // invalidations / spinner reset on unmount.
   useEffect(() => {
     void syncQuiet()
-  }, [syncQuiet])
+    return clearSyncTimers
+  }, [syncQuiet, clearSyncTimers])
 
   // Clear bulk selection whenever the filtered set or page changes — a key
   // selected on page 1 is no longer visible after switching to page 2, and
@@ -1202,7 +1223,11 @@ export default function OrdersPage() {
           rowKey="id"
           columns={columns}
           dataSource={data?.items ?? []}
-          loading={isLoading}
+          // Show the spinner while the mount auto-sync window is still open
+          // AND the list is currently empty, so merchants don't briefly see
+          // "no orders" before the worker lands the fresh pull. Once any rows
+          // arrive the spinner clears even if the 20s window hasn't elapsed.
+          loading={isLoading || (autoSyncing && (data?.items?.length ?? 0) === 0)}
           size="middle"
           style={{ borderRadius: 0 }}
           onRow={() => ({ style: { cursor: 'pointer' } })}
