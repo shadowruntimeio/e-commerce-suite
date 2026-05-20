@@ -126,6 +126,29 @@ async function makeContentBoundsDetector(pdfBytes: ArrayBuffer) {
   }
 }
 
+// Resolve a label URL to its PDF bytes. Shopee's adapter returns the label
+// inline as a data:application/pdf;base64,... URI (the API responds with bytes
+// rather than a signed CDN URL like TikTok), so decoding it locally is both
+// safe and avoids round-tripping through the label-proxy. For TikTok we go
+// through the proxy because tiktokshop.com blocks browser CORS.
+async function fetchLabelPdf(url: string): Promise<ArrayBuffer> {
+  if (url.startsWith('data:')) {
+    const commaIdx = url.indexOf(',')
+    if (commaIdx === -1) throw new Error('malformed data URI label')
+    const meta = url.slice(5, commaIdx)
+    const payload = url.slice(commaIdx + 1)
+    if (meta.includes(';base64')) {
+      const bin = atob(payload)
+      const out = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+      return out.buffer
+    }
+    return new TextEncoder().encode(decodeURIComponent(payload)).buffer
+  }
+  const res = await api.get('/orders/label-proxy', { params: { url }, responseType: 'arraybuffer' })
+  return res.data as ArrayBuffer
+}
+
 // Build the visible stamp text for a label, or null if no item in this order
 // was SKU-replaced. Format keeps it readable on a 105mm-wide thermal print.
 function buildSkuReplacementStamp(
@@ -536,8 +559,8 @@ export default function OrdersPage() {
       const { PDFDocument } = await import('pdf-lib')
       const merged = await PDFDocument.create()
       for (const u of urls) {
-        const res = await api.get('/orders/label-proxy', { params: { url: u }, responseType: 'arraybuffer' })
-        const collapsedBytes = await combineToSinglePage(res.data as ArrayBuffer, stamp)
+        const pdfBytes = await fetchLabelPdf(u)
+        const collapsedBytes = await combineToSinglePage(pdfBytes, stamp)
         const src = await PDFDocument.load(collapsedBytes)
         const pages = await merged.copyPages(src, src.getPageIndices())
         pages.forEach((p) => merged.addPage(p))
@@ -649,12 +672,10 @@ export default function OrdersPage() {
       const merged = await PDFDocument.create()
       for (const { url, stamp } of labels) {
         try {
-          // Fetch via our backend proxy — TikTok's CDN blocks browser CORS.
-          const res = await api.get('/orders/label-proxy', {
-            params: { url },
-            responseType: 'arraybuffer',
-          })
-          const collapsedBytes = await combineToSinglePage(res.data as ArrayBuffer, stamp)
+          // TikTok URLs go through label-proxy (CORS); Shopee data: URIs are
+          // decoded inline. Either way we collapse the 2-page label into 1.
+          const pdfBytes = await fetchLabelPdf(url)
+          const collapsedBytes = await combineToSinglePage(pdfBytes, stamp)
           const src = await PDFDocument.load(collapsedBytes)
           const pages = await merged.copyPages(src, src.getPageIndices())
           pages.forEach((p) => merged.addPage(p))

@@ -81,4 +81,8 @@ export interface PlatformProduct {
 export interface StockUpdate {
   platformSkuId: string
   stock: number
+  // Required for Shopee (its update_stock endpoint operates on item_id +
+  // model_id). TikTok ignores it. Callers should populate this from
+  // OnlineSku.onlineProduct.platformItemId.
+  platformItemId?: string
 }

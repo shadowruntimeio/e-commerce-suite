@@ -3,6 +3,7 @@ import { prisma } from '@ems/db'
 import { TikTokAdapter, encryptCredentials as encryptTikTokCredentials, decryptCredentials as decryptTikTokCredentials } from '../platform/tiktok/tiktok.adapter'
 import type { TikTokCredentials } from '../platform/tiktok/tiktok.adapter'
 import { getShopTikTokAppCreds } from '../platform/tiktok/tiktok-app-creds'
+import { ShopeeAdapter } from '../platform/shopee/shopee.adapter'
 import type { PlatformAdapter, PlatformProduct } from '../platform/adapter.interface'
 
 interface SyncProductsJob {
@@ -16,6 +17,7 @@ async function getAdapter(shop: { id: string; platform: string }): Promise<Platf
       const appCreds = await getShopTikTokAppCreds(shop.id)
       return new TikTokAdapter(appCreds)
     }
+    case 'SHOPEE': return new ShopeeAdapter()
     default: throw new Error(`Product sync not supported for platform: ${shop.platform}`)
   }
 }
@@ -27,7 +29,7 @@ export async function syncProductsProcessor(job: Job<SyncProductsJob>) {
   const shop = await prisma.shop.findFirst({ where: { id: shopId, tenantId } }) as any
   if (!shop) throw new Error(`Shop ${shopId} not found`)
 
-  if (!['TIKTOK'].includes(shop.platform)) {
+  if (!['TIKTOK', 'SHOPEE'].includes(shop.platform)) {
     console.log(`[sync-products] Product sync not yet supported for ${shop.platform}`)
     return
   }

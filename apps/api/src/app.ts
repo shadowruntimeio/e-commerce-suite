@@ -19,6 +19,7 @@ import { adsRoutes } from './modules/ads/ads.routes'
 import { csRoutes } from './modules/cs/cs.routes'
 import { logisticsRoutes } from './modules/logistics/logistics.routes'
 import { tiktokWebhookRoutes } from './modules/webhooks/tiktok.webhook'
+import { shopeeWebhookRoutes } from './modules/webhooks/shopee.webhook'
 import { authenticate } from './middleware/authenticate'
 import { adminRoutes } from './modules/admin/admin.routes'
 import { returnsRoutes } from './modules/returns/returns.routes'
@@ -43,6 +44,7 @@ export async function buildApp() {
   // Public routes
   await app.register(authRoutes, { prefix: '/api/v1/auth' })
   await app.register(tiktokWebhookRoutes, { prefix: '/api/v1/webhooks' })
+  await app.register(shopeeWebhookRoutes, { prefix: '/api/v1/webhooks' })
 
   // Protected routes — authenticate middleware applied per-route
   await app.register(shopRoutes, { prefix: '/api/v1/shops' })

@@ -202,6 +202,98 @@ interface ShopeeOrderDetailResponse {
   message?: string
 }
 
+// ─── Cancellation / shipping label types ───────────────────────────────────────
+
+// Shopee accepts a fixed enum for seller-initiated cancels. Anything else is rejected.
+export type ShopeeCancelReason =
+  | 'OUT_OF_STOCK'
+  | 'CUSTOMER_REQUEST'
+  | 'UNDELIVERABLE_AREA'
+  | 'COD_NOT_SUPPORTED'
+
+interface ShopeeShippingParameterInfo {
+  info_needed?: {
+    dropoff?: string[]   // e.g. ["branch_id"] when dropoff is required
+    pickup?: string[]    // e.g. ["address_id", "pickup_time_id"] when pickup is required
+    non_integrated?: string[]
+  }
+  dropoff?: {
+    branch_list?: Array<{ branch_id: number; region: string; address: string; city: string }>
+  }
+  pickup?: {
+    address_list?: Array<{
+      address_id: number
+      address: string
+      time_slot_list?: Array<{ date: number; time_text: string; pickup_time_id: string }>
+    }>
+  }
+}
+
+interface ShopeeShippingParameterResponse {
+  response?: ShopeeShippingParameterInfo
+  error?: string
+  message?: string
+}
+
+interface ShopeeShippingDocumentCreateResponse {
+  response?: { result_list?: Array<{ order_sn: string; fail_error?: string; fail_message?: string }> }
+  error?: string
+  message?: string
+}
+
+interface ShopeeShippingDocumentResultResponse {
+  response?: { result_list?: Array<{ order_sn: string; status: string; fail_error?: string; fail_message?: string }> }
+  error?: string
+  message?: string
+}
+
+// ─── Product types ────────────────────────────────────────────────────────────
+
+interface ShopeeItemListResponse {
+  response?: {
+    item: Array<{ item_id: number; item_status: string; update_time: number }>
+    total_count: number
+    has_next_page: boolean
+    next_offset: number
+  }
+  error?: string
+  message?: string
+}
+
+interface ShopeeItemBaseInfo {
+  item_id: number
+  item_name: string
+  item_status: string
+  has_model: boolean
+  price_info?: Array<{ original_price?: number; current_price?: number }>
+  stock_info_v2?: { summary_info?: { total_available_stock: number } }
+  image?: { image_url_list?: string[] }
+  attribute_list?: Array<{ attribute_id: number; attribute_name: string; attribute_value_list?: Array<{ value_id: number; original_value_name: string }> }>
+}
+
+interface ShopeeItemBaseInfoResponse {
+  response?: { item_list?: ShopeeItemBaseInfo[] }
+  error?: string
+  message?: string
+}
+
+interface ShopeeModelInfo {
+  model_id: number
+  model_sku?: string
+  tier_index?: number[]
+  price_info?: Array<{ original_price?: number; current_price?: number }>
+  stock_info_v2?: { summary_info?: { total_available_stock: number } }
+}
+
+interface ShopeeModelListResponse {
+  response?: {
+    tier_variation?: Array<{ name: string; option_list: Array<{ option: string }> }>
+    model?: ShopeeModelInfo[]
+  }
+  error?: string
+  message?: string
+}
+
 // ─── Adapter ──────────────────────────────────────────────────────────────────
 
 export class ShopeeAdapter implements PlatformAdapter {
@@ -366,14 +458,263 @@ export class ShopeeAdapter implements PlatformAdapter {
     return orders
   }
 
+  // ─── Product sync ───────────────────────────────────────────────────────────
+  // Two-phase: page through get_item_list to collect item_ids, then resolve
+  // each item via get_item_base_info (batches of 50) and — for items that
+  // have variants — get_model_list per item. Returns one PlatformProduct per
+  // listing, with one entry in skus[] for each model (or a synthetic single
+  // SKU for items with no variants).
   async syncProducts(shop: ShopRecord): Promise<PlatformProduct[]> {
-    // Product sync is out of scope for Phase 1 — placeholder for adapter completeness
-    console.log(`[shopee] syncProducts not yet implemented for shop ${shop.id}`)
-    return []
+    const { accessToken } = getCredentials(shop)
+    const shopId = shop.externalShopId
+
+    // Collect item_ids
+    const itemIds: number[] = []
+    let offset = 0
+    const PAGE_SIZE = 100
+    while (true) {
+      const apiPath = '/api/v2/product/get_item_list'
+      const timestamp = now()
+      const qs = shopQueryString(apiPath, timestamp, accessToken, shopId)
+      const extra = new URLSearchParams({
+        offset: String(offset),
+        page_size: String(PAGE_SIZE),
+        item_status: 'NORMAL',
+      }).toString()
+      const data = await shopeeGet<ShopeeItemListResponse>(apiPath, qs, extra)
+      const list = data.response?.item ?? []
+      for (const it of list) itemIds.push(it.item_id)
+      if (!data.response?.has_next_page) break
+      offset = data.response.next_offset
+    }
+    if (itemIds.length === 0) return []
+
+    // Resolve details — base info in batches of 50, model list per-item only
+    // for items where has_model is true.
+    const products: PlatformProduct[] = []
+    const BATCH_SIZE = 50
+    for (let i = 0; i < itemIds.length; i += BATCH_SIZE) {
+      const batch = itemIds.slice(i, i + BATCH_SIZE)
+      const apiPath = '/api/v2/product/get_item_base_info'
+      const timestamp = now()
+      const qs = shopQueryString(apiPath, timestamp, accessToken, shopId)
+      const extra = new URLSearchParams({ item_id_list: batch.join(',') }).toString()
+      const data = await shopeeGet<ShopeeItemBaseInfoResponse>(apiPath, qs, extra)
+      for (const item of data.response?.item_list ?? []) {
+        const skus: PlatformProduct['skus'] = []
+        if (item.has_model) {
+          const modelPath = '/api/v2/product/get_model_list'
+          const ts2 = now()
+          const qs2 = shopQueryString(modelPath, ts2, accessToken, shopId)
+          const ex2 = new URLSearchParams({ item_id: String(item.item_id) }).toString()
+          const modelData = await shopeeGet<ShopeeModelListResponse>(modelPath, qs2, ex2)
+          const tiers = modelData.response?.tier_variation ?? []
+          for (const model of modelData.response?.model ?? []) {
+            const attrs: Record<string, string> = {}
+            ;(model.tier_index ?? []).forEach((optIdx, tierIdx) => {
+              const tier = tiers[tierIdx]
+              const opt = tier?.option_list?.[optIdx]?.option
+              if (tier?.name && opt) attrs[tier.name] = opt
+            })
+            skus.push({
+              platformSkuId: String(model.model_id),
+              price: model.price_info?.[0]?.current_price ?? model.price_info?.[0]?.original_price ?? 0,
+              attributes: attrs,
+            })
+          }
+        } else {
+          // Single-variant item — synthesize one SKU with model_id=0, which is
+          // also Shopee's convention for "stock_list with no variants" on
+          // update_stock.
+          skus.push({
+            platformSkuId: '0',
+            price: item.price_info?.[0]?.current_price ?? item.price_info?.[0]?.original_price ?? 0,
+            attributes: {},
+          })
+        }
+        products.push({
+          platformItemId: String(item.item_id),
+          title: item.item_name,
+          status: item.item_status,
+          platformData: item as unknown as Record<string, unknown>,
+          skus,
+        })
+      }
+    }
+    return products
   }
 
+  // ─── Stock push ─────────────────────────────────────────────────────────────
+  // POST /api/v2/product/update_stock — operates on (item_id, model_id) pairs.
+  // Callers MUST populate update.platformItemId (we throw otherwise — better
+  // than silently no-op'ing). model_id=0 indicates a single-variant item.
   async updateStock(shop: ShopRecord, updates: StockUpdate[]): Promise<void> {
-    // Stock push is out of scope for Phase 1 — placeholder for adapter completeness
-    console.log(`[shopee] updateStock not yet implemented for shop ${shop.id}, ${updates.length} updates queued`)
+    if (updates.length === 0) return
+    const { accessToken } = getCredentials(shop)
+    // Group by item_id so one API call updates all models on the same item.
+    const byItem = new Map<string, Array<{ model_id: number; normal_stock: number }>>()
+    for (const u of updates) {
+      if (!u.platformItemId) {
+        throw new Error(`Shopee updateStock requires platformItemId (sku=${u.platformSkuId})`)
+      }
+      const modelId = parseInt(u.platformSkuId, 10) || 0
+      const arr = byItem.get(u.platformItemId) ?? []
+      arr.push({ model_id: modelId, normal_stock: u.stock })
+      byItem.set(u.platformItemId, arr)
+    }
+    for (const [itemId, stockList] of byItem) {
+      const apiPath = '/api/v2/product/update_stock'
+      const timestamp = now()
+      const qs = shopQueryString(apiPath, timestamp, accessToken, shop.externalShopId)
+      await shopeePost<Record<string, unknown>>(apiPath, qs, {
+        item_id: parseInt(itemId, 10),
+        stock_list: stockList,
+      })
+    }
+  }
+
+  // ─── Cancellation ───────────────────────────────────────────────────────────
+  // POST /api/v2/order/cancel_order — seller-initiated cancel. Only allowed
+  // before pickup (UNPAID / READY_TO_SHIP). Shopee fixes the reason enum;
+  // anything outside the four canonical values is rejected with `error_param`.
+  async cancelOrder(
+    shop: ShopRecord,
+    orderSn: string,
+    reason: ShopeeCancelReason = 'OUT_OF_STOCK',
+  ): Promise<void> {
+    const { accessToken } = getCredentials(shop)
+    const apiPath = '/api/v2/order/cancel_order'
+    const timestamp = now()
+    const qs = shopQueryString(apiPath, timestamp, accessToken, shop.externalShopId)
+    await shopeePost<Record<string, unknown>>(apiPath, qs, {
+      order_sn: orderSn,
+      cancel_reason: reason,
+    })
+  }
+
+  // ─── Shipping label ─────────────────────────────────────────────────────────
+  // Shopee's label flow is 5 steps. We try to be tolerant of orders that are
+  // already shipped (skip ship_order if it errors with "logistics_status_*").
+  //   1. get_shipping_parameter — discover whether dropoff or pickup is needed
+  //      and which fields (branch_id / address_id / pickup_time_id) to send.
+  //   2. ship_order               — declare ready-to-ship. Required exactly once
+  //      per order. Idempotent in practice (subsequent calls error and we ignore).
+  //   3. create_shipping_document — async; queues the PDF generation.
+  //   4. get_shipping_document_result — poll READY/PROCESSING/FAILED.
+  //   5. download_shipping_document — fetch the actual PDF bytes.
+  // Returns a data: URI so the rest of the system (label-proxy, pdf-lib merger)
+  // can treat Shopee labels and TikTok labels uniformly.
+  async getShippingLabel(
+    shop: ShopRecord,
+    orderSn: string,
+    documentType: 'NORMAL_AIR_WAYBILL' | 'THERMAL_AIR_WAYBILL' = 'THERMAL_AIR_WAYBILL',
+  ): Promise<{ docUrl: string }> {
+    const { accessToken } = getCredentials(shop)
+    const shopId = shop.externalShopId
+
+    // Step 1: shipping parameters
+    const paramsPath = '/api/v2/logistics/get_shipping_parameter'
+    {
+      const timestamp = now()
+      const qs = shopQueryString(paramsPath, timestamp, accessToken, shopId)
+      const extra = new URLSearchParams({ order_sn: orderSn }).toString()
+      const paramsResp = await shopeeGet<ShopeeShippingParameterResponse>(paramsPath, qs, extra)
+      const info = paramsResp.response?.info_needed ?? {}
+
+      // Step 2: ship_order — choose dropoff if available (no slot needed),
+      // otherwise pick the first pickup slot. We swallow logistics_status_*
+      // errors so a re-print of an already-shipped order still works.
+      const shipPath = '/api/v2/logistics/ship_order'
+      const shipTs = now()
+      const shipQs = shopQueryString(shipPath, shipTs, accessToken, shopId)
+      const shipPayload: Record<string, unknown> = { order_sn: orderSn }
+
+      if ((info.dropoff ?? []).length > 0) {
+        const branch = paramsResp.response?.dropoff?.branch_list?.[0]
+        shipPayload.dropoff = branch ? { branch_id: branch.branch_id } : {}
+      } else if ((info.pickup ?? []).length > 0) {
+        const address = paramsResp.response?.pickup?.address_list?.[0]
+        const slot = address?.time_slot_list?.[0]
+        shipPayload.pickup = {
+          address_id: address?.address_id,
+          ...(slot?.pickup_time_id ? { pickup_time_id: slot.pickup_time_id } : {}),
+        }
+      } else {
+        // Non-integrated channels need a tracking number from the seller. We
+        // can't auto-fill that, so surface a clearer error.
+        shipPayload.non_integrated = {}
+      }
+
+      try {
+        await shopeePost<Record<string, unknown>>(shipPath, shipQs, shipPayload)
+      } catch (err) {
+        const m = (err as Error).message
+        // Idempotency: ignore "already shipped / wrong status" errors so a
+        // re-print works. Surface anything else (auth, bad params, etc.).
+        if (!/logistics_status|already.*ship|ship_order_already_shipped/i.test(m)) {
+          throw err
+        }
+        console.log(`[shopee] ship_order skipped for ${orderSn} (already shipped or processed): ${m.slice(0, 200)}`)
+      }
+    }
+
+    // Step 3: create_shipping_document
+    const createPath = '/api/v2/logistics/create_shipping_document'
+    {
+      const timestamp = now()
+      const qs = shopQueryString(createPath, timestamp, accessToken, shopId)
+      const createResp = await shopeePost<ShopeeShippingDocumentCreateResponse>(createPath, qs, {
+        order_list: [{ order_sn: orderSn, shipping_document_type: documentType }],
+      })
+      const result = createResp.response?.result_list?.find((r) => r.order_sn === orderSn)
+      if (result?.fail_error) {
+        throw new Error(`Shopee shipping document create failed: ${result.fail_error} — ${result.fail_message ?? ''}`)
+      }
+    }
+
+    // Step 4: poll for readiness (Shopee generates async; usually <5s)
+    const resultPath = '/api/v2/logistics/get_shipping_document_result'
+    const POLL_DELAYS_MS = [1000, 2000, 4000, 6000, 8000]
+    let ready = false
+    for (const delay of POLL_DELAYS_MS) {
+      await new Promise((r) => setTimeout(r, delay))
+      const timestamp = now()
+      const qs = shopQueryString(resultPath, timestamp, accessToken, shopId)
+      const pollResp = await shopeePost<ShopeeShippingDocumentResultResponse>(resultPath, qs, {
+        order_list: [{ order_sn: orderSn, shipping_document_type: documentType }],
+      })
+      const status = pollResp.response?.result_list?.find((r) => r.order_sn === orderSn)?.status
+      if (status === 'READY') { ready = true; break }
+      if (status === 'FAILED') {
+        const r = pollResp.response?.result_list?.find((x) => x.order_sn === orderSn)
+        throw new Error(`Shopee shipping document generation failed: ${r?.fail_error ?? 'unknown'} — ${r?.fail_message ?? ''}`)
+      }
+    }
+    if (!ready) throw new Error(`Shopee shipping document not ready after ${POLL_DELAYS_MS.reduce((a, b) => a + b, 0)}ms`)
+
+    // Step 5: download — returns PDF bytes. Encode as data: URI so the
+    // existing label-proxy / pdf-lib merging code can consume it the same
+    // way it consumes TikTok's signed CDN URL.
+    const downloadPath = '/api/v2/logistics/download_shipping_document'
+    const timestamp = now()
+    const qs = shopQueryString(downloadPath, timestamp, accessToken, shopId)
+    const url = `${BASE_URL}${downloadPath}?${qs}`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        order_list: [{ order_sn: orderSn, shipping_document_type: documentType }],
+      }),
+    })
+    if (!res.ok) {
+      throw new Error(`Shopee download_shipping_document returned ${res.status}`)
+    }
+    const buf = Buffer.from(await res.arrayBuffer())
+    // PDF magic header is `%PDF-`. If the response isn't a PDF, surface the
+    // JSON error so callers see why.
+    if (buf.subarray(0, 5).toString('utf8') !== '%PDF-') {
+      throw new Error(`Shopee download_shipping_document non-PDF body: ${buf.subarray(0, 256).toString('utf8')}`)
+    }
+    return { docUrl: `data:application/pdf;base64,${buf.toString('base64')}` }
   }
 }

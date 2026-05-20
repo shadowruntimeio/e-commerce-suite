@@ -5,6 +5,7 @@ import { requireCapabilities } from '../../middleware/authorize'
 import { runRulesForOrder } from './rules-engine'
 import { TikTokAdapter } from '../../platform/tiktok/tiktok.adapter'
 import { getShopTikTokAppCreds } from '../../platform/tiktok/tiktok-app-creds'
+import { ShopeeAdapter, type ShopeeCancelReason } from '../../platform/shopee/shopee.adapter'
 import { recordAudit, AuditAction } from '../../lib/audit'
 import { reserveStockForOrder, releaseStockForOrder } from '../inventory/inventory.service'
 
@@ -412,15 +413,27 @@ export async function orderRoutes(app: FastifyInstance) {
     })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
 
-    if (order.shop?.platform === 'TIKTOK' && !order.isManual) {
+    if (order.shop && !order.isManual) {
       try {
-        const appCreds = await getShopTikTokAppCreds(order.shop.id)
-        const adapter = new TikTokAdapter(appCreds)
-        await adapter.cancelOrder(order.shop, order.platformOrderId, reasonKey ?? 'SELLER_OUT_OF_STOCK')
+        if (order.shop.platform === 'TIKTOK') {
+          const appCreds = await getShopTikTokAppCreds(order.shop.id)
+          const adapter = new TikTokAdapter(appCreds)
+          await adapter.cancelOrder(order.shop, order.platformOrderId, reasonKey ?? 'SELLER_OUT_OF_STOCK')
+        } else if (order.shop.platform === 'SHOPEE') {
+          // Shopee enum is fixed — map our internal reason keys (which match
+          // TikTok's vocabulary) onto Shopee's accepted values; default to
+          // OUT_OF_STOCK which is the most common merchant-cancel cause.
+          const shopeeReason: ShopeeCancelReason =
+            reasonKey === 'BUYER_REQUEST' ? 'CUSTOMER_REQUEST'
+            : reasonKey === 'SELLER_OUT_OF_STOCK' ? 'OUT_OF_STOCK'
+            : 'OUT_OF_STOCK'
+          const adapter = new ShopeeAdapter()
+          await adapter.cancelOrder(order.shop, order.platformOrderId, shopeeReason)
+        }
       } catch (err) {
         const msg = (err as Error).message
-        console.error(`[orders] cancelOrder ${id} failed on TK:`, msg)
-        return reply.status(502).send({ success: false, error: `TikTok refused cancel: ${msg}` })
+        console.error(`[orders] cancelOrder ${id} failed on ${order.shop.platform}:`, msg)
+        return reply.status(502).send({ success: false, error: `${order.shop.platform} refused cancel: ${msg}` })
       }
     }
 
@@ -674,6 +687,22 @@ export async function orderRoutes(app: FastifyInstance) {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error(`[orders] Shipping label error for order ${id}:`, msg)
+        return reply.status(400).send({ success: false, error: msg })
+      }
+    }
+
+    if (order.shop.platform === 'SHOPEE') {
+      try {
+        const adapter = new ShopeeAdapter()
+        const { docUrl } = await adapter.getShippingLabel(order.shop, order.platformOrderId)
+        // Shopee returns the PDF inline as a data: URI (the API responds with
+        // bytes, not a signed CDN URL like TikTok). The browser-side merge
+        // path handles data: URIs identically to remote URLs once the proxy
+        // is skipped.
+        return { success: true, data: { docUrl, platform: 'SHOPEE' } }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(`[orders] Shipping label error for order ${id} (SHOPEE):`, msg)
         return reply.status(400).send({ success: false, error: msg })
       }
     }
