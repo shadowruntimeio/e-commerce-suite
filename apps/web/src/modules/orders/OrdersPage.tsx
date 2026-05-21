@@ -126,6 +126,80 @@ async function makeContentBoundsDetector(pdfBytes: ArrayBuffer) {
   }
 }
 
+// CSV escape per RFC 4180: wrap in quotes when the value contains comma,
+// quote, CR, or LF, and double up any internal quotes. Numbers/booleans pass
+// through unmodified.
+function csvEscape(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  const s = String(v)
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+function ordersToCsv(
+  orders: Array<Record<string, any>>,
+  includeMerchant: boolean,
+): string {
+  const headers = [
+    'Order ID',
+    'SKUs',
+    'Items',
+    'Status',
+    'Merchant Confirm',
+    'Platform',
+    'Shop',
+    ...(includeMerchant ? ['Merchant'] : []),
+    'Buyer',
+    'Phone',
+    'Currency',
+    'Total',
+    'Created At',
+  ]
+  const lines = [headers.join(',')]
+  for (const o of orders) {
+    // Render replaced SKUs as "OLD->NEW × qty" so the diff is preserved.
+    const skuCells = (o.items ?? []).map((it: any) => {
+      const head = it.replacedAt && it.originalSellerSku
+        ? `${it.originalSellerSku}->${it.sellerSku ?? '?'}`
+        : (it.sellerSku ?? '')
+      return it.quantity > 1 ? `${head} × ${it.quantity}` : head
+    }).join(' | ')
+    const created = o.platformCreatedAt ?? o.createdAt ?? ''
+    const row = [
+      o.platformOrderId,
+      skuCells,
+      o.items?.length ?? 0,
+      o.status,
+      o.merchantConfirmStatus ?? '',
+      o.shop?.platform ?? (o.isManual ? 'MANUAL' : ''),
+      o.shop?.name ?? '',
+      ...(includeMerchant ? [o.shop?.owner?.name ?? o.shop?.owner?.email ?? ''] : []),
+      o.buyerName ?? '',
+      o.buyerPhone ?? '',
+      o.currency ?? '',
+      o.totalRevenue ?? '',
+      created ? dayjs(created).format('YYYY-MM-DD HH:mm') : '',
+    ]
+    lines.push(row.map(csvEscape).join(','))
+  }
+  return lines.join('\r\n')
+}
+
+function downloadCsv(content: string, filename: string) {
+  // UTF-8 BOM so Excel opens Chinese text correctly. Plain UTF-8 without BOM
+  // shows garbled characters on Windows Excel even though every other tool
+  // handles it fine.
+  const blob = new Blob(['﻿' + content], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  // Revoke after the click handler has had a chance to consume the URL.
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 // Resolve a label URL to its PDF bytes. Shopee's adapter returns the label
 // inline as a data:application/pdf;base64,... URI (the API responds with bytes
 // rather than a signed CDN URL like TikTok), so decoding it locally is both
@@ -694,6 +768,52 @@ export default function OrdersPage() {
     return { done: labels.length, failed }
   }
 
+  // Export the current view to CSV. Selection takes precedence — if rows
+  // are checked, only those export; otherwise refetch the entire filtered
+  // set (capped at 1000) and dump that. Manual-orders tab uses its own
+  // filter shape, mirroring the existing handlePrintAll branching.
+  async function handleExport() {
+    const hasSelection = selectedKeys.length > 0
+    let rows: Array<Record<string, any>> = []
+    let hide: (() => void) | undefined
+    try {
+      if (hasSelection) {
+        rows = (data?.items ?? []).filter((o: any) => selectedKeys.includes(o.id))
+      } else {
+        hide = message.loading({ content: t('orders.exporting'), duration: 0, key: 'export' })
+        const res = await api.get('/orders', {
+          params: isManualTab
+            ? { isManual: 'true', page: 1, pageSize: 1000, search: search || undefined, sku: sku || undefined }
+            : {
+                status: expandedStatuses.length ? expandedStatuses.join(',') : undefined,
+                search: search || undefined,
+                sku: sku || undefined,
+                shopId: shopId || undefined,
+                ownerUserId: merchantId || undefined,
+                merchantConfirm: confirmStatus || undefined,
+                page: 1,
+                pageSize: 1000,
+                sortBy,
+                sortOrder,
+              },
+        })
+        rows = (res.data.data?.items ?? []) as Array<Record<string, any>>
+      }
+
+      if (rows.length === 0) {
+        void message.info(t('orders.exportEmpty'))
+        return
+      }
+      const csv = ordersToCsv(rows, !merchantUser)
+      downloadCsv(csv, `orders-${dayjs().format('YYYYMMDD-HHmm')}.csv`)
+      void message.success(t('orders.exportDone', { n: rows.length }))
+    } catch (err: any) {
+      void message.error(err?.response?.data?.error ?? t('orders.exportFailed'))
+    } finally {
+      hide?.()
+    }
+  }
+
   async function handlePrintAll() {
     // Re-fetch the entire filtered list (up to 200) and restrict to printable
     // statuses server-side filtering gave us.
@@ -1006,9 +1126,11 @@ export default function OrdersPage() {
                 </Button>
                 <Button
                   icon={<DownloadOutlined />}
+                  onClick={handleExport}
+                  title={selectedKeys.length > 0 ? t('orders.exportDone', { n: selectedKeys.length }) : undefined}
                   style={{ background: 'var(--header-btn-bg)', color: 'var(--header-btn-color)', border: 'var(--header-btn-border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
                 >
-                  {t('common.export')}
+                  {t('common.export')}{selectedKeys.length > 0 ? ` (${selectedKeys.length})` : ''}
                 </Button>
                 <Button
                   icon={<PrinterOutlined />}

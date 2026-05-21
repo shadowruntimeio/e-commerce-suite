@@ -283,6 +283,10 @@ export default {
     replaceSkuOriginalTag: 'OLD',
     replaceSkuNewTag: 'NEW',
     replaceSkuLabelStamp: 'SKU REPLACED',
+    exporting: 'Generating CSV...',
+    exportDone: 'Exported {{n}} orders',
+    exportEmpty: 'No orders to export with current filters',
+    exportFailed: 'Export failed',
   },
   products: {
     title: 'Products',

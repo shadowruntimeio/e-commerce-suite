@@ -283,6 +283,10 @@ export default {
     replaceSkuOriginalTag: '原',
     replaceSkuNewTag: '新',
     replaceSkuLabelStamp: 'SKU 替换',
+    exporting: '正在生成 CSV...',
+    exportDone: '已导出 {{n}} 条订单',
+    exportEmpty: '当前筛选条件下没有订单',
+    exportFailed: '导出失败',
   },
   products: {
     title: '商品管理',
