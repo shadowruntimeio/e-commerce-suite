@@ -285,6 +285,8 @@ export default {
     replaceSkuLabelStamp: 'SKU REPLACED',
     exporting: 'Generating CSV...',
     exportDone: 'Exported {{n}} orders',
+    exportCapped: 'Exported first {{n}} of {{total}} matches (1000 per export)',
+    exportHint: 'Export filtered orders as CSV (up to 1000; selected rows only when checked)',
     exportEmpty: 'No orders to export with current filters',
     exportFailed: 'Export failed',
   },

@@ -775,10 +775,12 @@ export default function OrdersPage() {
   async function handleExport() {
     const hasSelection = selectedKeys.length > 0
     let rows: Array<Record<string, any>> = []
+    let total = 0
     let hide: (() => void) | undefined
     try {
       if (hasSelection) {
         rows = (data?.items ?? []).filter((o: any) => selectedKeys.includes(o.id))
+        total = rows.length
       } else {
         hide = message.loading({ content: t('orders.exporting'), duration: 0, key: 'export' })
         const res = await api.get('/orders', {
@@ -798,6 +800,7 @@ export default function OrdersPage() {
               },
         })
         rows = (res.data.data?.items ?? []) as Array<Record<string, any>>
+        total = (res.data.data?.total as number | undefined) ?? rows.length
       }
 
       if (rows.length === 0) {
@@ -806,7 +809,13 @@ export default function OrdersPage() {
       }
       const csv = ordersToCsv(rows, !merchantUser)
       downloadCsv(csv, `orders-${dayjs().format('YYYYMMDD-HHmm')}.csv`)
-      void message.success(t('orders.exportDone', { n: rows.length }))
+      // When the filtered set exceeds the export cap, the user only got a
+      // prefix — surface that as a warning so they can refine and re-export.
+      if (total > rows.length) {
+        void message.warning(t('orders.exportCapped', { n: rows.length, total }))
+      } else {
+        void message.success(t('orders.exportDone', { n: rows.length }))
+      }
     } catch (err: any) {
       void message.error(err?.response?.data?.error ?? t('orders.exportFailed'))
     } finally {
@@ -1127,7 +1136,7 @@ export default function OrdersPage() {
                 <Button
                   icon={<DownloadOutlined />}
                   onClick={handleExport}
-                  title={selectedKeys.length > 0 ? t('orders.exportDone', { n: selectedKeys.length }) : undefined}
+                  title={t('orders.exportHint')}
                   style={{ background: 'var(--header-btn-bg)', color: 'var(--header-btn-color)', border: 'var(--header-btn-border)', borderRadius: 8, height: 36, fontWeight: 500, fontSize: 14 }}
                 >
                   {t('common.export')}{selectedKeys.length > 0 ? ` (${selectedKeys.length})` : ''}

@@ -285,6 +285,8 @@ export default {
     replaceSkuLabelStamp: 'SKU 替换',
     exporting: '正在生成 CSV...',
     exportDone: '已导出 {{n}} 条订单',
+    exportCapped: '已导出前 {{n}} 条（共 {{total}} 条匹配，单次导出上限 1000）',
+    exportHint: '导出当前筛选后的订单为 CSV（最多 1000 条；勾选后只导出所选）',
     exportEmpty: '当前筛选条件下没有订单',
     exportFailed: '导出失败',
   },
