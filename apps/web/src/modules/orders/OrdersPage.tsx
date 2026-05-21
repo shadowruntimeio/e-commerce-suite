@@ -398,6 +398,10 @@ export default function OrdersPage() {
   const [sortBy, setSortBy] = useState<'sku' | 'date'>('sku')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [isManualTab, setIsManualTab] = useState(false)
+  // Date range filter for the order list (applies to createdAt, matching the
+  // table's date column). Stored as dayjs values so the RangePicker round
+  // trips cleanly; converted to ISO at query/export time.
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null)
   const [showCreateManual, setShowCreateManual] = useState(false)
   const [replaceSkuOrderId, setReplaceSkuOrderId] = useState<string | null>(null)
   // True from the moment we kick off the mount auto-sync until the worker has
@@ -496,7 +500,7 @@ export default function OrdersPage() {
   // silently carrying it over is surprising.
   useEffect(() => {
     setSelectedKeys([])
-  }, [statuses, search, sku, shopId, merchantId, confirmStatus, page, sortBy, sortOrder, isManualTab])
+  }, [statuses, search, sku, shopId, merchantId, confirmStatus, page, sortBy, sortOrder, isManualTab, dateRange])
 
   // Run a confirm/cancel mutation across a list of order ids with progress
   // toast. Calls run in parallel — each endpoint is idempotent and the order
@@ -664,12 +668,23 @@ export default function OrdersPage() {
 
   const expandedStatuses = statuses.flatMap((key) => (STATUS_GROUPS as any)[key] ?? [key])
 
+  // Convert the picker's start-of-day / end-of-day into ISO so the API gets
+  // the full inclusive day on both ends. `endOf('day')` lands on .999ms which
+  // matches Prisma's `lte` comparison for createdAt timestamps stored as
+  // millisecond-precision DateTimes.
+  const dateFromIso = dateRange?.[0]?.startOf('day').toISOString()
+  const dateToIso = dateRange?.[1]?.endOf('day').toISOString()
+
   const { data, isLoading } = useQuery({
-    queryKey: ['orders', { isManualTab, statuses, search, sku, shopId, merchantId, confirmStatus, page, sortBy, sortOrder }],
+    queryKey: ['orders', { isManualTab, statuses, search, sku, shopId, merchantId, confirmStatus, page, sortBy, sortOrder, dateFromIso, dateToIso }],
     queryFn: () =>
       api.get('/orders', {
         params: isManualTab
-          ? { isManual: 'true', page, pageSize: 20, search: search || undefined, sku: sku || undefined }
+          ? {
+              isManual: 'true', page, pageSize: 20,
+              search: search || undefined, sku: sku || undefined,
+              dateFrom: dateFromIso, dateTo: dateToIso,
+            }
           : {
               status: expandedStatuses.length ? expandedStatuses.join(',') : undefined,
               search: search || undefined,
@@ -681,6 +696,8 @@ export default function OrdersPage() {
               pageSize: 20,
               sortBy,
               sortOrder,
+              dateFrom: dateFromIso,
+              dateTo: dateToIso,
             },
       }).then((r) => r.data.data),
     // Auto-poll so the list reflects backend updates (from both the 1-min
@@ -785,7 +802,11 @@ export default function OrdersPage() {
         hide = message.loading({ content: t('orders.exporting'), duration: 0, key: 'export' })
         const res = await api.get('/orders', {
           params: isManualTab
-            ? { isManual: 'true', page: 1, pageSize: 1000, search: search || undefined, sku: sku || undefined }
+            ? {
+                isManual: 'true', page: 1, pageSize: 1000,
+                search: search || undefined, sku: sku || undefined,
+                dateFrom: dateFromIso, dateTo: dateToIso,
+              }
             : {
                 status: expandedStatuses.length ? expandedStatuses.join(',') : undefined,
                 search: search || undefined,
@@ -797,6 +818,8 @@ export default function OrdersPage() {
                 pageSize: 1000,
                 sortBy,
                 sortOrder,
+                dateFrom: dateFromIso,
+                dateTo: dateToIso,
               },
         })
         rows = (res.data.data?.items ?? []) as Array<Record<string, any>>
@@ -834,6 +857,8 @@ export default function OrdersPage() {
         shopId: shopId || undefined,
         page: 1,
         pageSize: 200,
+        dateFrom: dateFromIso,
+        dateTo: dateToIso,
       },
     })
     const all = (res.data.data?.items ?? []) as Array<{ id: string; platformOrderId: string; status: string; platformMetadata?: any; isManual?: boolean; items?: any[] }>
@@ -1256,7 +1281,12 @@ export default function OrdersPage() {
             { value: 'CANCELLED_BY_MERCHANT', label: t('orders.cfCancelled') },
           ]}
         />
-        <DatePicker.RangePicker style={{ borderRadius: 8 }} />
+        <DatePicker.RangePicker
+          style={{ borderRadius: 8 }}
+          value={dateRange as any}
+          onChange={(v) => { setDateRange(v as any); setPage(1) }}
+          allowEmpty={[true, true]}
+        />
         <Button
           icon={<SearchOutlined />}
           onClick={applyFilters}

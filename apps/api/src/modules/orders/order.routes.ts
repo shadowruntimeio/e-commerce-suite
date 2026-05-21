@@ -179,13 +179,29 @@ export async function orderRoutes(app: FastifyInstance) {
   app.get('/', async (request) => {
     const {
       status, shopId, ownerUserId, merchantConfirm, page = 1, pageSize = 20, search, sku,
-      sortBy = 'sku', sortOrder = 'desc', isManual,
+      sortBy = 'sku', sortOrder = 'desc', isManual, dateFrom, dateTo,
     } = request.query as {
       status?: string; shopId?: string; ownerUserId?: string; merchantConfirm?: string
       page?: number; pageSize?: number; search?: string; sku?: string
       sortBy?: 'sku' | 'date'; sortOrder?: 'asc' | 'desc'; isManual?: string
+      dateFrom?: string; dateTo?: string
     }
     const statusList = (status ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+
+    // Date filter — applies to `createdAt` (the local timestamp), which is
+    // what the table's date column renders, so the filter window matches the
+    // visible values exactly. dateFrom/dateTo are ISO strings from the
+    // frontend (start-of-day and end-of-day of the selected range).
+    const dateRangeFilter: { gte?: Date; lte?: Date } = {}
+    if (dateFrom) {
+      const d = new Date(dateFrom)
+      if (!isNaN(d.getTime())) dateRangeFilter.gte = d
+    }
+    if (dateTo) {
+      const d = new Date(dateTo)
+      if (!isNaN(d.getTime())) dateRangeFilter.lte = d
+    }
+    const hasDateFilter = dateRangeFilter.gte !== undefined || dateRangeFilter.lte !== undefined
 
     // Manual orders tab: separate query path — no shop relation, no confirm gate
     if (isManual === 'true') {
@@ -200,6 +216,7 @@ export async function orderRoutes(app: FastifyInstance) {
           ],
         } : {}),
         ...(sku ? { items: { some: { sellerSku: { contains: sku, mode: 'insensitive' as const } } } } : {}),
+        ...(hasDateFilter ? { createdAt: dateRangeFilter } : {}),
       }
       const [items, total, itemAgg] = await Promise.all([
         prisma.order.findMany({
@@ -272,6 +289,8 @@ export async function orderRoutes(app: FastifyInstance) {
       ...(sku ? {
         items: { some: { sellerSku: { contains: sku, mode: 'insensitive' as const } } },
       } : {}),
+      // Date range matches the `createdAt` column shown in the table.
+      ...(hasDateFilter ? { createdAt: dateRangeFilter } : {}),
     }
     const dir = sortOrder === 'asc' ? 'asc' : 'desc'
     const orderBy = sortBy === 'date'
