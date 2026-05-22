@@ -1499,16 +1499,24 @@ export default function OrdersPage() {
 
 function OrderDetailModal({ id, onClose }: { id: string | null; onClose: () => void }) {
   const { t } = useTranslation()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     enabled: !!id,
     queryKey: ['order-detail', id],
     queryFn: () => api.get(`/orders/${id}`).then((r) => r.data.data),
+    // Don't retry on 404 — surface the error immediately instead of looping.
+    retry: (count, err: any) => {
+      if (err?.response?.status === 404) return false
+      return count < 2
+    },
   })
 
   const order = data
   const addr = order?.shippingAddress as
     | { full_address?: string; name?: string; phone_number?: string; region_code?: string }
     | undefined
+  const errorMessage = error
+    ? ((error as any)?.response?.data?.error ?? (error as Error).message ?? 'Failed to load order')
+    : null
 
   return (
     <Modal
@@ -1519,8 +1527,12 @@ function OrderDetailModal({ id, onClose }: { id: string | null; onClose: () => v
       title={t('orders.detailTitle')}
       destroyOnClose
     >
-      {isLoading || !order ? (
+      {isLoading ? (
         <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>{t('common.loading')}</div>
+      ) : errorMessage ? (
+        <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--badge-error-fg)' }}>{errorMessage}</div>
+      ) : !order ? (
+        <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)' }}>{t('common.noData')}</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           {/* Header */}

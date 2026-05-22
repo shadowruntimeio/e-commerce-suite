@@ -332,7 +332,13 @@ export async function orderRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string }
     const where: Record<string, unknown> = { id, tenantId: request.user.tenantId }
     if (request.user.role === 'MERCHANT') {
-      where.shop = { ownerUserId: request.user.userId }
+      // Merchants own two flavours of order: platform orders (via shop
+      // ownership) and manual orders they created themselves. The list
+      // endpoint already ORs these branches; the detail endpoint must match.
+      where.OR = [
+        { shop: { ownerUserId: request.user.userId } },
+        { isManual: true, createdByUserId: request.user.userId },
+      ]
     }
     const order = await prisma.order.findFirst({
       where,
