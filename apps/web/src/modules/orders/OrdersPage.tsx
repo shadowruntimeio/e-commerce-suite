@@ -1511,9 +1511,13 @@ function OrderDetailModal({ id, onClose }: { id: string | null; onClose: () => v
   })
 
   const order = data
+  // Platform orders (TikTok) store a structured address with `full_address`;
+  // manual orders save the free-form text under `address`. Fall through both
+  // so either source renders without a separate code path.
   const addr = order?.shippingAddress as
-    | { full_address?: string; name?: string; phone_number?: string; region_code?: string }
+    | { full_address?: string; address?: string; name?: string; phone_number?: string; region_code?: string }
     | undefined
+  const addressText = addr?.full_address ?? addr?.address ?? '—'
   const errorMessage = error
     ? ((error as any)?.response?.data?.error ?? (error as Error).message ?? 'Failed to load order')
     : null
@@ -1560,7 +1564,7 @@ function OrderDetailModal({ id, onClose }: { id: string | null; onClose: () => v
             <DetailField label={t('orders.detailPhone')} value={order.buyerPhone ?? '—'} />
             <DetailField
               label={t('orders.detailAddress')}
-              value={addr?.full_address ?? '—'}
+              value={addressText}
               span={2}
             />
             <DetailField label={t('orders.detailTotal')} value={`${order.currency ?? ''} ${order.totalRevenue ?? 0}`} />
