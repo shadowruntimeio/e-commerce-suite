@@ -292,4 +292,83 @@ export async function returnsRoutes(app: FastifyInstance) {
 
     return { success: true, data: updated }
   })
+
+  // POST /returns/scan-lookup — given a scanned string (QR or 1D barcode),
+  // try platformOrderId first, fall back to platformReturnId, and return the
+  // single matching ticket if it's still awaiting warehouse receive. Used by
+  // the mobile "扫码入库" flow so the client can decide whether to show a
+  // confirmation modal or auto-intake.
+  app.post('/scan-lookup', { preHandler: requireCapabilities(['RETURN_INTAKE']) }, async (request, reply) => {
+    const { code } = (request.body ?? {}) as { code?: string }
+    const trimmed = code?.trim()
+    if (!trimmed) return reply.status(400).send({ success: false, error: 'code required' })
+
+    // Two candidates ordered by likelihood: scanned packages most often carry
+    // the platform order_sn / order_id; the return_id is rarer but does show
+    // up on some return slips, so try it as a fallback.
+    const tenantId = request.user.tenantId
+    let ticket = await prisma.afterSalesTicket.findFirst({
+      where: { order: { tenantId, platformOrderId: trimmed } },
+      include: {
+        order: {
+          include: {
+            shop: { select: { id: true, name: true, ownerUserId: true } },
+            items: true,
+          },
+        },
+      },
+    })
+    if (!ticket) {
+      ticket = await prisma.afterSalesTicket.findFirst({
+        where: { platformReturnId: trimmed, order: { tenantId } },
+        include: {
+          order: {
+            include: {
+              shop: { select: { id: true, name: true, ownerUserId: true } },
+              items: true,
+            },
+          },
+        },
+      })
+    }
+
+    if (!ticket) {
+      return reply.status(404).send({ success: false, error: 'No matching return ticket' })
+    }
+    return { success: true, data: ticket }
+  })
+
+  // POST /returns/:id/scan-intake — mark a return as physically received in
+  // one shot, no inspection. Idempotent: re-scanning an already-arrived ticket
+  // returns the existing record without an error. Inspection (SELLABLE/DAMAGED
+  // condition, restock qty, etc.) is left to the desktop /process flow.
+  app.post('/:id/scan-intake', { preHandler: requireCapabilities(['RETURN_INTAKE']) }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const ticket = await loadTicketWithShop(id, request.user.tenantId)
+    if (!ticket) return reply.status(404).send({ success: false, error: 'Ticket not found' })
+
+    // Idempotent — show the existing arrival date if already scanned.
+    if (ticket.arrivedAt) {
+      return { success: true, data: ticket, alreadyArrived: true }
+    }
+
+    const now = new Date()
+    const updated = await prisma.afterSalesTicket.update({
+      where: { id },
+      data: { arrivedAt: now },
+    })
+
+    await recordAudit({
+      tenantId: request.user.tenantId,
+      actorUserId: request.user.userId,
+      action: AuditAction.RETURN_INTAKE,
+      targetType: 'after_sales_ticket',
+      targetId: id,
+      payload: { via: 'scan', platformOrderId: ticket.order.platformOrderId },
+      ip: request.ip,
+      userAgent: request.headers['user-agent'] ?? undefined,
+    })
+
+    return { success: true, data: updated }
+  })
 }

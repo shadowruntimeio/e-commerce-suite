@@ -1,12 +1,12 @@
 import React from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Avatar, Dropdown, Tooltip, Badge, List, Button, Empty } from 'antd'
+import { Layout, Avatar, Dropdown, Tooltip, Badge, List, Button, Empty, Drawer } from 'antd'
 import {
   DashboardOutlined, ShoppingCartOutlined, AppstoreOutlined,
   InboxOutlined, ShopOutlined, LogoutOutlined, BankOutlined,
   BarChartOutlined, TruckOutlined,
   MoonOutlined, SunOutlined, TranslationOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined, MenuOutlined,
   TeamOutlined, AuditOutlined, RollbackOutlined,
   BellOutlined,
 } from '@ant-design/icons'
@@ -22,6 +22,25 @@ const { Content, Header } = Layout
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const SIDEBAR_COLLAPSED_W = 80
 const SIDEBAR_EXPANDED_W = 256
+// Below this viewport width we swap the always-visible sidebar for a
+// hamburger-triggered drawer and collapse paddings throughout the app.
+const MOBILE_BREAKPOINT = 768
+
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = React.useState(() =>
+    typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT,
+  )
+  React.useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  return isMobile
+}
+
+// Exported so pages can branch their layout (e.g. ReturnsPage swaps the
+// wide table for a card stack on mobile) without re-declaring the hook.
+export { useIsMobile }
 
 interface NavItem {
   key: string
@@ -161,9 +180,14 @@ export function AppLayout() {
   const { user, logout } = useAuthStore()
   const { isDark, lang, toggleDark, setLang } = useSettingsStore()
   const { t } = useTranslation()
+  const isMobile = useIsMobile()
   const [isPinned, setIsPinned] = React.useState(true)
   const [isHovered, setIsHovered] = React.useState(false)
-  const isExpanded = isPinned || isHovered
+  // Mobile drawer is closed by default; auto-close on route change so tapping
+  // a nav item dismisses it rather than stranding the overlay.
+  const [mobileNavOpen, setMobileNavOpen] = React.useState(false)
+  React.useEffect(() => { setMobileNavOpen(false) }, [location.pathname])
+  const isExpanded = isMobile ? true : (isPinned || isHovered)
 
   const pageTitleKey = PAGE_TITLE_KEYS[location.pathname] ?? 'pageTitles.dashboard'
   const pageTitle = t(pageTitleKey)
@@ -173,29 +197,10 @@ export function AppLayout() {
 
   const sidebarW = isExpanded ? SIDEBAR_EXPANDED_W : SIDEBAR_COLLAPSED_W
 
-  return (
-    <Layout style={{ minHeight: '100vh', background: 'var(--bg-page)' }}>
-      {/* ── Sidebar ── */}
-      <div
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        style={{
-          position: 'fixed',
-          height: '100vh',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: sidebarW,
-          background: 'var(--sidebar-bg)',
-          borderRight: '1px solid var(--sidebar-border)',
-          display: 'flex',
-          flexDirection: 'column',
-          zIndex: 100,
-          overflowY: 'auto',
-          overflowX: 'hidden',
-          transition: 'width 0.22s cubic-bezier(0.4,0,0.2,1)',
-        } as React.CSSProperties}
-      >
+  // Sidebar inner — extracted so we can render it inside the fixed rail
+  // (desktop) or inside an antd Drawer (mobile) without duplicating markup.
+  const sidebarInner = (
+    <>
         {/* Logo */}
         <div style={{
           padding: '0 16px',
@@ -353,10 +358,49 @@ export function AppLayout() {
             )}
           </div>
         </div>
-      </div>
+    </>
+  )
+
+  // Common fixed-rail style; only mounted on desktop. Mobile uses a Drawer.
+  const fixedSidebarStyle: React.CSSProperties = {
+    position: 'fixed', height: '100vh', left: 0, top: 0, bottom: 0,
+    width: sidebarW, background: 'var(--sidebar-bg)',
+    borderRight: '1px solid var(--sidebar-border)',
+    display: 'flex', flexDirection: 'column',
+    zIndex: 100, overflowY: 'auto', overflowX: 'hidden',
+    transition: 'width 0.22s cubic-bezier(0.4,0,0.2,1)',
+  }
+
+  return (
+    <Layout style={{ minHeight: '100vh', background: 'var(--bg-page)' }}>
+      {/* ── Sidebar (desktop: fixed rail, mobile: drawer) ── */}
+      {!isMobile && (
+        <div
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          style={fixedSidebarStyle}
+        >
+          {sidebarInner}
+        </div>
+      )}
+      {isMobile && (
+        <Drawer
+          placement="left"
+          open={mobileNavOpen}
+          onClose={() => setMobileNavOpen(false)}
+          width={SIDEBAR_EXPANDED_W}
+          closable={false}
+          styles={{
+            body: { padding: 0, background: 'var(--sidebar-bg)', display: 'flex', flexDirection: 'column' },
+            header: { display: 'none' },
+          }}
+        >
+          {sidebarInner}
+        </Drawer>
+      )}
 
       {/* ── Main area ── */}
-      <Layout style={{ marginLeft: sidebarW, background: 'var(--bg-page)', transition: 'margin-left 0.22s cubic-bezier(0.4,0,0.2,1)' }}>
+      <Layout style={{ marginLeft: isMobile ? 0 : sidebarW, background: 'var(--bg-page)', transition: 'margin-left 0.22s cubic-bezier(0.4,0,0.2,1)' }}>
         {/* Header */}
         <Header style={{
           position: 'sticky',
@@ -366,22 +410,42 @@ export function AppLayout() {
           backdropFilter: 'blur(16px)',
           WebkitBackdropFilter: 'blur(16px)',
           height: 64,
-          padding: '0 24px',
+          padding: isMobile ? '0 12px' : '0 24px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           borderBottom: '1px solid var(--border-light)',
           boxShadow: 'var(--header-shadow)',
         }}>
-          <span style={{
-            fontSize: 20,
-            fontWeight: 800,
-            color: 'var(--header-title)',
-            letterSpacing: '-0.3px',
-            fontFamily: "'Manrope', sans-serif",
-          }}>
-            {pageTitle}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            {isMobile && (
+              <button
+                onClick={() => setMobileNavOpen(true)}
+                aria-label="Open navigation"
+                style={{
+                  width: 36, height: 36, borderRadius: 8,
+                  border: '1px solid var(--header-btn-border)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', background: 'var(--header-btn-bg)',
+                  color: 'var(--header-btn-color)', flexShrink: 0,
+                }}
+              >
+                <MenuOutlined style={{ fontSize: 16 }} />
+              </button>
+            )}
+            <span style={{
+              fontSize: isMobile ? 16 : 20,
+              fontWeight: 800,
+              color: 'var(--header-title)',
+              letterSpacing: '-0.3px',
+              fontFamily: "'Manrope', sans-serif",
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}>
+              {pageTitle}
+            </span>
+          </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {/* Language toggle */}
@@ -463,24 +527,26 @@ export function AppLayout() {
                 >
                   {initials}
                 </Avatar>
-                <span style={{
-                  fontSize: 13,
-                  fontWeight: 500,
-                  color: 'var(--header-text)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  maxWidth: 140,
-                }}>
-                  {user?.name}
-                </span>
+                {!isMobile && (
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: 'var(--header-text)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    maxWidth: 140,
+                  }}>
+                    {user?.name}
+                  </span>
+                )}
               </div>
             </Dropdown>
           </div>
         </Header>
 
         {/* Content */}
-        <Content style={{ margin: 24, minHeight: 'calc(100vh - 112px)' }}>
+        <Content style={{ margin: isMobile ? 12 : 24, minHeight: 'calc(100vh - 112px)' }}>
           <Outlet />
         </Content>
       </Layout>

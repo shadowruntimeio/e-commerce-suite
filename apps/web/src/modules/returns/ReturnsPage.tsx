@@ -1,10 +1,17 @@
-import { useState } from 'react'
-import { Card, Table, Tag, Button, Modal, Form, InputNumber, Input, Select, Space, message, Popconfirm, Radio, Drawer, Descriptions } from 'antd'
+import { useEffect, useRef, useState } from 'react'
+import { Card, Table, Tag, Button, Modal, Form, InputNumber, Input, Select, Space, message, Popconfirm, Radio, Drawer, Descriptions, Checkbox } from 'antd'
+import { ScanOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../lib/api'
 import { useAuthStore, hasCapability, isMerchant } from '../../store/auth.store'
+import { useIsMobile } from '../../components/layout/AppLayout'
 import dayjs from 'dayjs'
+
+// localStorage key for the "skip confirm next time" preference. Per-user is
+// unnecessary — anyone using the warehouse account on this device implicitly
+// shares the preference, which is the intended behaviour for shared scanners.
+const SKIP_CONFIRM_KEY = 'returns:scan-skip-confirm'
 
 // TK tells us exactly what the seller must do via nextSellerActions; we
 // route buttons off these instead of guessing from return_status.
@@ -67,9 +74,19 @@ export default function ReturnsPage() {
   const qc = useQueryClient()
   const user = useAuthStore((s) => s.user)
   const merchantUser = isMerchant(user)
+  const isMobile = useIsMobile()
+  const canIntake = hasCapability(user, 'RETURN_INTAKE')
   const [processTicket, setProcessTicket] = useState<AfterSalesTicket | null>(null)
   const [rejectTicket, setRejectTicket] = useState<AfterSalesTicket | null>(null)
   const [detailTicket, setDetailTicket] = useState<AfterSalesTicket | null>(null)
+  // Scan-to-intake flow state
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [scanConfirmTicket, setScanConfirmTicket] = useState<AfterSalesTicket | null>(null)
+  // Persist the "don't ask again" preference across reloads, but re-read on
+  // every confirm modal mount so toggling it off in one session sticks.
+  const skipConfirmRef = useRef<boolean>(
+    typeof localStorage !== 'undefined' && localStorage.getItem(SKIP_CONFIRM_KEY) === '1',
+  )
 
   // Warehouse split: "actionable" (default) vs "done" (recent processed).
   const [view, setView] = useState<'actionable' | 'done'>('actionable')
@@ -105,6 +122,64 @@ export default function ReturnsPage() {
     onSuccess: () => { void message.success(t('returns.processed')); setProcessTicket(null); refetch() },
     onError: (err: any) => message.error(err?.response?.data?.error ?? t('returns.failed')),
   })
+
+  // Scan-intake (mobile warehouse flow). Lookup first to surface a clear
+  // "no match" error before we ever hit the intake endpoint.
+  const scanIntakeMut = useMutation({
+    mutationFn: (id: string) => api.post(`/returns/${id}/scan-intake`),
+    onSuccess: (res, _id) => {
+      const t1 = res.data?.data
+      const already = res.data?.alreadyArrived
+      void message.success(
+        already
+          ? t('returns.scanArrivedAlready', { when: dayjs(t1?.arrivedAt).format('YYYY-MM-DD HH:mm') })
+          : t('returns.scanSuccess', { orderId: scanConfirmTicket?.order.platformOrderId ?? '' }),
+      )
+      setScanConfirmTicket(null)
+      refetch()
+    },
+    onError: (err: any) => message.error(err?.response?.data?.error ?? t('returns.failed')),
+  })
+
+  async function handleScanDecode(code: string) {
+    // Close the camera modal immediately — we don't want a second decode
+    // firing while we resolve the match.
+    setScannerOpen(false)
+    try {
+      const res = await api.post('/returns/scan-lookup', { code })
+      const ticket = res.data?.data as AfterSalesTicket | undefined
+      if (!ticket) {
+        Modal.error({
+          title: t('returns.scanLookupFailedTitle'),
+          content: t('returns.scanLookupFailed', { code }),
+          okText: t('returns.scanLookupFailedRetry'),
+          onOk: () => setScannerOpen(true),
+        })
+        return
+      }
+      // Skip-confirm path: fire intake directly. We still show the success
+      // toast so the warehouse worker gets visible feedback.
+      if (skipConfirmRef.current) {
+        scanIntakeMut.mutate(ticket.id)
+        // Need this for the success toast's interpolation, even though we
+        // don't open the confirm modal.
+        setScanConfirmTicket(ticket)
+        return
+      }
+      setScanConfirmTicket(ticket)
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        Modal.error({
+          title: t('returns.scanLookupFailedTitle'),
+          content: t('returns.scanLookupFailed', { code }),
+          okText: t('returns.scanLookupFailedRetry'),
+          onOk: () => setScannerOpen(true),
+        })
+      } else {
+        void message.error(err?.response?.data?.error ?? t('returns.failed'))
+      }
+    }
+  }
 
   const renderTkStatus = (s: string | null) => {
     if (!s) return <span style={{ color: 'var(--text-muted)' }}>—</span>
@@ -213,35 +288,73 @@ export default function ReturnsPage() {
     },
   ]
 
+  const tickets = ticketsQ.data ?? []
+
   return (
-    <Card>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 12 }}>
-        {!merchantUser && (
-          <Radio.Group value={view} onChange={(e) => setView(e.target.value)} optionType="button" buttonStyle="solid">
-            <Radio.Button value="actionable">{t('returns.viewActionable')}</Radio.Button>
-            <Radio.Button value="done">{t('returns.viewDone')}</Radio.Button>
-          </Radio.Group>
-        )}
-        <Select
-          allowClear
-          placeholder={t('returns.allPlatformStates')}
-          style={{ width: 240 }}
-          value={statusFilter}
-          onChange={setStatusFilter}
-          options={TK_STATUS_OPTIONS.map((s) => ({
-            value: s,
-            label: t(`returns.tk.${s}`, { defaultValue: s }),
-          }))}
-        />
+    <Card styles={{ body: { padding: isMobile ? 12 : 24 } }}>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        gap: 8,
+        marginBottom: 12,
+        flexWrap: 'wrap',
+      }}>
+        {/* Scan button — only renders for warehouse users with the capability
+            and on mobile, since the camera flow is the whole point. */}
+        {isMobile && canIntake ? (
+          <Button
+            type="primary"
+            icon={<ScanOutlined />}
+            onClick={() => setScannerOpen(true)}
+            style={{ flexShrink: 0 }}
+          >
+            {t('returns.scanIntakeBtn')}
+          </Button>
+        ) : <span />}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', flex: 1 }}>
+          {!merchantUser && (
+            <Radio.Group value={view} onChange={(e) => setView(e.target.value)} optionType="button" buttonStyle="solid" size={isMobile ? 'small' : 'middle'}>
+              <Radio.Button value="actionable">{t('returns.viewActionable')}</Radio.Button>
+              <Radio.Button value="done">{t('returns.viewDone')}</Radio.Button>
+            </Radio.Group>
+          )}
+          <Select
+            allowClear
+            placeholder={t('returns.allPlatformStates')}
+            style={{ width: isMobile ? '100%' : 240 }}
+            size={isMobile ? 'middle' : 'middle'}
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={TK_STATUS_OPTIONS.map((s) => ({
+              value: s,
+              label: t(`returns.tk.${s}`, { defaultValue: s }),
+            }))}
+          />
+        </div>
       </div>
-      <Table
-        rowKey="id"
-        loading={ticketsQ.isLoading}
-        dataSource={ticketsQ.data ?? []}
-        columns={columns}
-        pagination={{ pageSize: 20 }}
-        scroll={{ x: 'max-content' }}
-      />
+
+      {isMobile ? (
+        <MobileTicketList
+          tickets={tickets}
+          loading={ticketsQ.isLoading}
+          merchantUser={merchantUser}
+          user={user}
+          approveMut={approveMut}
+          processMut={processMut}
+          onReject={setRejectTicket}
+          onProcess={setProcessTicket}
+          onDetail={setDetailTicket}
+        />
+      ) : (
+        <Table
+          rowKey="id"
+          loading={ticketsQ.isLoading}
+          dataSource={tickets}
+          columns={columns}
+          pagination={{ pageSize: 20 }}
+          scroll={{ x: 'max-content' }}
+        />
+      )}
 
       {rejectTicket && (
         <RejectModal
@@ -258,6 +371,29 @@ export default function ReturnsPage() {
           onClose={() => setProcessTicket(null)}
           onSubmit={(data) => processMut.mutate({ id: processTicket.id, data })}
           loading={processMut.isPending}
+        />
+      )}
+
+      {scannerOpen && (
+        <ScannerModal
+          onClose={() => setScannerOpen(false)}
+          onDecode={handleScanDecode}
+        />
+      )}
+
+      {scanConfirmTicket && !skipConfirmRef.current && (
+        <ScanConfirmModal
+          ticket={scanConfirmTicket}
+          loading={scanIntakeMut.isPending}
+          onCancel={() => setScanConfirmTicket(null)}
+          onConfirm={(skip) => {
+            if (skip) {
+              localStorage.setItem(SKIP_CONFIRM_KEY, '1')
+              skipConfirmRef.current = true
+              void message.info(t('returns.scanSkipReminderOn'))
+            }
+            scanIntakeMut.mutate(scanConfirmTicket.id)
+          }}
         />
       )}
 
@@ -454,6 +590,248 @@ function ProcessModal({
           <Input.TextArea rows={2} />
         </Form.Item>
       </Form>
+    </Modal>
+  )
+}
+
+// ─── Mobile card list ─────────────────────────────────────────────────────────
+
+// Stacked-card alternative to the desktop table. Reuses the same per-row
+// gating logic (canApprove / canProcess / etc) so behaviour stays consistent;
+// only the layout changes.
+function MobileTicketList({
+  tickets, loading, merchantUser, user,
+  approveMut, processMut, onReject, onProcess, onDetail,
+}: {
+  tickets: AfterSalesTicket[]
+  loading: boolean
+  merchantUser: boolean
+  user: ReturnType<typeof useAuthStore.getState>['user']
+  approveMut: ReturnType<typeof useMutation<unknown, unknown, string>>
+  processMut: ReturnType<typeof useMutation<unknown, unknown, { id: string; data: Record<string, unknown> }>>
+  onReject: (t: AfterSalesTicket) => void
+  onProcess: (t: AfterSalesTicket) => void
+  onDetail: (t: AfterSalesTicket) => void
+}) {
+  const { t } = useTranslation()
+  if (loading) {
+    return <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>{t('common.loading')}</div>
+  }
+  if (tickets.length === 0) {
+    return <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>{t('common.noData')}</div>
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {tickets.map((r) => {
+        const isMerchantOrAdmin = merchantUser || user?.role === 'ADMIN'
+        const merchantActionPending = (r.nextSellerActions ?? []).some(isMerchantAction)
+        const warehouseActionPending = (r.nextSellerActions ?? []).includes(ACTION_WAREHOUSE_RECEIVE)
+        const canApprove = isMerchantOrAdmin && merchantActionPending
+        const canProcess = hasCapability(user, 'RETURN_INTAKE') && warehouseActionPending && !r.arrivedAt
+        return (
+          <div key={r.id} style={{
+            border: '1px solid var(--border)',
+            borderRadius: 10,
+            padding: 12,
+            background: 'var(--bg-card)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: "'Courier New', monospace", fontSize: 13, fontWeight: 600 }}>
+                  {r.order.platformOrderId}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {r.order.shop.name}
+                </div>
+              </div>
+              <Tag color={TK_STATUS_COLORS[r.platformReturnStatus ?? ''] ?? 'default'} style={{ marginRight: 0 }}>
+                {t(`returns.tk.${r.platformReturnStatus ?? ''}`, { defaultValue: r.platformReturnStatus ?? '—' })}
+              </Tag>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)' }}>
+              <span>
+                {r.arrivedAt ? (
+                  <>
+                    <Tag color={CONDITION_COLORS[r.condition] ?? 'default'} style={{ marginRight: 4 }}>
+                      {t(`returns.cond.${r.condition}`, { defaultValue: r.condition })}
+                    </Tag>
+                    {r.restockedAt && <Tag color="green">{t('returns.restocked')}</Tag>}
+                  </>
+                ) : (
+                  <Tag color="default">{t('returns.notArrived')}</Tag>
+                )}
+              </span>
+              <span style={{ fontFamily: "'Courier New', monospace" }}>
+                {r.returnedQty ?? '—'} / {r.expectedQty ?? '?'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {canApprove && (
+                <>
+                  <Popconfirm
+                    title={t('returns.approveTitle')}
+                    okText={t('returns.approveBtn')}
+                    cancelText={t('common.cancel')}
+                    onConfirm={() => approveMut.mutate(r.id)}
+                  >
+                    <Button size="small" type="primary" loading={approveMut.isPending}>
+                      {t('returns.approveBtn')}
+                    </Button>
+                  </Popconfirm>
+                  <Button size="small" danger onClick={() => onReject(r)}>
+                    {t('returns.rejectBtn')}
+                  </Button>
+                </>
+              )}
+              {canProcess && (
+                <Button size="small" type="primary" onClick={() => onProcess(r)} loading={processMut.isPending}>
+                  {t('returns.processBtn')}
+                </Button>
+              )}
+              <Button size="small" type="link" onClick={() => onDetail(r)}>
+                {t('returns.detailBtn')}
+              </Button>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Scanner modal ────────────────────────────────────────────────────────────
+
+// Live camera preview that emits decoded text (QR or 1D barcode) via onDecode.
+// We pick the back camera by string-matching the label since iOS Safari
+// doesn't expose the proper facingMode constraint on every device.
+function ScannerModal({ onDecode, onClose }: { onDecode: (code: string) => void; onClose: () => void }) {
+  const { t } = useTranslation()
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // Guard against re-entrant decodes during cleanup — once we've fired the
+  // first valid result, ignore everything else until the modal remounts.
+  const decodedRef = useRef(false)
+
+  useEffect(() => {
+    let stopped = false
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let controls: { stop: () => void } | null = null
+    ;(async () => {
+      try {
+        const { BrowserMultiFormatReader } = await import('@zxing/browser')
+        const reader = new BrowserMultiFormatReader()
+        const devices = await BrowserMultiFormatReader.listVideoInputDevices()
+        if (devices.length === 0) {
+          setError(t('returns.scanNoCamera'))
+          return
+        }
+        // Prefer rear/back camera. Falls back to first device when nothing matches.
+        const back = devices.find((d) => /back|rear|environment|后/i.test(d.label))
+        const deviceId = back?.deviceId ?? devices[0].deviceId
+        if (stopped || !videoRef.current) return
+        controls = await reader.decodeFromVideoDevice(deviceId, videoRef.current, (result) => {
+          if (result && !decodedRef.current) {
+            decodedRef.current = true
+            onDecode(result.getText())
+          }
+        })
+      } catch (err) {
+        setError((err as Error)?.message ?? t('returns.scanCameraDenied'))
+      }
+    })()
+    return () => {
+      stopped = true
+      controls?.stop()
+    }
+  }, [onDecode, t])
+
+  return (
+    <Modal
+      open
+      onCancel={onClose}
+      footer={null}
+      title={t('returns.scanTitle')}
+      destroyOnClose
+      width={420}
+    >
+      {error ? (
+        <div style={{ padding: 24, textAlign: 'center', color: 'var(--badge-error-fg)' }}>
+          {error}
+        </div>
+      ) : (
+        <>
+          <div style={{
+            position: 'relative',
+            width: '100%',
+            aspectRatio: '1 / 1',
+            background: '#000',
+            borderRadius: 8,
+            overflow: 'hidden',
+          }}>
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+            {/* Sight box — purely cosmetic, helps the user aim. */}
+            <div style={{
+              position: 'absolute',
+              inset: '15%',
+              border: '2px solid rgba(255,255,255,0.7)',
+              borderRadius: 8,
+              pointerEvents: 'none',
+            }} />
+          </div>
+          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
+            {t('returns.scanHint')}
+          </div>
+        </>
+      )}
+    </Modal>
+  )
+}
+
+// ─── Scan confirm modal ───────────────────────────────────────────────────────
+
+function ScanConfirmModal({
+  ticket, loading, onCancel, onConfirm,
+}: {
+  ticket: AfterSalesTicket
+  loading: boolean
+  onCancel: () => void
+  onConfirm: (skipNext: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const [skipNext, setSkipNext] = useState(false)
+  return (
+    <Modal
+      open
+      onCancel={onCancel}
+      onOk={() => onConfirm(skipNext)}
+      okText={t('returns.scanConfirmOk')}
+      cancelText={t('common.cancel')}
+      title={t('returns.scanConfirmTitle')}
+      confirmLoading={loading}
+      destroyOnClose
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ fontSize: 14 }}>{t('returns.scanConfirmBody', { orderId: ticket.order.platformOrderId })}</div>
+        {ticket.platformReturnId && (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            {t('returns.scanConfirmExtra', { returnId: ticket.platformReturnId })}
+          </div>
+        )}
+        <div style={{ marginTop: 8 }}>
+          <Checkbox checked={skipNext} onChange={(e) => setSkipNext(e.target.checked)}>
+            {t('returns.scanConfirmSkipNext')}
+          </Checkbox>
+        </div>
+      </div>
     </Modal>
   )
 }
