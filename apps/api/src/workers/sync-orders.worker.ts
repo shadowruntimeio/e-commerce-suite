@@ -414,40 +414,53 @@ async function deductInventoryForOrder(
       continue
     }
 
-    await prisma.$transaction(async (tx: any) => {
-      await tx.inventoryEvent.create({
-        data: {
-          tenantId,
-          warehouseSkuId: warehouseSku.id,
-          warehouseId: warehouse.id,
-          eventType: 'OUTBOUND',
-          quantityDelta: -item.quantity,
-          referenceType: 'order',
-          referenceId: orderId,
-        },
-      })
-      // Keep the denormalized WarehouseSku counter in lockstep with the
-      // event ledger. This used to only update inventorySnapshot (a legacy
-      // table the rest of the system stopped reading) and silently leaked
-      // every shipment out of the on-hand counter — causing UI/event drift.
-      await tx.warehouseSku.update({
-        where: { id: warehouseSku.id },
-        data: { quantityOnHand: { decrement: item.quantity } },
-      })
-      const snapshot = await tx.inventorySnapshot.findFirst({
-        where: { warehouseSkuId: warehouseSku.id },
-        orderBy: { snapshotAt: 'desc' },
-      })
-      if (snapshot) {
-        await tx.inventorySnapshot.update({
-          where: { id: snapshot.id },
+    try {
+      await prisma.$transaction(async (tx: any) => {
+        await tx.inventoryEvent.create({
           data: {
-            quantityOnHand: { decrement: item.quantity },
-            quantityAvailable: { decrement: item.quantity },
+            tenantId,
+            warehouseSkuId: warehouseSku.id,
+            warehouseId: warehouse.id,
+            eventType: 'OUTBOUND',
+            quantityDelta: -item.quantity,
+            referenceType: 'order',
+            referenceId: orderId,
           },
         })
+        // Keep the denormalized WarehouseSku counter in lockstep with the
+        // event ledger. This used to only update inventorySnapshot (a legacy
+        // table the rest of the system stopped reading) and silently leaked
+        // every shipment out of the on-hand counter — causing UI/event drift.
+        await tx.warehouseSku.update({
+          where: { id: warehouseSku.id },
+          data: { quantityOnHand: { decrement: item.quantity } },
+        })
+        const snapshot = await tx.inventorySnapshot.findFirst({
+          where: { warehouseSkuId: warehouseSku.id },
+          orderBy: { snapshotAt: 'desc' },
+        })
+        if (snapshot) {
+          await tx.inventorySnapshot.update({
+            where: { id: snapshot.id },
+            data: {
+              quantityOnHand: { decrement: item.quantity },
+              quantityAvailable: { decrement: item.quantity },
+            },
+          })
+        }
+      })
+    } catch (err) {
+      // The partial unique index on (warehouseSkuId, referenceId) WHERE
+      // eventType='OUTBOUND' AND referenceType='order' makes the second
+      // concurrent insert fail fast (P2002). That means another worker
+      // already wrote this OUTBOUND in its own transaction — their counter
+      // update also happened, so we just skip cleanly.
+      if ((err as { code?: string } | null)?.code === 'P2002') {
+        console.log(`[sync-orders] race: OUTBOUND for (sku=${warehouseSku.id}, order=${orderId}) already inserted by parallel worker; skipping`)
+        continue
       }
-    })
+      throw err
+    }
     try {
       await recordAudit({
         tenantId,
