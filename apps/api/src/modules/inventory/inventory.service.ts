@@ -379,6 +379,17 @@ export async function adjustStock(params: {
         createdBy: params.userId,
       },
     })
+    // Keep the denormalized counter aligned with the event ledger.
+    // createInventoryEvent (the canonical path) does this for callers that
+    // can take a fresh transaction; we're already inside one, so do it
+    // inline. Without this, ADJUSTMENT silently left the on-hand counter
+    // untouched and the UI drifted from the event log.
+    if (delta !== 0) {
+      await tx.warehouseSku.update({
+        where: { id: row.id },
+        data: { quantityOnHand: { increment: delta } },
+      })
+    }
     return event
   })
 }

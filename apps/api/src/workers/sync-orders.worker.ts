@@ -426,6 +426,14 @@ async function deductInventoryForOrder(
           referenceId: orderId,
         },
       })
+      // Keep the denormalized WarehouseSku counter in lockstep with the
+      // event ledger. This used to only update inventorySnapshot (a legacy
+      // table the rest of the system stopped reading) and silently leaked
+      // every shipment out of the on-hand counter — causing UI/event drift.
+      await tx.warehouseSku.update({
+        where: { id: warehouseSku.id },
+        data: { quantityOnHand: { decrement: item.quantity } },
+      })
       const snapshot = await tx.inventorySnapshot.findFirst({
         where: { warehouseSkuId: warehouseSku.id },
         orderBy: { snapshotAt: 'desc' },
