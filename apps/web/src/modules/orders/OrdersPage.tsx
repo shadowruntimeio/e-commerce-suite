@@ -429,13 +429,27 @@ export default function OrdersPage() {
   })
 
   const manualShipMut = useMutation({
-    mutationFn: (id: string) => api.post(`/orders/${id}/manual-ship`),
+    mutationFn: ({ id, trackingNumber }: { id: string; trackingNumber: string }) =>
+      api.post(`/orders/${id}/manual-ship`, { trackingNumber }),
     onSuccess: () => {
       void message.success(t('orders.manualShipSuccess'))
       queryClient.invalidateQueries({ queryKey: ['orders'] })
     },
     onError: (err: any) => message.error(err?.response?.data?.error ?? t('returns.failed')),
   })
+
+  // Ship-modal queue: per-row button pushes a single id; bulk pushes all
+  // eligible ids. The modal renders for the head of the queue; on submit
+  // the id is shifted off and the next order (if any) is shown automatically,
+  // so bulk ship walks through each parcel with its own tracking number.
+  // shipQueueTotal is captured when the queue is first set so the modal's
+  // "X / N" progress label keeps a stable denominator as items are processed.
+  const [shipQueue, setShipQueue] = useState<string[]>([])
+  const [shipQueueTotal, setShipQueueTotal] = useState(0)
+  function openShipQueue(ids: string[]) {
+    setShipQueue(ids)
+    setShipQueueTotal(ids.length)
+  }
 
   const deleteManualMut = useMutation({
     mutationFn: (id: string) => api.delete(`/orders/${id}`),
@@ -1077,22 +1091,14 @@ export default function OrdersPage() {
               />
             )}
             {canManualShip && (
-              <Popconfirm
-                title={t('orders.manualShipTitle')}
-                description={t('orders.manualShipContent')}
-                okText={t('common.confirm')}
-                cancelText={t('common.cancel')}
-                onConfirm={() => manualShipMut.mutate(record.id)}
-              >
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<CarOutlined />}
-                  style={{ color: 'var(--accent-color, #7c3aed)' }}
-                  title={t('orders.manualShip')}
-                  loading={manualShipMut.isPending}
-                />
-              </Popconfirm>
+              <Button
+                type="text"
+                size="small"
+                icon={<CarOutlined />}
+                style={{ color: 'var(--accent-color, #7c3aed)' }}
+                title={t('orders.manualShip')}
+                onClick={(e) => { e.stopPropagation(); openShipQueue([record.id]) }}
+              />
             )}
             <Button
               type="text"
@@ -1365,20 +1371,16 @@ export default function OrdersPage() {
                 icon={<CarOutlined />}
                 loading={manualShipMut.isPending}
                 onClick={() => {
-                  const pending = (data?.items ?? []).filter(
-                    (o: any) => selectedKeys.includes(o.id) && o.manualStatus === 'PENDING',
-                  )
-                  if (!pending.length) { void message.info(t('orders.bulkNoneEligible')); return }
-                  Modal.confirm({
-                    title: t('orders.manualShipTitle'),
-                    content: t('orders.manualShipContent'),
-                    okText: t('common.confirm'),
-                    cancelText: t('common.cancel'),
-                    onOk: async () => {
-                      await Promise.allSettled(pending.map((o: any) => manualShipMut.mutateAsync(o.id)))
-                      setSelectedKeys([])
-                    },
-                  })
+                  const pendingIds = (data?.items ?? [])
+                    .filter((o: any) => selectedKeys.includes(o.id) && o.manualStatus === 'PENDING')
+                    .map((o: any) => o.id as string)
+                  if (!pendingIds.length) { void message.info(t('orders.bulkNoneEligible')); return }
+                  // Push all eligible ids onto the ship queue. The modal walks
+                  // through them one at a time so each parcel gets its own
+                  // tracking number rather than sharing one or skipping the
+                  // requirement.
+                  openShipQueue(pendingIds)
+                  setSelectedKeys([])
                 }}
                 style={{ borderRadius: 8, fontWeight: 500, color: '#7c3aed', borderColor: 'rgba(124,58,237,0.4)' }}
               >
@@ -1469,6 +1471,29 @@ export default function OrdersPage() {
       </div>
 
       <OrderDetailModal id={detailId} onClose={() => setDetailId(null)} />
+      {shipQueue.length > 0 && (
+        <ManualShipModal
+          order={(data?.items ?? []).find((o: any) => o.id === shipQueue[0]) as any}
+          queueIndex={shipQueueTotal - shipQueue.length + 1}
+          queueTotal={shipQueueTotal}
+          loading={manualShipMut.isPending}
+          onCancel={() => { setShipQueue([]); setShipQueueTotal(0) }}
+          onSubmit={async (trackingNumber) => {
+            const id = shipQueue[0]
+            try {
+              await manualShipMut.mutateAsync({ id, trackingNumber })
+              setShipQueue((q) => {
+                const next = q.slice(1)
+                if (next.length === 0) setShipQueueTotal(0)
+                return next
+              })
+            } catch {
+              // Mutation error toast already fired; keep the modal open so the
+              // user can correct the tracking number and retry.
+            }
+          }}
+        />
+      )}
       {replaceSkuOrderId && (
         <ReplaceSkuModal
           orderId={replaceSkuOrderId}
@@ -1569,6 +1594,15 @@ function OrderDetailModal({ id, onClose }: { id: string | null; onClose: () => v
             />
             <DetailField label={t('orders.detailTotal')} value={`${order.currency ?? ''} ${order.totalRevenue ?? 0}`} />
             <DetailField label={t('orders.detailFirstSku')} value={order.firstSellerSku ?? '—'} />
+            {order.isManual && order.manualTrackingNumber && (
+              <DetailField
+                label={t('orders.manualShipDetailTracking')}
+                value={(
+                  <span style={{ fontFamily: "'Courier New', monospace" }}>{order.manualTrackingNumber}</span>
+                )}
+                span={2}
+              />
+            )}
           </div>
 
           {/* Items */}
@@ -1821,6 +1855,77 @@ function SystemSkuPicker({
         ),
       }))}
     />
+  )
+}
+
+// ─── Manual ship modal ────────────────────────────────────────────────────────
+
+// Tracking number is required and is the whole reason we replaced the old
+// Popconfirm with a real form: warehouse must capture the carrier code before
+// the merchant can pass it to the buyer. When the parent renders this with a
+// non-1 queueTotal it's a bulk ship — show a "X of N" hint so the warehouse
+// staff knows there are more to come.
+function ManualShipModal({
+  order, queueIndex, queueTotal, loading, onCancel, onSubmit,
+}: {
+  order: { id: string; platformOrderId: string; buyerName: string | null } | null
+  queueIndex: number
+  queueTotal: number
+  loading: boolean
+  onCancel: () => void
+  onSubmit: (trackingNumber: string) => void | Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [form] = Form.useForm()
+  // Reset the field whenever the head of the queue changes — otherwise the
+  // previous order's tracking number would prefill the next modal.
+  useEffect(() => {
+    form.resetFields()
+  }, [form, order?.id])
+
+  if (!order) return null
+  return (
+    <Modal
+      open
+      onCancel={onCancel}
+      title={
+        queueTotal > 1
+          ? `${t('orders.manualShipModalTitle')} · ${t('orders.manualShipQueueProgress', { current: queueIndex, total: queueTotal })}`
+          : t('orders.manualShipModalTitle')
+      }
+      okText={t('orders.manualShip')}
+      cancelText={t('common.cancel')}
+      confirmLoading={loading}
+      onOk={async () => {
+        const v = await form.validateFields()
+        await onSubmit(v.trackingNumber.trim())
+      }}
+      destroyOnClose
+    >
+      <Form form={form} layout="vertical" initialValues={{ trackingNumber: '' }}>
+        <Form.Item label={t('orders.manualShipOrderLabel')}>
+          <div style={{ fontFamily: "'Courier New', monospace", fontSize: 13 }}>
+            {order.platformOrderId}
+            {order.buyerName && <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>· {order.buyerName}</span>}
+          </div>
+        </Form.Item>
+        <Form.Item
+          label={t('orders.manualShipTrackingLabel')}
+          name="trackingNumber"
+          rules={[{
+            required: true,
+            whitespace: true,
+            message: t('orders.manualShipTrackingRequired'),
+          }]}
+        >
+          <Input
+            autoFocus
+            placeholder={t('orders.manualShipTrackingPlaceholder')}
+            style={{ fontFamily: "'Courier New', monospace" }}
+          />
+        </Form.Item>
+      </Form>
+    </Modal>
   )
 }
 

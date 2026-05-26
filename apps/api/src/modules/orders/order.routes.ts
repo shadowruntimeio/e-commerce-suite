@@ -99,12 +99,20 @@ export async function orderRoutes(app: FastifyInstance) {
     return { success: true, data: order }
   })
 
-  // POST /:id/manual-ship — warehouse marks a manual order as shipped
+  // POST /:id/manual-ship — warehouse marks a manual order as shipped. The
+  // carrier tracking number is required so the merchant has something to
+  // hand the buyer; refuse the request without it rather than persisting an
+  // empty string.
   app.post('/:id/manual-ship', async (request, reply) => {
     if (request.user.role === 'MERCHANT') {
       return reply.status(403).send({ success: false, error: 'Forbidden' })
     }
     const { id } = request.params as { id: string }
+    const { trackingNumber } = (request.body ?? {}) as { trackingNumber?: string }
+    const tn = trackingNumber?.trim()
+    if (!tn) {
+      return reply.status(400).send({ success: false, error: 'trackingNumber required' })
+    }
     const order = await prisma.order.findFirst({
       where: { id, tenantId: request.user.tenantId, isManual: true },
     })
@@ -115,10 +123,16 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const updated = await prisma.order.update({
       where: { id },
-      data: { manualStatus: 'SHIPPED', status: 'COMPLETED' },
+      data: {
+        manualStatus: 'SHIPPED',
+        status: 'COMPLETED',
+        manualTrackingNumber: tn,
+      },
     })
 
-    // Notify the merchant who created the order
+    // Notify the merchant who created the order — include the tracking
+    // number so they can pass it along to the buyer without opening the
+    // detail modal.
     if (order.createdByUserId) {
       await prisma.merchantNotification.create({
         data: {
@@ -126,8 +140,8 @@ export async function orderRoutes(app: FastifyInstance) {
           userId: order.createdByUserId,
           type: 'MANUAL_ORDER_SHIPPED' as const,
           title: '手工单已发货',
-          body: `订单 ${order.platformOrderId} 已由仓库确认发货`,
-          payload: { orderId: order.id },
+          body: `订单 ${order.platformOrderId} 已发货，运单号：${tn}`,
+          payload: { orderId: order.id, trackingNumber: tn },
         },
       })
     }
@@ -138,7 +152,7 @@ export async function orderRoutes(app: FastifyInstance) {
       action: 'order.manual_ship',
       targetType: 'order',
       targetId: id,
-      payload: {},
+      payload: { trackingNumber: tn },
       ip: request.ip,
       userAgent: request.headers['user-agent'] ?? undefined,
     })

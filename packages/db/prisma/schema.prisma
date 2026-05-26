@@ -476,6 +476,9 @@ model Order {
   isManual         Boolean     @default(false)
   manualStatus     ManualOrderStatus?
   createdByUserId  String?     // merchant who created the manual order
+  // Carrier tracking number captured at warehouse ship time. Only meaningful
+  // for manual orders — platform orders carry tracking via platformMetadata.
+  manualTrackingNumber String?
 
   tenant        Tenant          @relation(fields: [tenantId], references: [id])
   shop          Shop?           @relation(fields: [shopId], references: [id])
