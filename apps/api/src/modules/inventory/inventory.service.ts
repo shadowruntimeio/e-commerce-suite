@@ -182,12 +182,23 @@ export interface StockListFilters {
   skuSearch?: string
   lowStockOnly?: boolean
   ownerUserId?: string  // optional merchant filter
+  todayStart?: string   // ISO timestamp from client's local midnight; events >= this count as "today"
   page: number
   pageSize: number
 }
 
+// Event types that change quantityOnHand (excludes RESERVED/UNRESERVED).
+const ON_HAND_EVENT_TYPES: InventoryEventType[] = [
+  'INBOUND',
+  'OUTBOUND',
+  'TRANSFER_IN',
+  'TRANSFER_OUT',
+  'ADJUSTMENT',
+  'RETURN',
+]
+
 export async function getStockList(filters: StockListFilters): Promise<{ items: StockRow[]; total: number }> {
-  const { tenantId, warehouseId, categoryId, skuSearch, lowStockOnly, ownerUserId, page, pageSize } = filters
+  const { tenantId, warehouseId, categoryId, skuSearch, lowStockOnly, ownerUserId, todayStart, page, pageSize } = filters
 
   const where: Prisma.WarehouseSkuWhereInput = {
     warehouse: { tenantId, isActive: true },
@@ -264,18 +275,55 @@ export async function getStockList(filters: StockListFilters): Promise<{ items: 
         quantityAvailable: stock.quantityAvailable,
         reorderPoint: row.reorderPoint,
         lastEventAt: lastEvent?.createdAt.toISOString() ?? null,
+        todayInbound: 0,
+        todayOutbound: 0,
       } as StockRow
     })
   )
 
+  let items: StockRow[]
+  let total: number
   if (needsInMemoryFilter) {
     const filtered = enriched.filter((r) => r.quantityAvailable <= r.reorderPoint)
-    const total = filtered.length
-    const items = filtered.slice((page - 1) * pageSize, page * pageSize)
-    return { items, total }
+    total = filtered.length
+    items = filtered.slice((page - 1) * pageSize, page * pageSize)
+  } else {
+    items = enriched
+    total = totalUnfiltered
   }
 
-  return { items: enriched, total: totalUnfiltered }
+  // Aggregate today's inbound/outbound deltas for the wskus actually on this page.
+  // Frontend sends todayStart (local midnight as ISO) so each user sees their own day.
+  if (todayStart && items.length > 0) {
+    const todayStartDate = new Date(todayStart)
+    if (!Number.isNaN(todayStartDate.getTime())) {
+      const wskuIds = items.map((i) => i.warehouseSkuId)
+      const todayEvents = await prisma.inventoryEvent.findMany({
+        where: {
+          warehouseSkuId: { in: wskuIds },
+          createdAt: { gte: todayStartDate },
+          eventType: { in: ON_HAND_EVENT_TYPES },
+        },
+        select: { warehouseSkuId: true, quantityDelta: true },
+      })
+      const inboundMap = new Map<string, number>()
+      const outboundMap = new Map<string, number>()
+      for (const e of todayEvents) {
+        if (e.quantityDelta > 0) {
+          inboundMap.set(e.warehouseSkuId, (inboundMap.get(e.warehouseSkuId) ?? 0) + e.quantityDelta)
+        } else if (e.quantityDelta < 0) {
+          outboundMap.set(e.warehouseSkuId, (outboundMap.get(e.warehouseSkuId) ?? 0) + -e.quantityDelta)
+        }
+      }
+      items = items.map((i) => ({
+        ...i,
+        todayInbound: inboundMap.get(i.warehouseSkuId) ?? 0,
+        todayOutbound: outboundMap.get(i.warehouseSkuId) ?? 0,
+      }))
+    }
+  }
+
+  return { items, total }
 }
 
 // Fetch a single stock row + a snapshot timestamp used as an optimistic-lock token.

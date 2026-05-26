@@ -9,6 +9,16 @@ import type { ColumnsType } from 'antd/es/table'
 import dayjs, { Dayjs } from 'dayjs'
 
 const REASONS = ['STOCKTAKE_CORRECTION', 'DAMAGE', 'LOSS', 'EXPIRY', 'FOUND', 'SYSTEM_ERROR', 'OTHER'] as const
+const EVENT_TYPES = ['INBOUND', 'OUTBOUND', 'TRANSFER_IN', 'TRANSFER_OUT', 'ADJUSTMENT', 'RETURN'] as const
+
+const EVENT_TYPE_LABEL_KEY: Record<string, string> = {
+  INBOUND: 'inventory.inbound',
+  OUTBOUND: 'inventory.outbound',
+  TRANSFER_IN: 'inventory.transferIn',
+  TRANSFER_OUT: 'inventory.transferOut',
+  ADJUSTMENT: 'inventory.adjustment',
+  RETURN: 'inventory.return',
+}
 
 type HistoryRow = {
   id: string
@@ -23,6 +33,8 @@ type HistoryRow = {
   categoryName: string | null
   eventType: string
   quantityDelta: number
+  quantityBefore: number | null
+  quantityAfter: number | null
   reason: string | null
   notes: string | null
 }
@@ -31,6 +43,7 @@ export default function HistoryPage() {
   const { t } = useTranslation()
   const [warehouseId, setWarehouseId] = useState<string | undefined>()
   const [categoryId, setCategoryId] = useState<string | undefined>()
+  const [eventType, setEventType] = useState<string | undefined>()
   const [reason, setReason] = useState<string | undefined>()
   const [skuSearch, setSkuSearch] = useState('')
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
@@ -50,13 +63,14 @@ export default function HistoryPage() {
   const to = dateRange?.[1]?.endOf('day').toISOString()
 
   const { data, isLoading } = useQuery({
-    queryKey: ['inventory-history', { warehouseId, categoryId, reason, skuSearch, from, to, page }],
+    queryKey: ['inventory-history', { warehouseId, categoryId, eventType, reason, skuSearch, from, to, page }],
     queryFn: () =>
       api
         .get('/inventory/history', {
           params: {
             warehouseId: warehouseId || undefined,
             categoryId: categoryId || undefined,
+            eventType: eventType || undefined,
             reason: reason || undefined,
             skuSearch: skuSearch.trim() || undefined,
             from,
@@ -105,6 +119,27 @@ export default function HistoryPage() {
       render: (v) => v ?? <span style={{ color: 'var(--text-muted)' }}>—</span>,
     },
     {
+      title: t('inventory.eventType'),
+      dataIndex: 'eventType',
+      width: 96,
+      render: (v: string) => {
+        const key = EVENT_TYPE_LABEL_KEY[v]
+        return (
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            {key ? t(key) : v}
+          </span>
+        )
+      },
+    },
+    {
+      title: t('inventory.before'),
+      dataIndex: 'quantityBefore',
+      align: 'right',
+      width: 80,
+      render: (v: number | null) =>
+        v == null ? <span style={{ color: 'var(--text-muted)' }}>—</span> : <span>{v}</span>,
+    },
+    {
       title: 'Δ',
       dataIndex: 'quantityDelta',
       align: 'right',
@@ -114,6 +149,14 @@ export default function HistoryPage() {
           {v > 0 ? `+${v}` : v}
         </span>
       ),
+    },
+    {
+      title: t('inventory.after'),
+      dataIndex: 'quantityAfter',
+      align: 'right',
+      width: 80,
+      render: (v: number | null) =>
+        v == null ? <span style={{ color: 'var(--text-muted)' }}>—</span> : <span style={{ fontWeight: 600 }}>{v}</span>,
     },
     {
       title: t('inventory.reason'),
@@ -181,6 +224,14 @@ export default function HistoryPage() {
         />
         <Select
           allowClear
+          placeholder={t('inventory.allEventTypes')}
+          value={eventType}
+          style={{ width: 180 }}
+          onChange={(v) => { setEventType(v); setPage(1) }}
+          options={EVENT_TYPES.map((e) => ({ value: e, label: t(EVENT_TYPE_LABEL_KEY[e]) }))}
+        />
+        <Select
+          allowClear
           placeholder={t('inventory.allReasons')}
           value={reason}
           style={{ width: 200 }}
@@ -206,7 +257,7 @@ export default function HistoryPage() {
           dataSource={data?.items ?? []}
           loading={isLoading}
           size="middle"
-          scroll={{ x: 1100 }}
+          scroll={{ x: 1400 }}
           pagination={{
             current: data?.page ?? page,
             pageSize: data?.pageSize ?? pageSize,

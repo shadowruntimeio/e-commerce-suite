@@ -26,6 +26,8 @@ type StockRow = {
   quantityAvailable: number
   reorderPoint: number
   lastEventAt: string | null
+  todayInbound: number
+  todayOutbound: number
 }
 
 export default function InventoryPage() {
@@ -70,8 +72,12 @@ export default function InventoryPage() {
     queryFn: () => api.get('/categories').then((r) => r.data.data),
   })
 
+  // Client's local midnight — re-computed each render, but only the date portion
+  // is sent so the query cache stays stable through the day.
+  const todayStart = dayjs().startOf('day').toISOString()
+
   const { data, isLoading } = useQuery({
-    queryKey: ['inventory-stock', { warehouseId, categoryId, merchantId, skuSearch, lowStockOnly, page }],
+    queryKey: ['inventory-stock', { warehouseId, categoryId, merchantId, skuSearch, lowStockOnly, page, todayStart }],
     queryFn: () =>
       api
         .get('/inventory/stock', {
@@ -81,6 +87,7 @@ export default function InventoryPage() {
             ownerUserId: merchantId || undefined,
             skuSearch: skuSearch.trim() || undefined,
             lowStockOnly: lowStockOnly ? 'true' : undefined,
+            todayStart,
             page,
             pageSize,
           },
@@ -138,6 +145,32 @@ export default function InventoryPage() {
               </Tooltip>
             )}
           </span>
+        )
+      },
+    },
+    {
+      title: t('inventory.today'),
+      key: 'todayDelta',
+      align: 'right',
+      width: 96,
+      render: (_, row) => {
+        const net = row.todayInbound - row.todayOutbound
+        if (row.todayInbound === 0 && row.todayOutbound === 0) {
+          return <span style={{ color: 'var(--text-muted)' }}>—</span>
+        }
+        const color = net > 0 ? '#10B981' : net < 0 ? '#EF4444' : 'var(--text-secondary)'
+        const sign = net > 0 ? '+' : ''
+        return (
+          <Tooltip
+            title={
+              <div style={{ fontSize: 12, lineHeight: '20px' }}>
+                <div>{t('inventory.inbound')}: <span style={{ color: '#10B981' }}>+{row.todayInbound}</span></div>
+                <div>{t('inventory.outbound')}: <span style={{ color: '#EF4444' }}>-{row.todayOutbound}</span></div>
+              </div>
+            }
+          >
+            <span style={{ fontWeight: 600, color, cursor: 'help' }}>{sign}{net}</span>
+          </Tooltip>
         )
       },
     },

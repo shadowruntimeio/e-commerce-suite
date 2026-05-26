@@ -45,6 +45,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
       skuSearch?: string
       lowStockOnly?: string
       ownerUserId?: string
+      todayStart?: string
       page?: string
       pageSize?: string
     }
@@ -61,6 +62,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
       skuSearch: q.skuSearch?.trim() || undefined,
       lowStockOnly: q.lowStockOnly === 'true',
       ownerUserId,
+      todayStart: q.todayStart,
       page,
       pageSize,
     })
@@ -90,13 +92,16 @@ export async function inventoryRoutes(app: FastifyInstance) {
     return { success: true, data: events }
   })
 
-  // Adjustment history with filters
+  // Inventory movement history. Defaults to all events that change on-hand
+  // quantity (excludes RESERVED/UNRESERVED); pass ?eventType=ADJUSTMENT to
+  // narrow. Each row carries the computed on-hand before/after the event.
   app.get('/history', async (request) => {
     const q = request.query as {
       warehouseId?: string
       categoryId?: string
       skuSearch?: string
       userId?: string
+      eventType?: string
       reason?: string
       from?: string
       to?: string
@@ -106,9 +111,17 @@ export async function inventoryRoutes(app: FastifyInstance) {
     const page = Math.max(1, Number(q.page ?? 1))
     const pageSize = Math.min(200, Math.max(1, Number(q.pageSize ?? 50)))
 
+    const ON_HAND_TYPES = ['INBOUND', 'OUTBOUND', 'TRANSFER_IN', 'TRANSFER_OUT', 'ADJUSTMENT', 'RETURN'] as const
+
     const where: any = {
       tenantId: request.user.tenantId,
-      eventType: 'ADJUSTMENT',
+      // MERCHANT users only see events on inventory they own
+      ...(request.user.role === 'MERCHANT'
+        ? { warehouseSku: { ownerUserId: request.user.userId } }
+        : {}),
+      ...(q.eventType
+        ? { eventType: q.eventType as any }
+        : { eventType: { in: ON_HAND_TYPES as unknown as string[] } }),
       ...(q.warehouseId ? { warehouseId: q.warehouseId } : {}),
       ...(q.reason ? { reason: q.reason as any } : {}),
       ...(q.userId ? { createdBy: q.userId } : {}),
@@ -123,6 +136,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
       ...(q.categoryId || q.skuSearch
         ? {
             warehouseSku: {
+              ...(request.user.role === 'MERCHANT' ? { ownerUserId: request.user.userId } : {}),
               systemSku: {
                 ...(q.skuSearch
                   ? {
@@ -147,6 +161,7 @@ export async function inventoryRoutes(app: FastifyInstance) {
           warehouseSku: {
             select: {
               id: true,
+              quantityOnHand: true,
               systemSku: {
                 select: {
                   skuCode: true,
@@ -163,6 +178,55 @@ export async function inventoryRoutes(app: FastifyInstance) {
       prisma.inventoryEvent.count({ where }),
     ])
 
+    // Compute on-hand before/after for each page row. Strategy: for each
+    // wsku on the page, walk DESC from the current denormalized quantityOnHand,
+    // subtracting deltas of on-hand-affecting events strictly newer than each
+    // row to reconstruct that row's "after" value. We fetch every on-hand event
+    // for the wsku from the page's oldest event onward — that covers the rows
+    // on the page plus any in-between rows not on the page (e.g. filtered out).
+    const beforeAfterMap = new Map<string, { before: number; after: number }>()
+    if (events.length > 0) {
+      const onHandByWsku = new Map<string, number>()
+      const minCreatedAtPerWsku = new Map<string, Date>()
+      for (const e of events) {
+        if (!onHandByWsku.has(e.warehouseSkuId)) {
+          onHandByWsku.set(e.warehouseSkuId, e.warehouseSku.quantityOnHand)
+        }
+        const cur = minCreatedAtPerWsku.get(e.warehouseSkuId)
+        if (!cur || e.createdAt < cur) minCreatedAtPerWsku.set(e.warehouseSkuId, e.createdAt)
+      }
+
+      const runningEvents = await prisma.inventoryEvent.findMany({
+        where: {
+          OR: Array.from(minCreatedAtPerWsku.entries()).map(([wskuId, minDate]) => ({
+            warehouseSkuId: wskuId,
+            createdAt: { gte: minDate },
+            eventType: { in: ON_HAND_TYPES as unknown as any[] },
+          })),
+        },
+        select: { id: true, warehouseSkuId: true, createdAt: true, quantityDelta: true },
+        orderBy: { createdAt: 'desc' },
+      })
+
+      const byWsku = new Map<string, typeof runningEvents>()
+      for (const e of runningEvents) {
+        const arr = byWsku.get(e.warehouseSkuId) ?? []
+        arr.push(e)
+        byWsku.set(e.warehouseSkuId, arr)
+      }
+      for (const [wskuId, wskuEvents] of byWsku) {
+        let running = onHandByWsku.get(wskuId) ?? 0
+        for (const e of wskuEvents) {
+          // wskuEvents sorted DESC; "after this event" equals the running value
+          // we're holding before applying it.
+          const after = running
+          const before = after - e.quantityDelta
+          beforeAfterMap.set(e.id, { before, after })
+          running = before
+        }
+      }
+    }
+
     // Resolve createdBy -> user name in one batch
     const userIds = Array.from(new Set(events.map((e) => e.createdBy).filter((v): v is string => !!v)))
     const users = userIds.length
@@ -173,22 +237,27 @@ export async function inventoryRoutes(app: FastifyInstance) {
       : []
     const userMap = new Map(users.map((u) => [u.id, u]))
 
-    const items = events.map((e) => ({
-      id: e.id,
-      createdAt: e.createdAt,
-      createdBy: e.createdBy,
-      createdByName: e.createdBy ? userMap.get(e.createdBy)?.name ?? null : null,
-      warehouseId: e.warehouseId,
-      warehouseName: e.warehouse.name,
-      warehouseSkuId: e.warehouseSkuId,
-      skuCode: e.warehouseSku.systemSku.skuCode,
-      productName: e.warehouseSku.systemSku.systemProduct.name,
-      categoryName: e.warehouseSku.systemSku.systemProduct.category?.name ?? null,
-      eventType: e.eventType,
-      quantityDelta: e.quantityDelta,
-      reason: e.reason,
-      notes: e.notes,
-    }))
+    const items = events.map((e) => {
+      const ba = beforeAfterMap.get(e.id) ?? null
+      return {
+        id: e.id,
+        createdAt: e.createdAt,
+        createdBy: e.createdBy,
+        createdByName: e.createdBy ? userMap.get(e.createdBy)?.name ?? null : null,
+        warehouseId: e.warehouseId,
+        warehouseName: e.warehouse.name,
+        warehouseSkuId: e.warehouseSkuId,
+        skuCode: e.warehouseSku.systemSku.skuCode,
+        productName: e.warehouseSku.systemSku.systemProduct.name,
+        categoryName: e.warehouseSku.systemSku.systemProduct.category?.name ?? null,
+        eventType: e.eventType,
+        quantityDelta: e.quantityDelta,
+        quantityBefore: ba?.before ?? null,
+        quantityAfter: ba?.after ?? null,
+        reason: e.reason,
+        notes: e.notes,
+      }
+    })
 
     return {
       success: true,

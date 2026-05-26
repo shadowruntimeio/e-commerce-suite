@@ -43,4 +43,6 @@ export interface StockRow {
   quantityAvailable: number
   reorderPoint: number
   lastEventAt: string | null
+  todayInbound: number
+  todayOutbound: number
 }
