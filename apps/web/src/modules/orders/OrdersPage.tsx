@@ -1,9 +1,9 @@
-import { Table, Input, Select, Space, DatePicker, Button, Modal, Tag, Popconfirm, Form } from 'antd'
+import { Table, Input, Select, Space, DatePicker, Button, Modal, Tag, Popconfirm, Form, Tooltip } from 'antd'
 import {
   SyncOutlined, DownloadOutlined, EyeOutlined, ShoppingCartOutlined,
   PrinterOutlined, CheckOutlined, CloseOutlined, SearchOutlined,
   PlusOutlined, CarOutlined, MinusCircleOutlined, DeleteOutlined,
-  SwapOutlined,
+  SwapOutlined, CopyOutlined,
 } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -1003,6 +1003,49 @@ export default function OrdersPage() {
       sortOrder: sortBy === 'date' ? (sortOrder === 'asc' ? 'ascend' : 'descend') : undefined,
       render: (v) => dayjs(v).format('MMM D, HH:mm'),
     },
+    ...(isManualTab ? [{
+      title: t('orders.tracking'),
+      dataIndex: 'manualTrackingNumber',
+      key: 'tracking',
+      width: 160,
+      render: (v: string | null) => {
+        if (!v) return <span style={{ color: 'var(--text-muted)' }}>—</span>
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+            <Tooltip title={v}>
+              <span
+                style={{
+                  fontFamily: "'Courier New', monospace",
+                  fontSize: 12,
+                  color: 'var(--mono-color)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  flex: 1,
+                  minWidth: 0,
+                }}
+              >
+                {v}
+              </span>
+            </Tooltip>
+            <Button
+              type="text"
+              size="small"
+              icon={<CopyOutlined />}
+              style={{ color: 'var(--text-secondary)', flexShrink: 0 }}
+              title={t('common.copy')}
+              onClick={(e) => {
+                e.stopPropagation()
+                navigator.clipboard.writeText(v).then(
+                  () => message.success(t('orders.trackingCopied')),
+                  () => message.error(t('common.copyFailed')),
+                )
+              }}
+            />
+          </div>
+        )
+      },
+    }] : []),
     {
       title: t('orders.platform'),
       dataIndex: ['shop', 'platform'],
