@@ -177,6 +177,48 @@ async function upsertOrder(
     ? new Date(Date.now() + autoConfirmHours * 60 * 60 * 1000)
     : null
 
+  // Pre-resolve SKU lookups OUTSIDE the transaction. They're reads and don't
+  // need transactional isolation, but doing them serially inside an interactive
+  // transaction can blow Prisma's 5s default timeout when a batch contains
+  // many orders/items — the whole job throws, lastSyncAt never advances, and
+  // every retry hits the same wall. (Saw exactly this on 2026-05-29; ~2.5h of
+  // orders were silently skipped.)
+  const platformSkuIds = Array.from(new Set(platformOrder.items.map((i) => i.platformSkuId).filter(Boolean)))
+  const onlineSkus = platformSkuIds.length
+    ? await prisma.onlineSku.findMany({
+        where: {
+          platformSkuId: { in: platformSkuIds },
+          onlineProduct: { shopId },
+        },
+        select: { id: true, platformSkuId: true, systemSkuId: true },
+      })
+    : []
+  const onlineSkuByPlatformId = new Map(onlineSkus.map((o) => [o.platformSkuId, o]))
+
+  const sellerSkusToLookup = Array.from(new Set(
+    platformOrder.items
+      .filter((i) => i.sellerSku && !onlineSkuByPlatformId.get(i.platformSkuId)?.systemSkuId)
+      .map((i) => i.sellerSku as string)
+  ))
+  const systemSkus = sellerSkusToLookup.length
+    ? await prisma.systemSku.findMany({
+        where: { skuCode: { in: sellerSkusToLookup }, systemProduct: { tenantId } },
+        select: { id: true, skuCode: true },
+      })
+    : []
+  const systemSkuIdByCode = new Map(systemSkus.map((s) => [s.skuCode, s.id]))
+
+  // Resolved per-item mapping used by both the orderItem inserts and the
+  // back-patch of OnlineSku.systemSkuId outside the transaction.
+  const resolved = platformOrder.items.map((item) => {
+    const onlineSku = onlineSkuByPlatformId.get(item.platformSkuId)
+    let systemSkuId = onlineSku?.systemSkuId ?? null
+    if (!systemSkuId && item.sellerSku) {
+      systemSkuId = systemSkuIdByCode.get(item.sellerSku) ?? null
+    }
+    return { item, onlineSkuId: onlineSku?.id ?? null, systemSkuId, needsBackfill: !!(onlineSku?.id && !onlineSku.systemSkuId && systemSkuId) }
+  })
+
   // Wrap upsert + items rebuild in a transaction with a per-order advisory
   // lock. Without this, two concurrent sync workers (e.g. scheduled + webhook)
   // could each run deleteMany while the other had not yet inserted, then both
@@ -234,31 +276,9 @@ async function upsertOrder(
 
     await tx.orderItem.deleteMany({ where: { orderId: upserted.id } })
 
-    for (const item of platformOrder.items) {
-      const onlineSku = await tx.onlineSku.findFirst({
-        where: {
-          platformSkuId: item.platformSkuId,
-          onlineProduct: { shopId },
-        },
-        select: { id: true, systemSkuId: true },
-      })
-
-      // Resolve SystemSku: prefer OnlineSku mapping, fall back to matching the
-      // seller-provided sku_code directly (same-merchant-same-SKU convention).
-      let systemSkuId = onlineSku?.systemSkuId ?? null
-      if (!systemSkuId && item.sellerSku) {
-        const sysSku = await tx.systemSku.findFirst({
-          where: {
-            skuCode: item.sellerSku,
-            systemProduct: { tenantId },
-          },
-          select: { id: true },
-        })
-        if (sysSku) systemSkuId = sysSku.id
-      }
-
-      await tx.orderItem.create({
-        data: {
+    if (resolved.length > 0) {
+      await tx.orderItem.createMany({
+        data: resolved.map(({ item, onlineSkuId, systemSkuId }) => ({
           orderId: upserted.id,
           platformSkuId: item.platformSkuId,
           sellerSku: item.sellerSku,
@@ -267,21 +287,23 @@ async function upsertOrder(
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           discount: item.discount,
-          onlineSkuId: onlineSku?.id ?? null,
+          onlineSkuId,
           systemSkuId,
-        },
+        })),
       })
-
-      if (onlineSku?.id && !onlineSku.systemSkuId && systemSkuId) {
-        await tx.onlineSku.update({
-          where: { id: onlineSku.id },
-          data: { systemSkuId },
-        })
-      }
     }
 
     return upserted
   })
+
+  // Back-patch OnlineSku.systemSkuId for any rows we just resolved via
+  // sellerSku fallback. Done outside the transaction — these are independent
+  // updates and we don't want them on the hot path.
+  for (const { onlineSkuId, systemSkuId, needsBackfill } of resolved) {
+    if (needsBackfill && onlineSkuId && systemSkuId) {
+      await prisma.onlineSku.update({ where: { id: onlineSkuId }, data: { systemSkuId } }).catch(() => {})
+    }
+  }
 
   // Deduct inventory at courier pickup — the moment the package physically
   // leaves the warehouse. That's the AWAITING_COLLECTION → IN_TRANSIT
