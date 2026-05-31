@@ -193,18 +193,16 @@ async function handleChatReply(task: {
   }
 
   try {
-    // Tier selection: any task with an attached image goes through the
-    // investigator path — the user explicitly signalled they want analysis.
-    // Text-only Q&A stays on the cheap fast path (single Claude turn, no
-    // tools) so we don't burn subscription quota on "how do I cancel an
-    // order"-type questions.
-    const mode: 'fast' | 'investigator' = imagePath ? 'investigator' : 'fast'
+    // Always run in investigator mode. The user prefers accurate answers
+    // (verified against code + tenant data) over the cheap-but-shallow fast
+    // path. Off-topic / refusal cases still cost ~5s because the system
+    // prompt instructs the model to skip tool calls in those cases — the
+    // tools are available but unused.
     const run = await runClaude(SYSTEM_PROMPT, userInput, {
       ...(imagePath ? { imagePath } : {}),
-      mode,
-      ...(mode === 'investigator'
-        ? { tenantId: task.tenantId, databaseUrl: process.env.DATABASE_URL }
-        : {}),
+      mode: 'investigator',
+      tenantId: task.tenantId,
+      databaseUrl: process.env.DATABASE_URL,
     })
 
     if (run.envelope.is_error || !run.envelope.result) {
