@@ -17,6 +17,7 @@ import { dashboardRoutes } from './modules/dashboard/dashboard.routes'
 import { reportsRoutes } from './modules/reports/reports.routes'
 import { adsRoutes } from './modules/ads/ads.routes'
 import { csRoutes } from './modules/cs/cs.routes'
+import { supportRoutes } from './modules/support/support.routes'
 import { logisticsRoutes } from './modules/logistics/logistics.routes'
 import { tiktokWebhookRoutes } from './modules/webhooks/tiktok.webhook'
 import { shopeeWebhookRoutes } from './modules/webhooks/shopee.webhook'
@@ -62,6 +63,7 @@ export async function buildApp() {
   await app.register(reportsRoutes, { prefix: '/api/v1/reports' })
   await app.register(adsRoutes, { prefix: '/api/v1/ads' })
   await app.register(csRoutes, { prefix: '/api/v1/cs' })
+  await app.register(supportRoutes, { prefix: '/api/v1/support' })
   await app.register(logisticsRoutes, { prefix: '/api/v1/logistics' })
   await app.register(adminRoutes, { prefix: '/api/v1/admin' })
   await app.register(auditRoutes, { prefix: '/api/v1/audit' })
