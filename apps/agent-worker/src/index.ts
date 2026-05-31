@@ -6,6 +6,7 @@ import { runClaude, parseTaggedAnswer, prepareImageFile, cleanupTaskDir, RPC_DIR
 import { recordOffTopic } from './abuse-guard'
 import { ensureNotifyTrigger } from './notify-bootstrap'
 import { startNotifyListener, type NotifyListener } from './notify-listener'
+import { generateFeatureManual } from './manual-generator'
 
 // Polling is now a safety net (LISTEN handles the hot path). Bumped from 2s
 // to 30s — if pg_notify is lost (e.g. listener reconnecting), we still catch
@@ -15,9 +16,13 @@ const MAX_ATTEMPTS = Number(process.env.AGENT_MAX_ATTEMPTS ?? 3)
 const RECENT_CONTEXT_LIMIT = 6
 
 // Load system prompt once at boot. Resolved relative to the compiled file
-// (dist/) or the src/ tree under tsx. `{{RPC_DIR}}` is substituted with the
-// resolved absolute path so the agent can call the RPC binaries by full path
-// (the --allowedTools pattern requires the full path).
+// (dist/) or the src/ tree under tsx. Placeholders substituted:
+//   {{RPC_DIR}}        — absolute path to the RPC scripts so the agent can
+//                        invoke them by full path (the --allowedTools
+//                        pattern requires it).
+//   {{FEATURE_MANUAL}} — auto-generated EMS nav map. Gives the agent a
+//                        fast path for "在哪里 / 怎么进入" how-to questions
+//                        so it skips Read/RPC for trivial nav lookups.
 const SYSTEM_PROMPT = (() => {
   const candidates = [
     path.join(__dirname, 'prompts/cs-system.md'),
@@ -26,7 +31,11 @@ const SYSTEM_PROMPT = (() => {
   for (const p of candidates) {
     if (fs.existsSync(p)) {
       const raw = fs.readFileSync(p, 'utf8')
-      return raw.replace(/\{\{RPC_DIR\}\}/g, RPC_DIR)
+      const manual = generateFeatureManual()
+      console.log(`[agent-worker] feature manual: ${manual ? manual.split('\n').length + ' lines' : 'EMPTY (gen failed)'}`)
+      return raw
+        .replace(/\{\{RPC_DIR\}\}/g, RPC_DIR)
+        .replace(/\{\{FEATURE_MANUAL\}\}/g, manual)
     }
   }
   throw new Error('cs-system.md not found in expected locations')
