@@ -203,40 +203,62 @@ async function handleChatReply(task: {
     const tokensInput = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)
     const tokensOutput = usage.output_tokens ?? 0
 
-    await prisma.$transaction(async (tx) => {
-      await tx.chatMessage.create({
-        data: {
-          sessionId: task.payload.sessionId,
-          role: 'ASSISTANT',
-          content: parsed.answer,
-          inScope: parsed.inScope,
-          suggestBug: parsed.suggestBug,
-          aiTaskId: task.id,
-          tokensInput,
-          tokensOutput,
-          latencyMs: Date.now() - t0,
-        },
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.chatMessage.create({
+          data: {
+            sessionId: task.payload.sessionId,
+            role: 'ASSISTANT',
+            content: parsed.answer,
+            inScope: parsed.inScope,
+            suggestBug: parsed.suggestBug,
+            aiTaskId: task.id,
+            tokensInput,
+            tokensOutput,
+            latencyMs: Date.now() - t0,
+          },
+        })
+        // Strip the image bytes from the payload so the row doesn't keep a
+        // copy of the base64 around indefinitely. The metadata on
+        // chat_messages is what the UI / quota care about — payload is just
+        // queue plumbing.
+        await tx.aiTask.update({
+          where: { id: task.id },
+          data: {
+            status: 'DONE',
+            result: parsed as unknown as object,
+            payload: { ...(task.payload as object), image: null } as any,
+            completedAt: new Date(),
+          },
+        })
+        await tx.chatSession.update({
+          where: { id: task.payload.sessionId },
+          data: { updatedAt: new Date() },
+        })
       })
-      // Strip the image bytes from the payload so the row doesn't keep a
-      // copy of the base64 around indefinitely. The metadata on
-      // chat_messages is what the UI / quota care about — payload is just
-      // queue plumbing.
-      await tx.aiTask.update({
-        where: { id: task.id },
-        data: {
-          status: 'DONE',
-          result: parsed as unknown as object,
-          payload: { ...(task.payload as object), image: null } as any,
-          completedAt: new Date(),
-        },
-      })
-      await tx.chatSession.update({
-        where: { id: task.payload.sessionId },
-        data: { updatedAt: new Date() },
-      })
-    })
-
-    console.log(`[agent-worker] task ${task.id} done in ${Date.now() - t0}ms (in_scope=${parsed.inScope} bug=${parsed.suggestBug}${imagePath ? ' image=yes' : ''})`)
+      console.log(`[agent-worker] task ${task.id} done in ${Date.now() - t0}ms (in_scope=${parsed.inScope} bug=${parsed.suggestBug}${imagePath ? ' image=yes' : ''})`)
+    } catch (err) {
+      // Race with the API-side stale-task reaper (GET /chat/sessions/:id).
+      // The reaper marks the task FAILED and inserts an assistant error row
+      // tied to this aiTaskId; ChatMessage.aiTaskId is UNIQUE, so our insert
+      // here hits P2002. That means the user already saw an error message
+      // for this task — we mustn't retry, just mark the row DONE so it
+      // doesn't bounce back to PENDING.
+      if ((err as { code?: string }).code === 'P2002') {
+        console.warn(`[agent-worker] task ${task.id} superseded by reaper; closing`)
+        await prisma.aiTask.update({
+          where: { id: task.id },
+          data: {
+            status: 'DONE',
+            error: 'superseded by stale-task reaper',
+            payload: { ...(task.payload as object), image: null } as any,
+            completedAt: new Date(),
+          },
+        })
+      } else {
+        throw err
+      }
+    }
   } finally {
     if (preparedTaskDir) cleanupTaskDir(preparedTaskDir)
   }

@@ -26,6 +26,14 @@ const IMAGE_MAX_BYTES = 2 * 1024 * 1024
 const IMAGE_DAILY_QUOTA = 20
 const ALLOWED_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
+// A task that's still PENDING/RUNNING after this much time is almost
+// certainly stuck — the worker is either offline or its host crashed
+// mid-task. Worker max-attempt budget is 3 × 90s = 4.5min, so 5min gives
+// a healthy margin before we declare the task dead. When that happens we
+// mark it FAILED and write a user-facing error message so the chat UI
+// stops showing "AI 正在思考" forever.
+const STALE_TASK_MS = 5 * 60_000
+
 const newSessionSchema = z.object({
   initialMessage: z.string().min(1).max(2000).optional(),
 })
@@ -99,6 +107,13 @@ export async function supportRoutes(app: FastifyInstance) {
     })
     if (!session) return reply.status(404).send({ success: false, error: 'Session not found' })
 
+    // Reap any task that's been PENDING/RUNNING past the stale window for
+    // this session before we fetch messages, so the response reflects the
+    // post-reap state. This is what stops the "AI 正在思考" spinner from
+    // showing forever after a worker outage (user reloads, sees an error
+    // bubble and a clean composer instead of a phantom in-flight task).
+    await reapStaleTasksForSession(id, request.user.tenantId)
+
     const messages = await prisma.chatMessage.findMany({
       where: { sessionId: id },
       orderBy: { createdAt: 'asc' },
@@ -114,12 +129,17 @@ export async function supportRoutes(app: FastifyInstance) {
     // Surface pending task state so the UI can show a "thinking" indicator
     // without an extra round-trip. We only ever have at most one PENDING /
     // RUNNING task per session at a time (frontend gates input on it).
+    // The createdAt floor is belt-and-suspenders: the reaper above should
+    // already have moved stale rows to FAILED, but this also covers the
+    // edge case where a row is borderline-stale and the reaper hasn't run
+    // yet.
     const pendingTask = await prisma.aiTask.findFirst({
       where: {
         tenantId: request.user.tenantId,
         status: { in: ['PENDING', 'RUNNING'] },
         // payload->>'sessionId' lookup via JSON path
         payload: { path: ['sessionId'], equals: id },
+        createdAt: { gte: new Date(Date.now() - STALE_TASK_MS) },
       },
       select: { id: true, status: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
@@ -372,4 +392,66 @@ async function enqueueUserMessage(
 
     return { userMessageId: userMsg.id, aiTaskId: task.id }
   })
+}
+
+/**
+ * Mark any task on `sessionId` that's been PENDING/RUNNING past STALE_TASK_MS
+ * as FAILED, and post a user-visible assistant error row tied to it. Called
+ * from GET /chat/sessions/:id so the UI naturally self-heals when the user
+ * refreshes after a worker outage.
+ *
+ * Concurrency-safe: the conditional UPDATE only flips a row if it's still
+ * PENDING/RUNNING; ChatMessage.aiTaskId is UNIQUE, so a race with a
+ * just-completed worker write throws P2002 and we swallow it.
+ */
+async function reapStaleTasksForSession(sessionId: string, tenantId: string): Promise<void> {
+  const cutoff = new Date(Date.now() - STALE_TASK_MS)
+  const stale = await prisma.aiTask.findMany({
+    where: {
+      tenantId,
+      status: { in: ['PENDING', 'RUNNING'] },
+      payload: { path: ['sessionId'], equals: sessionId },
+      createdAt: { lt: cutoff },
+    },
+    select: { id: true },
+  })
+  if (stale.length === 0) return
+
+  for (const t of stale) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Conditional flip — bail out cleanly if the worker beat us to it.
+        const flipped = await tx.aiTask.updateMany({
+          where: { id: t.id, status: { in: ['PENDING', 'RUNNING'] } },
+          data: {
+            status: 'FAILED',
+            error: 'reaped: stale (worker offline or stuck)',
+            completedAt: new Date(),
+          },
+        })
+        if (flipped.count === 0) return
+
+        // The aiTaskId unique constraint means only one ASSISTANT row can
+        // ever be tied to a given task. If a parallel worker insert wins
+        // the race, this create throws P2002 — we treat that as "answered
+        // already" and stop here.
+        try {
+          await tx.chatMessage.create({
+            data: {
+              sessionId,
+              role: 'ASSISTANT',
+              content: '抱歉，AI 暂时无法回复，请稍后再试。',
+              errorReason: 'task reaped (stale)',
+              aiTaskId: t.id,
+            },
+          })
+        } catch (err) {
+          if ((err as { code?: string }).code !== 'P2002') throw err
+        }
+      })
+    } catch (err) {
+      // Don't let one botched reap break the GET response — log and move on.
+      console.warn(`[support] reapStaleTasksForSession ${t.id} failed:`, (err as Error).message)
+    }
+  }
 }
