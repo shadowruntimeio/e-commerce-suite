@@ -10,10 +10,12 @@
   },
   "dependencies": {
     "@ems/db": "workspace:*",
-    "dotenv": "^17.4.0"
+    "dotenv": "^17.4.0",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "@types/node": "^22.19.17",
+    "@types/pg": "^8.11.10",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

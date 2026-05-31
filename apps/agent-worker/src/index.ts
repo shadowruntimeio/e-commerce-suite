@@ -3,8 +3,13 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { prisma } from '@ems/db'
 import { runClaude, parseTaggedAnswer, prepareImageFile, cleanupTaskDir, type ImageAttachment } from './claude-runner'
+import { ensureNotifyTrigger } from './notify-bootstrap'
+import { startNotifyListener, type NotifyListener } from './notify-listener'
 
-const POLL_INTERVAL_MS = Number(process.env.AGENT_POLL_INTERVAL_MS ?? 2_000)
+// Polling is now a safety net (LISTEN handles the hot path). Bumped from 2s
+// to 30s — if pg_notify is lost (e.g. listener reconnecting), we still catch
+// tasks within 30s.
+const POLL_INTERVAL_MS = Number(process.env.AGENT_POLL_INTERVAL_MS ?? 30_000)
 const MAX_ATTEMPTS = Number(process.env.AGENT_MAX_ATTEMPTS ?? 3)
 const RECENT_CONTEXT_LIMIT = 6
 
@@ -26,17 +31,31 @@ process.on('SIGINT', () => { stopping = true })
 process.on('SIGTERM', () => { stopping = true })
 
 async function main() {
-  console.log(`[agent-worker] booted; poll=${POLL_INTERVAL_MS}ms model=${process.env.AGENT_MODEL ?? 'sonnet'}`)
+  // First-boot housekeeping: make sure the pg_notify trigger exists. Prod is
+  // shaped by `prisma db push` which doesn't run migration SQL, so the
+  // trigger has no other source of truth. Safe to run every boot — the SQL
+  // is idempotent.
+  await ensureNotifyTrigger()
+
+  const listener: NotifyListener = await startNotifyListener('ai_task_new')
+
+  console.log(`[agent-worker] booted; LISTEN on ai_task_new + ${POLL_INTERVAL_MS}ms fallback poll, model=${process.env.AGENT_MODEL ?? 'sonnet'}`)
   while (!stopping) {
     try {
-      const handled = await processOne()
-      if (!handled) await sleep(POLL_INTERVAL_MS)
+      // Drain the queue under one wakeup — there may be multiple PENDING
+      // rows (NOTIFY merges duplicates while the worker is busy).
+      while (!stopping && (await processOne())) { /* keep claiming */ }
+      if (stopping) break
+      // Wait for either a notification or the safety-net poll interval,
+      // whichever comes first.
+      await Promise.race([sleep(POLL_INTERVAL_MS), listener.wait()])
     } catch (err) {
       console.error('[agent-worker] loop error:', err)
-      await sleep(POLL_INTERVAL_MS)
+      await sleep(Math.min(POLL_INTERVAL_MS, 5_000))
     }
   }
   console.log('[agent-worker] shutdown requested; exiting')
+  await listener.stop()
   await prisma.$disconnect()
 }
 

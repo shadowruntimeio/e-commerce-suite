@@ -29,7 +29,7 @@ pnpm --filter @ems/agent-worker dev
 | `DATABASE_URL` | — | Postgres connection string (Railway public URL when running locally against prod) |
 | `CLAUDE_BIN` | `claude` | Path to the Claude Code CLI binary |
 | `AGENT_MODEL` | `sonnet` | Model alias passed to `claude --model` |
-| `AGENT_POLL_INTERVAL_MS` | `2000` | Sleep between empty polls |
+| `AGENT_POLL_INTERVAL_MS` | `30000` | Fallback poll interval; the hot path is pg LISTEN, this is the safety net for when the listen connection drops |
 | `AGENT_TIMEOUT_MS` | `90000` | Hard kill any single `claude -p` after this |
 | `AGENT_MAX_ATTEMPTS` | `3` | Retries before a task is marked FAILED |
 | `AGENT_SANDBOX_DIR` | `./.agent-sandbox` | cwd for each `claude -p` (kept free of CLAUDE.md / settings) |
@@ -40,7 +40,10 @@ pnpm --filter @ems/agent-worker dev
   `FOR UPDATE SKIP LOCKED` so running two workers is safe, but every running
   worker burns subscription quota in parallel.
 - **Latency** is currently ~4–10s per chat answer (verified during design),
-  dominated by Claude API time. The UI polls — no streaming yet.
+  dominated by Claude API time. The UI polls — no streaming yet. Task
+  pickup itself is sub-millisecond via pg LISTEN on the `ai_task_new`
+  channel; the worker installs the trigger that fires it (see
+  `notify-bootstrap.ts`) on every boot, idempotently.
 - **Failure → user copy**: after `AGENT_MAX_ATTEMPTS` retries, the worker
   inserts an ASSISTANT message saying "AI 暂时无法回复，请稍后再试" so the
   chat doesn't spin forever. The original error is stored in

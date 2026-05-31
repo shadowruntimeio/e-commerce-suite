@@ -5,3 +5,5 @@ dist
 packages/db/.env
 *.tsbuildinfo
 .turbo
+# agent-worker per-task disposable sandbox (see claude-runner.ts)
+apps/agent-worker/.agent-sandbox/
