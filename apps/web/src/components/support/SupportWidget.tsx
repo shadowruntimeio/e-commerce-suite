@@ -35,6 +35,12 @@ interface ChatMessage {
   attachmentSizeBytes: number | null
 }
 interface PendingTask { id: string; status: 'PENDING' | 'RUNNING'; createdAt: string }
+interface AbuseSummary {
+  offTopicCount: number
+  threshold: number
+  banTier: number
+  bannedUntil: string | null
+}
 
 // 2MB / image (server-enforced too). 20 uploads / 24h rolling window per user.
 const IMAGE_MAX_BYTES = 2 * 1024 * 1024
@@ -153,11 +159,24 @@ function ChatPanel({ open, switchToBug }: { open: boolean; switchToBug: () => vo
     }
   }, [sessionsQ.data, activeSessionId])
 
+  const abuseQ = useQuery({
+    queryKey: ['support', 'abuseStatus'],
+    queryFn: async () =>
+      (await api.get('/support/chat/abuse-status')).data.data as AbuseSummary,
+    enabled: open,
+    refetchInterval: open ? 30_000 : false,
+  })
+
   const detailQ = useQuery({
     queryKey: ['support', 'session', activeSessionId],
     queryFn: async () => {
       const r = await api.get(`/support/chat/sessions/${activeSessionId}`)
-      return r.data.data as { session: ChatSession; messages: ChatMessage[]; pendingTask: PendingTask | null }
+      return r.data.data as {
+        session: ChatSession
+        messages: ChatMessage[]
+        pendingTask: PendingTask | null
+        abuse: AbuseSummary
+      }
     },
     enabled: open && !!activeSessionId,
     // Poll fast while an AI answer is pending; slow otherwise. The query
@@ -207,9 +226,22 @@ function ChatPanel({ open, switchToBug }: { open: boolean; switchToBug: () => vo
       }
       queryClient.invalidateQueries({ queryKey: ['support', 'session', vars.sessionId] })
       queryClient.invalidateQueries({ queryKey: ['support', 'imageQuota'] })
+      // Abuse counter may have moved if the worker decides this turn was
+      // off-topic — invalidate so the warning bar / ban dialog refreshes
+      // after the assistant reply lands.
+      queryClient.invalidateQueries({ queryKey: ['support', 'abuseStatus'] })
     },
-    onError: (err: unknown) => {
-      const resp = (err as { response?: { status?: number; data?: { error?: string; data?: { used?: number; limit?: number } } } })?.response
+    onError: (err: unknown, vars) => {
+      const resp = (err as { response?: { status?: number; data?: {
+        error?: string
+        data?: { used?: number; limit?: number; bannedUntil?: string; tier?: number }
+      } } })?.response
+      if (resp?.status === 403 && resp.data?.error === 'CHAT_BANNED') {
+        // Server-enforced ban; refresh local view so the dialog renders.
+        queryClient.invalidateQueries({ queryKey: ['support', 'abuseStatus'] })
+        queryClient.invalidateQueries({ queryKey: ['support', 'session', vars.sessionId] })
+        return
+      }
       if (resp?.status === 429 && resp.data?.error === 'IMAGE_QUOTA_EXCEEDED') {
         message.warning(t('support.imageQuotaExceeded', { used: resp.data.data?.used, limit: resp.data.data?.limit }))
         queryClient.invalidateQueries({ queryKey: ['support', 'imageQuota'] })
@@ -292,9 +324,17 @@ function ChatPanel({ open, switchToBug }: { open: boolean; switchToBug: () => vo
   const quotaLimit = quotaQ.data?.limit ?? 20
   const quotaExhausted = quotaUsed >= quotaLimit
 
+  // Prefer the per-session response's abuse summary (fresher — it refreshes
+  // after each assistant reply); fall back to the standalone status query.
+  const abuse: AbuseSummary | undefined = detailQ.data?.abuse ?? abuseQ.data
+  const bannedUntilMs = abuse?.bannedUntil ? Date.parse(abuse.bannedUntil) : 0
+  const isBanned = bannedUntilMs > Date.now()
+
   const messages = detailQ.data?.messages ?? []
   const pending = detailQ.data?.pendingTask
-  const inputDisabled = send.isPending || newSession.isPending || !!pending
+  // Composer is locked while: a response is mid-flight, OR the user is in a
+  // ban window. The ban locks both text input and the upload button.
+  const inputDisabled = send.isPending || newSession.isPending || !!pending || isBanned
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 200px)' }}>
@@ -351,6 +391,49 @@ function ChatPanel({ open, switchToBug }: { open: boolean; switchToBug: () => vo
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Abuse warning + ban banner. Rendered ABOVE the composer so it's
+         always visible while typing (or, when banned, while the input is
+         disabled). */}
+      {isBanned ? (
+        <div style={{
+          margin: '8px 0 0',
+          padding: '10px 12px',
+          borderRadius: 8,
+          background: 'rgba(220,38,38,0.10)',
+          border: '1px solid rgba(220,38,38,0.30)',
+          color: '#b91c1c',
+          fontSize: 12,
+          lineHeight: 1.5,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 2 }}>
+            {t('support.abuse.bannedTitle')}
+          </div>
+          <div>
+            {t('support.abuse.bannedBody', {
+              until: dayjs(bannedUntilMs).format('YYYY-MM-DD HH:mm'),
+              tier: abuse?.banTier ?? 1,
+            })}
+          </div>
+        </div>
+      ) : abuse && abuse.offTopicCount > 0 ? (
+        <div style={{
+          margin: '8px 0 0',
+          padding: '8px 12px',
+          borderRadius: 8,
+          background: 'rgba(245,158,11,0.10)',
+          border: '1px solid rgba(245,158,11,0.30)',
+          color: '#b45309',
+          fontSize: 12,
+          lineHeight: 1.5,
+        }}>
+          {t('support.abuse.warning', {
+            used: abuse.offTopicCount,
+            limit: abuse.threshold,
+            remaining: Math.max(0, abuse.threshold - abuse.offTopicCount),
+          })}
+        </div>
+      ) : null}
 
       {/* Composer */}
       <div style={{ borderTop: '1px solid var(--border-light)', padding: '10px 0', flexShrink: 0 }}>

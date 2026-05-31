@@ -886,6 +886,11 @@ export default {
     imageTooLarge: 'Image too large (max 2MB)',
     imageUnsupportedType: 'Only PNG / JPEG / WebP / GIF supported',
     imageNoLongerVisible: 'Image no longer available',
+    abuse: {
+      warning: '{{used}}/{{limit}} of your questions were off-topic. {{remaining}} more and chat will be paused automatically.',
+      bannedTitle: 'Chat paused',
+      bannedBody: 'Your chat is paused (level {{tier}}) due to repeated off-topic questions. It will resume at {{until}}. Contact an admin if this looks wrong.',
+    },
     bugIntro: 'Your current page, captured browser errors, and environment info are attached automatically.',
     bugSubmitted: 'Submitted — thanks!',
     bugSubmitFailed: 'Submit failed, please retry',

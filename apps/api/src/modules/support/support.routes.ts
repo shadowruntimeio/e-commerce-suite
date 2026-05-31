@@ -34,6 +34,42 @@ const ALLOWED_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'i
 // stops showing "AI 正在思考" forever.
 const STALE_TASK_MS = 5 * 60_000
 
+// Off-topic abuse — the worker actually applies bans (in the same
+// transaction that writes the inScope=false ASSISTANT message). The API
+// here just READS the state to enforce on POST and to expose to the UI.
+// Keep these constants in lockstep with apps/agent-worker/src/abuse-guard.ts.
+const OFF_TOPIC_THRESHOLD = 3
+
+interface ChatAbuseState {
+  offTopicCount: number
+  lastOffTopicAt: string | null
+  bannedUntil: string | null
+  banTier: number
+}
+
+function readAbuseFromSettings(settings: unknown): ChatAbuseState {
+  const empty: ChatAbuseState = { offTopicCount: 0, lastOffTopicAt: null, bannedUntil: null, banTier: 0 }
+  if (!settings || typeof settings !== 'object') return empty
+  const v = (settings as { chatAbuse?: Partial<ChatAbuseState> }).chatAbuse
+  if (!v || typeof v !== 'object') return empty
+  return {
+    offTopicCount: typeof v.offTopicCount === 'number' ? v.offTopicCount : 0,
+    lastOffTopicAt: typeof v.lastOffTopicAt === 'string' ? v.lastOffTopicAt : null,
+    bannedUntil: typeof v.bannedUntil === 'string' ? v.bannedUntil : null,
+    banTier: typeof v.banTier === 'number' ? v.banTier : 0,
+  }
+}
+
+function summarizeAbuse(state: ChatAbuseState) {
+  const banActive = !!state.bannedUntil && Date.parse(state.bannedUntil) > Date.now()
+  return {
+    offTopicCount: state.offTopicCount,
+    threshold: OFF_TOPIC_THRESHOLD,
+    banTier: state.banTier,
+    bannedUntil: banActive ? state.bannedUntil : null,
+  }
+}
+
 const newSessionSchema = z.object({
   initialMessage: z.string().min(1).max(2000).optional(),
 })
@@ -145,7 +181,25 @@ export async function supportRoutes(app: FastifyInstance) {
       orderBy: { createdAt: 'desc' },
     })
 
-    return { success: true, data: { session, messages, pendingTask } }
+    // Surface abuse state too — the UI uses this for the warning bar +
+    // ban dialog without needing a second roundtrip.
+    const u = await prisma.user.findUniqueOrThrow({
+      where: { id: request.user.userId },
+      select: { settings: true },
+    })
+    const abuse = summarizeAbuse(readAbuseFromSettings(u.settings))
+
+    return { success: true, data: { session, messages, pendingTask, abuse } }
+  })
+
+  // GET /support/chat/abuse-status — small standalone endpoint the UI polls
+  // on tab open / before the user starts typing to render the warning bar.
+  app.get('/chat/abuse-status', async (request) => {
+    const u = await prisma.user.findUniqueOrThrow({
+      where: { id: request.user.userId },
+      select: { settings: true },
+    })
+    return { success: true, data: summarizeAbuse(readAbuseFromSettings(u.settings)) }
   })
 
   // DELETE /support/chat/sessions/:id — cascade deletes messages.
@@ -209,6 +263,26 @@ export async function supportRoutes(app: FastifyInstance) {
       select: { id: true, title: true },
     })
     if (!session) return reply.status(404).send({ success: false, error: 'Session not found' })
+
+    // Ban gate. Worker writes the ban state; we just enforce here. We
+    // re-read the user row each time so a still-running long-tail task
+    // that JUST tripped the threshold can lock out the next send.
+    const userRow = await prisma.user.findUniqueOrThrow({
+      where: { id: request.user.userId },
+      select: { settings: true },
+    })
+    const abuse = readAbuseFromSettings(userRow.settings)
+    if (abuse.bannedUntil && Date.parse(abuse.bannedUntil) > Date.now()) {
+      return reply.status(403).send({
+        success: false,
+        error: 'CHAT_BANNED',
+        data: {
+          bannedUntil: abuse.bannedUntil,
+          tier: abuse.banTier,
+          reason: 'repeated_off_topic',
+        },
+      })
+    }
 
     // Quota check happens BEFORE we acknowledge the message so the user can
     // re-craft without an image if they're capped. Rolling 24h window — we

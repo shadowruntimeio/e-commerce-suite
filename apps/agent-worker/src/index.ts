@@ -3,6 +3,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { prisma } from '@ems/db'
 import { runClaude, parseTaggedAnswer, prepareImageFile, cleanupTaskDir, RPC_DIR, type ImageAttachment } from './claude-runner'
+import { recordOffTopic } from './abuse-guard'
 import { ensureNotifyTrigger } from './notify-bootstrap'
 import { startNotifyListener, type NotifyListener } from './notify-listener'
 
@@ -219,6 +220,14 @@ async function handleChatReply(task: {
     const tokensInput = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)
     const tokensOutput = usage.output_tokens ?? 0
 
+    // For off-topic responses we also bump the user's abuse counter in the
+    // same transaction. Look up userId once now (the session FK is enforced
+    // and immutable, so it's fine to read outside the transaction).
+    const sessionRow = await prisma.chatSession.findUnique({
+      where: { id: task.payload.sessionId },
+      select: { userId: true },
+    })
+
     try {
       await prisma.$transaction(async (tx) => {
         await tx.chatMessage.create({
@@ -251,6 +260,14 @@ async function handleChatReply(task: {
           where: { id: task.payload.sessionId },
           data: { updatedAt: new Date() },
         })
+
+        // Off-topic accounting: increments the counter and, on hitting
+        // OFF_TOPIC_THRESHOLD, applies a ban from the escalating ladder
+        // and writes an AuditLog row. In-scope responses don't touch the
+        // counter — clean traffic doesn't drift state.
+        if (parsed.inScope === false && sessionRow) {
+          await recordOffTopic(tx, sessionRow.userId, task.tenantId)
+        }
       })
       console.log(`[agent-worker] task ${task.id} done in ${Date.now() - t0}ms (in_scope=${parsed.inScope} bug=${parsed.suggestBug}${imagePath ? ' image=yes' : ''})`)
     } catch (err) {

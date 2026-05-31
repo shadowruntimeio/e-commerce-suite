@@ -886,6 +886,11 @@ export default {
     imageTooLarge: '图片过大，单张上限 2MB',
     imageUnsupportedType: '仅支持 PNG / JPEG / WebP / GIF',
     imageNoLongerVisible: '图片不再可见',
+    abuse: {
+      warning: '你已 {{used}}/{{limit}} 次提问与 EMS 无关。再连续提 {{remaining}} 次将被自动暂停聊天。',
+      bannedTitle: '聊天已被暂停',
+      bannedBody: '由于多次提问与 EMS 无关，本账号聊天已被暂停（第 {{tier}} 级），将于 {{until}} 后自动恢复。如有误判，请联系管理员。',
+    },
     bugIntro: '提交后会自动附上当前页面、浏览器报错和环境信息，帮助我们快速定位。',
     bugSubmitted: '已提交，感谢反馈',
     bugSubmitFailed: '提交失败，请稍后重试',
