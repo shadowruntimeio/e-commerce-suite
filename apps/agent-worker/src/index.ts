@@ -2,7 +2,7 @@ import 'dotenv/config'
 import path from 'node:path'
 import fs from 'node:fs'
 import { prisma } from '@ems/db'
-import { runClaude, parseTaggedAnswer } from './claude-runner'
+import { runClaude, parseTaggedAnswer, prepareImageFile, cleanupTaskDir, type ImageAttachment } from './claude-runner'
 
 const POLL_INTERVAL_MS = Number(process.env.AGENT_POLL_INTERVAL_MS ?? 2_000)
 const MAX_ATTEMPTS = Number(process.env.AGENT_MAX_ATTEMPTS ?? 3)
@@ -81,10 +81,16 @@ async function processOne(): Promise<boolean> {
     console.error(`[agent-worker] task ${task.id} failed: ${reason}`)
     // Either give up (terminal FAILED) or release back to PENDING for retry.
     const giveUp = task.attempts >= MAX_ATTEMPTS
+    // Strip image bytes on terminal failure so a botched task doesn't leave
+    // base64 sitting in the queue. On retry-able failures we keep it so the
+    // next attempt has the image.
+    const payloadAfterFail = giveUp
+      ? ({ ...(task.payload as object), image: null } as any)
+      : undefined
     await prisma.aiTask.update({
       where: { id: task.id },
       data: giveUp
-        ? { status: 'FAILED', error: reason, completedAt: new Date() }
+        ? { status: 'FAILED', error: reason, completedAt: new Date(), payload: payloadAfterFail }
         : { status: 'PENDING', error: reason },
     })
     if (giveUp && task.taskType === 'CHAT_REPLY') {
@@ -111,7 +117,12 @@ async function processOne(): Promise<boolean> {
 
 async function handleChatReply(task: {
   id: string
-  payload: { sessionId: string; userMessageId: string; recentMessages?: { role: string; content: string }[] }
+  payload: {
+    sessionId: string
+    userMessageId: string
+    recentMessages?: { role: string; content: string }[]
+    image?: ImageAttachment | null
+  }
 }) {
   const t0 = Date.now()
 
@@ -144,51 +155,72 @@ async function handleChatReply(task: {
     userInput = `【对话历史】\n${transcript}\n\n【当前问题】\n${lastUser.content}`
   }
 
-  const run = await runClaude(SYSTEM_PROMPT, userInput)
-
-  if (run.envelope.is_error || !run.envelope.result) {
-    const detail = run.envelope.result ?? run.stderr ?? `exit=${run.exitCode}`
-    throw new Error(`claude run failed: ${String(detail).slice(0, 200)}`)
+  // Image handling. We decode here and clean up unconditionally in finally —
+  // the per-task dir contains only the one image, so leaking it would be
+  // small but easy to avoid.
+  let preparedTaskDir: string | undefined
+  let imagePath: string | undefined
+  if (task.payload.image) {
+    const prepared = prepareImageFile(task.payload.image, task.id)
+    preparedTaskDir = prepared.taskDir
+    imagePath = prepared.filePath
+    userInput = `${userInput}\n\n[image: ${imagePath}]`
   }
 
-  const parsed = parseTaggedAnswer(run.envelope.result)
-  if (!parsed) {
-    throw new Error(`could not parse tagged answer: ${run.envelope.result.slice(0, 200)}`)
+  try {
+    const run = await runClaude(SYSTEM_PROMPT, userInput, imagePath ? { imagePath } : {})
+
+    if (run.envelope.is_error || !run.envelope.result) {
+      const detail = run.envelope.result ?? run.stderr ?? `exit=${run.exitCode}`
+      throw new Error(`claude run failed: ${String(detail).slice(0, 200)}`)
+    }
+
+    const parsed = parseTaggedAnswer(run.envelope.result)
+    if (!parsed) {
+      throw new Error(`could not parse tagged answer: ${run.envelope.result.slice(0, 200)}`)
+    }
+
+    const usage = run.envelope.usage ?? {}
+    const tokensInput = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)
+    const tokensOutput = usage.output_tokens ?? 0
+
+    await prisma.$transaction(async (tx) => {
+      await tx.chatMessage.create({
+        data: {
+          sessionId: task.payload.sessionId,
+          role: 'ASSISTANT',
+          content: parsed.answer,
+          inScope: parsed.inScope,
+          suggestBug: parsed.suggestBug,
+          aiTaskId: task.id,
+          tokensInput,
+          tokensOutput,
+          latencyMs: Date.now() - t0,
+        },
+      })
+      // Strip the image bytes from the payload so the row doesn't keep a
+      // copy of the base64 around indefinitely. The metadata on
+      // chat_messages is what the UI / quota care about — payload is just
+      // queue plumbing.
+      await tx.aiTask.update({
+        where: { id: task.id },
+        data: {
+          status: 'DONE',
+          result: parsed as unknown as object,
+          payload: { ...(task.payload as object), image: null } as any,
+          completedAt: new Date(),
+        },
+      })
+      await tx.chatSession.update({
+        where: { id: task.payload.sessionId },
+        data: { updatedAt: new Date() },
+      })
+    })
+
+    console.log(`[agent-worker] task ${task.id} done in ${Date.now() - t0}ms (in_scope=${parsed.inScope} bug=${parsed.suggestBug}${imagePath ? ' image=yes' : ''})`)
+  } finally {
+    if (preparedTaskDir) cleanupTaskDir(preparedTaskDir)
   }
-
-  const usage = run.envelope.usage ?? {}
-  const tokensInput = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)
-  const tokensOutput = usage.output_tokens ?? 0
-
-  await prisma.$transaction(async (tx) => {
-    await tx.chatMessage.create({
-      data: {
-        sessionId: task.payload.sessionId,
-        role: 'ASSISTANT',
-        content: parsed.answer,
-        inScope: parsed.inScope,
-        suggestBug: parsed.suggestBug,
-        aiTaskId: task.id,
-        tokensInput,
-        tokensOutput,
-        latencyMs: Date.now() - t0,
-      },
-    })
-    await tx.aiTask.update({
-      where: { id: task.id },
-      data: {
-        status: 'DONE',
-        result: parsed as unknown as object,
-        completedAt: new Date(),
-      },
-    })
-    await tx.chatSession.update({
-      where: { id: task.payload.sessionId },
-      data: { updatedAt: new Date() },
-    })
-  })
-
-  console.log(`[agent-worker] task ${task.id} done in ${Date.now() - t0}ms (in_scope=${parsed.inScope} bug=${parsed.suggestBug})`)
 }
 
 function sleep(ms: number) {

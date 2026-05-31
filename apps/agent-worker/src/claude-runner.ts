@@ -1,18 +1,63 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
+import crypto from 'node:crypto'
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN ?? 'claude'
 const MODEL = process.env.AGENT_MODEL ?? 'sonnet'
 const TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 90_000)
+const SANDBOX_ROOT = process.env.AGENT_SANDBOX_DIR ?? path.join(process.cwd(), '.agent-sandbox')
 
-// Empty sandbox cwd: ensures no project CLAUDE.md / settings leak into the
-// prompt and no tool (if one ever slipped through --tools "") could write to a
-// real project directory. Created lazily and re-used between runs.
-function ensureSandbox(): string {
-  const dir = process.env.AGENT_SANDBOX_DIR ?? path.join(process.cwd(), '.agent-sandbox')
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  return dir
+// Sandbox root: ensures no project CLAUDE.md / settings leak into the prompt.
+// For text-only tasks we reuse it as cwd. For tasks with image attachments
+// we create a fresh per-task subdir so enabling `--tools "Read"` can only see
+// the one image file we just wrote — even if the model went off-piste, there
+// is nothing else in that dir.
+function ensureSandboxRoot(): string {
+  if (!fs.existsSync(SANDBOX_ROOT)) fs.mkdirSync(SANDBOX_ROOT, { recursive: true })
+  return SANDBOX_ROOT
+}
+
+function mimeToExt(mime: string): string {
+  switch (mime) {
+    case 'image/png':  return 'png'
+    case 'image/jpeg': return 'jpg'
+    case 'image/webp': return 'webp'
+    case 'image/gif':  return 'gif'
+    default:           return 'bin'
+  }
+}
+
+export interface ImageAttachment {
+  mimeType: string
+  base64: string
+}
+
+export interface PreparedImage {
+  /** Disposable per-task dir we wrote the image into; caller MUST `rm -rf` it. */
+  taskDir: string
+  /** Absolute path to the image file. */
+  filePath: string
+}
+
+/**
+ * Decode the image base64 from AiTask.payload.image into a fresh per-task
+ * sandbox subdir. Returns the path so the caller can mention it in the
+ * prompt and clean up after the run.
+ */
+export function prepareImageFile(image: ImageAttachment, taskId: string): PreparedImage {
+  ensureSandboxRoot()
+  // Random suffix on taskId so concurrent runs of the SAME task (retries)
+  // don't collide on the dir.
+  const taskDir = path.join(SANDBOX_ROOT, `task-${taskId}-${crypto.randomBytes(3).toString('hex')}`)
+  fs.mkdirSync(taskDir, { recursive: true })
+  const filePath = path.join(taskDir, `image.${mimeToExt(image.mimeType)}`)
+  fs.writeFileSync(filePath, Buffer.from(image.base64, 'base64'), { mode: 0o600 })
+  return { taskDir, filePath }
+}
+
+export function cleanupTaskDir(taskDir: string) {
+  try { fs.rmSync(taskDir, { recursive: true, force: true }) } catch { /* best effort */ }
 }
 
 export interface ClaudeEnvelope {
@@ -38,20 +83,29 @@ export interface RunResult {
   wallMs: number
 }
 
+export interface RunOptions {
+  /** If set, Read tool is enabled and --add-dir is bounded to this directory. */
+  imagePath?: string
+}
+
 /**
  * Spawn `claude -p` in headless mode against an EMS-scoped system prompt,
  * with all tools disabled and the dangerous side-effects of normal Claude
  * Code execution stripped (no session persistence, no slash commands, no
  * project/user settings, no dynamic system prompt sections).
  *
+ * When `opts.imagePath` is provided, the Read tool is enabled and the cwd
+ * + --add-dir are scoped to that file's parent directory only. The model
+ * can therefore see the image but cannot read anything else on the host.
+ *
  * Auth: relies on the host's claude.ai subscription via OAuth. The local
  * machine must have ANTHROPIC_API_KEY unset when running this — see the
  * env scrubbing below. (We verified during design that `--bare` cannot be
  * used because it forces ANTHROPIC_API_KEY auth and ignores OAuth.)
  */
-export async function runClaude(systemPrompt: string, userMessage: string): Promise<RunResult> {
+export async function runClaude(systemPrompt: string, userMessage: string, opts: RunOptions = {}): Promise<RunResult> {
   const t0 = Date.now()
-  const sandbox = ensureSandbox()
+  const sandbox = opts.imagePath ? path.dirname(opts.imagePath) : ensureSandboxRoot()
 
   // Scrub env aggressively. Pass through only what `claude` reasonably needs
   // for OAuth + macOS keychain + Node IO. Critically, drop ANTHROPIC_API_KEY
@@ -69,13 +123,20 @@ export async function runClaude(systemPrompt: string, userMessage: string): Prom
     '-p', userMessage,
     '--system-prompt', systemPrompt,
     '--output-format', 'json',
-    '--tools', '',                                     // disable ALL tools
+    // When an image is attached we MUST enable Read so the model can view it.
+    // The image lives alone in a per-task sandbox dir, and --add-dir bounds
+    // the file access surface to that one directory. Without an image we
+    // disable all tools.
+    '--tools', opts.imagePath ? 'Read' : '',
     '--no-session-persistence',                        // don't write ~/.claude/sessions
     '--disable-slash-commands',                        // no /skill expansion
     '--setting-sources', '',                           // ignore user/project/local settings
     '--exclude-dynamic-system-prompt-sections',        // strip cwd/env/git from system prompt
     '--model', MODEL,
   ]
+  if (opts.imagePath) {
+    args.push('--add-dir', sandbox)
+  }
 
   return await new Promise<RunResult>((resolve) => {
     const proc = spawn(CLAUDE_BIN, args, { cwd: sandbox, env, stdio: ['ignore', 'pipe', 'pipe'] })

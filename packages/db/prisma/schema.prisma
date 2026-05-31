@@ -1019,12 +1019,23 @@ model ChatMessage {
   tokensInput  Int?
   tokensOutput Int?
   latencyMs    Int?
+  // Image attachment metadata. Bytes are NOT persisted server-side — they
+  // live only inside AiTask.payload long enough for the worker to consume,
+  // then get nulled out on DONE. We keep the metadata so we can (a) enforce
+  // a 20-image-per-user-per-day quota and (b) render a placeholder in the
+  // UI after a page reload (the browser only holds the blob URL for the
+  // current session).
+  attachmentMimeType  String?
+  attachmentSizeBytes Int?
   createdAt    DateTime        @default(now())
 
   session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   aiTask  AiTask?     @relation("AiTaskReply", fields: [aiTaskId], references: [id])
 
   @@index([sessionId, createdAt])
+  // Daily image quota lookup needs a fast filter on attachmentMimeType +
+  // createdAt; userId is derived through session join.
+  @@index([createdAt])
   @@map("chat_messages")
 }
 

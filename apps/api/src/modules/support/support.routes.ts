@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import multipart from '@fastify/multipart'
 import { prisma } from '@ems/db'
 import { authenticate } from '../../middleware/authenticate'
 
@@ -18,12 +19,15 @@ import { authenticate } from '../../middleware/authenticate'
 const SESSION_TITLE_MAX = 60
 const RECENT_MESSAGES_PER_TASK = 6 // worker uses these as context
 
+// Image upload constraints. 2MB / image, 20 images per user per 24h rolling
+// window. Bytes are never persisted to the DB long-term — they live inside
+// AiTask.payload only until the worker consumes them.
+const IMAGE_MAX_BYTES = 2 * 1024 * 1024
+const IMAGE_DAILY_QUOTA = 20
+const ALLOWED_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+
 const newSessionSchema = z.object({
   initialMessage: z.string().min(1).max(2000).optional(),
-})
-
-const postMessageSchema = z.object({
-  content: z.string().min(1).max(2000),
 })
 
 const newBugSchema = z.object({
@@ -39,6 +43,13 @@ const newBugSchema = z.object({
 })
 
 export async function supportRoutes(app: FastifyInstance) {
+  // Per-route multipart so the image-upload size cap is scoped to this
+  // module and doesn't bleed into other routes (inventory has its own 5MB
+  // limit for xlsx). Reading parts as a stream lets us short-circuit on
+  // size violations before buffering everything in memory.
+  await app.register(multipart, {
+    limits: { fileSize: IMAGE_MAX_BYTES, files: 1, fields: 4 },
+  })
   app.addHook('preHandler', authenticate)
 
   // ─── Chat: sessions ────────────────────────────────────────────────────────
@@ -96,6 +107,7 @@ export async function supportRoutes(app: FastifyInstance) {
         inScope: true, suggestBug: true,
         errorReason: true, latencyMs: true,
         aiTaskId: true, createdAt: true,
+        attachmentMimeType: true, attachmentSizeBytes: true,
       },
     })
 
@@ -129,11 +141,47 @@ export async function supportRoutes(app: FastifyInstance) {
   // ─── Chat: messages ────────────────────────────────────────────────────────
 
   // POST /support/chat/sessions/:id/messages — user posts; enqueues AiTask.
+  // Accepts multipart/form-data (content + optional image) OR application/json
+  // (content only) for backwards compat with text-only callers.
   app.post('/chat/sessions/:id/messages', async (request, reply) => {
     const { id } = request.params as { id: string }
-    const parsed = postMessageSchema.safeParse(request.body)
-    if (!parsed.success) {
-      return reply.status(400).send({ success: false, error: 'Invalid input' })
+
+    // Branch on content-type. Multipart is the new path; JSON still works
+    // for clients that don't need to upload an image.
+    let content: string | undefined
+    let image: { mimeType: string; bytes: Buffer } | null = null
+    if (request.isMultipart()) {
+      try {
+        for await (const part of request.parts()) {
+          if (part.type === 'file') {
+            if (part.fieldname !== 'image') continue
+            if (!ALLOWED_IMAGE_MIMES.has(part.mimetype)) {
+              return reply.status(415).send({ success: false, error: 'Unsupported image type' })
+            }
+            const bytes = await part.toBuffer()
+            if (bytes.length > IMAGE_MAX_BYTES) {
+              return reply.status(413).send({ success: false, error: 'Image too large (max 2MB)' })
+            }
+            image = { mimeType: part.mimetype, bytes }
+          } else if (part.fieldname === 'content') {
+            content = String(part.value ?? '').trim()
+          }
+        }
+      } catch (err) {
+        // @fastify/multipart throws if the per-route fileSize limit is breached
+        // mid-stream — treat as 413 rather than a generic 500.
+        const msg = (err as { code?: string; message?: string })?.code === 'FST_REQ_FILE_TOO_LARGE'
+          ? 'Image too large (max 2MB)'
+          : `Upload failed: ${(err as Error).message}`
+        return reply.status(413).send({ success: false, error: msg })
+      }
+    } else {
+      const body = request.body as { content?: string }
+      content = body?.content?.trim()
+    }
+
+    if (!content || content.length === 0 || content.length > 2000) {
+      return reply.status(400).send({ success: false, error: 'Invalid content' })
     }
 
     const session = await prisma.chatSession.findFirst({
@@ -141,6 +189,28 @@ export async function supportRoutes(app: FastifyInstance) {
       select: { id: true, title: true },
     })
     if (!session) return reply.status(404).send({ success: false, error: 'Session not found' })
+
+    // Quota check happens BEFORE we acknowledge the message so the user can
+    // re-craft without an image if they're capped. Rolling 24h window — we
+    // avoid TZ ambiguity (merchants are in multiple timezones) and the
+    // boundary is the moment they hit "send", which matches user intuition.
+    if (image) {
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+      const usedToday = await prisma.chatMessage.count({
+        where: {
+          session: { userId: request.user.userId, tenantId: request.user.tenantId },
+          attachmentMimeType: { not: null },
+          createdAt: { gte: dayAgo },
+        },
+      })
+      if (usedToday >= IMAGE_DAILY_QUOTA) {
+        return reply.status(429).send({
+          success: false,
+          error: 'IMAGE_QUOTA_EXCEEDED',
+          data: { limit: IMAGE_DAILY_QUOTA, used: usedToday },
+        })
+      }
+    }
 
     // Block double-posting while an answer is still being generated. The
     // frontend disables input on pendingTask too; this is a server-side guard.
@@ -160,12 +230,26 @@ export async function supportRoutes(app: FastifyInstance) {
     if (!session.title) {
       await prisma.chatSession.update({
         where: { id },
-        data: { title: parsed.data.content.slice(0, SESSION_TITLE_MAX) },
+        data: { title: content.slice(0, SESSION_TITLE_MAX) },
       })
     }
 
-    const enq = await enqueueUserMessage(id, request.user.tenantId, parsed.data.content)
+    const enq = await enqueueUserMessage(id, request.user.tenantId, content, image)
     return { success: true, data: enq }
+  })
+
+  // GET /support/chat/quota/image — daily image upload counter, for the UI
+  // to enable/disable the upload button and surface the remaining count.
+  app.get('/chat/quota/image', async (request) => {
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const used = await prisma.chatMessage.count({
+      where: {
+        session: { userId: request.user.userId, tenantId: request.user.tenantId },
+        attachmentMimeType: { not: null },
+        createdAt: { gte: dayAgo },
+      },
+    })
+    return { success: true, data: { used, limit: IMAGE_DAILY_QUOTA, maxBytes: IMAGE_MAX_BYTES } }
   })
 
   // ─── Bug reports ───────────────────────────────────────────────────────────
@@ -229,14 +313,28 @@ export async function supportRoutes(app: FastifyInstance) {
 
 // Shared by POST /sessions (with initialMessage) and POST /messages: persist a
 // USER ChatMessage and queue an AiTask for the worker to pick up.
+//
+// When an image is attached, the bytes ride along in AiTask.payload.image as
+// base64. The worker writes them to a disposable sandbox dir, references the
+// path in the prompt, and on DONE clears payload.image so the row doesn't
+// keep MB of base64 around forever. The ChatMessage only stores metadata
+// (mime + size) — enough for the daily-quota count and the UI hint that the
+// message "had an image".
 async function enqueueUserMessage(
   sessionId: string,
   tenantId: string,
   content: string,
+  image: { mimeType: string; bytes: Buffer } | null = null,
 ): Promise<{ userMessageId: string; aiTaskId: string }> {
   return await prisma.$transaction(async (tx) => {
     const userMsg = await tx.chatMessage.create({
-      data: { sessionId, role: 'USER', content },
+      data: {
+        sessionId,
+        role: 'USER',
+        content,
+        attachmentMimeType: image?.mimeType ?? null,
+        attachmentSizeBytes: image?.bytes.length ?? null,
+      },
       select: { id: true },
     })
 
@@ -259,6 +357,9 @@ async function enqueueUserMessage(
           sessionId,
           userMessageId: userMsg.id,
           recentMessages: recent.reverse(), // chronological for the model
+          image: image
+            ? { mimeType: image.mimeType, base64: image.bytes.toString('base64') }
+            : null,
         } as any,
       },
       select: { id: true },
