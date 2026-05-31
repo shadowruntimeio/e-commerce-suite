@@ -51,7 +51,7 @@ cat > ~/Library/LaunchAgents/com.ems.agent-worker.plist <<'PLIST'
   <key>KeepAlive</key>        <dict><key>SuccessfulExit</key><false/><key>Crashed</key><true/></dict>
   <key>ThrottleInterval</key> <integer>30</integer>
   <key>EnvironmentVariables</key>
-  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
+  <dict><key>PATH</key><string>/Users/YOURUSER/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
   <key>StandardOutPath</key>  <string>/Users/YOURUSER/agent-worker.log</string>
   <key>StandardErrorPath</key><string>/Users/YOURUSER/agent-worker.log</string>
   <key>ProcessType</key>      <string>Interactive</string>

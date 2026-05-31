@@ -15,10 +15,11 @@ set -u
 
 REPO_ROOT="/Users/eric/Code/ems"
 
-# launchd starts us with a minimal PATH; pnpm / node / railway all live in
-# homebrew (/opt/homebrew on Apple Silicon, /usr/local on Intel). Add both
-# so the script works on either machine.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# launchd starts us with a minimal PATH; pnpm / node / railway live in
+# homebrew (/opt/homebrew on Apple Silicon, /usr/local on Intel) and the
+# Claude Code CLI ships into ~/.local/bin. Cover all three explicitly so
+# the script works on either machine and across reboots.
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 cd "$REPO_ROOT" || { echo "[run-supervised] repo not found at $REPO_ROOT"; exit 1; }
 
