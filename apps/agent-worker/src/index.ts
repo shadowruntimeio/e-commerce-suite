@@ -2,7 +2,7 @@ import 'dotenv/config'
 import path from 'node:path'
 import fs from 'node:fs'
 import { prisma } from '@ems/db'
-import { runClaude, parseTaggedAnswer, prepareImageFile, cleanupTaskDir, type ImageAttachment } from './claude-runner'
+import { runClaude, parseTaggedAnswer, prepareImageFile, cleanupTaskDir, RPC_DIR, type ImageAttachment } from './claude-runner'
 import { ensureNotifyTrigger } from './notify-bootstrap'
 import { startNotifyListener, type NotifyListener } from './notify-listener'
 
@@ -14,14 +14,19 @@ const MAX_ATTEMPTS = Number(process.env.AGENT_MAX_ATTEMPTS ?? 3)
 const RECENT_CONTEXT_LIMIT = 6
 
 // Load system prompt once at boot. Resolved relative to the compiled file
-// (dist/) or the src/ tree under tsx.
+// (dist/) or the src/ tree under tsx. `{{RPC_DIR}}` is substituted with the
+// resolved absolute path so the agent can call the RPC binaries by full path
+// (the --allowedTools pattern requires the full path).
 const SYSTEM_PROMPT = (() => {
   const candidates = [
     path.join(__dirname, 'prompts/cs-system.md'),
     path.join(__dirname, '..', 'src/prompts/cs-system.md'),
   ]
   for (const p of candidates) {
-    if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8')
+    if (fs.existsSync(p)) {
+      const raw = fs.readFileSync(p, 'utf8')
+      return raw.replace(/\{\{RPC_DIR\}\}/g, RPC_DIR)
+    }
   }
   throw new Error('cs-system.md not found in expected locations')
 })()
@@ -136,6 +141,7 @@ async function processOne(): Promise<boolean> {
 
 async function handleChatReply(task: {
   id: string
+  tenantId: string
   payload: {
     sessionId: string
     userMessageId: string
@@ -187,7 +193,19 @@ async function handleChatReply(task: {
   }
 
   try {
-    const run = await runClaude(SYSTEM_PROMPT, userInput, imagePath ? { imagePath } : {})
+    // Tier selection: any task with an attached image goes through the
+    // investigator path — the user explicitly signalled they want analysis.
+    // Text-only Q&A stays on the cheap fast path (single Claude turn, no
+    // tools) so we don't burn subscription quota on "how do I cancel an
+    // order"-type questions.
+    const mode: 'fast' | 'investigator' = imagePath ? 'investigator' : 'fast'
+    const run = await runClaude(SYSTEM_PROMPT, userInput, {
+      ...(imagePath ? { imagePath } : {}),
+      mode,
+      ...(mode === 'investigator'
+        ? { tenantId: task.tenantId, databaseUrl: process.env.DATABASE_URL }
+        : {}),
+    })
 
     if (run.envelope.is_error || !run.envelope.result) {
       const detail = run.envelope.result ?? run.stderr ?? `exit=${run.exitCode}`

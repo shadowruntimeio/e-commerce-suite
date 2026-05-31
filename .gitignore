@@ -5,5 +5,7 @@ dist
 packages/db/.env
 *.tsbuildinfo
 .turbo
-# agent-worker per-task disposable sandbox (see claude-runner.ts)
+# agent-worker per-task disposable sandbox + read-only source mirror
+# (claude-runner.ts maintains these — they're rebuilt at boot)
 apps/agent-worker/.agent-sandbox/
+apps/agent-worker/.agent-readonly/

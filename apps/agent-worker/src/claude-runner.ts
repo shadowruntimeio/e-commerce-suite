@@ -5,8 +5,26 @@ import crypto from 'node:crypto'
 
 const CLAUDE_BIN = process.env.CLAUDE_BIN ?? 'claude'
 const MODEL = process.env.AGENT_MODEL ?? 'sonnet'
+// Tier-2 (image / investigation) is multi-turn and can run much longer than
+// a single Q&A turn. Default to 4 min per task; the worker's claim hold is
+// untouched (next claim only happens after this returns).
 const TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS ?? 90_000)
+const INVESTIGATOR_TIMEOUT_MS = Number(process.env.AGENT_INVESTIGATOR_TIMEOUT_MS ?? 240_000)
 const SANDBOX_ROOT = process.env.AGENT_SANDBOX_DIR ?? path.join(process.cwd(), '.agent-sandbox')
+
+// Repo root is two levels up from this workspace (apps/agent-worker/src → repo root).
+const WORKER_ROOT = path.resolve(__dirname, '..')
+const REPO_ROOT = path.resolve(WORKER_ROOT, '..', '..')
+
+// Read-only mirror dir for source-code access. Created on demand; contains
+// only symlinks to whitelisted source subtrees — never .env, dist, secrets,
+// or node_modules. The mirror is what we pass to `--add-dir` in Tier-2 so
+// the agent's Read tool can only see what's here.
+const READONLY_MIRROR_DIR = path.join(WORKER_ROOT, '.agent-readonly')
+
+// RPC scripts the Tier-2 agent is allowed to invoke via Bash. Path-locked
+// via --allowedTools so no other Bash command can run.
+export const RPC_DIR = path.join(WORKER_ROOT, 'src', 'rpc')
 
 // Sandbox root: ensures no project CLAUDE.md / settings leak into the prompt.
 // For text-only tasks we reuse it as cwd. For tasks with image attachments
@@ -60,6 +78,55 @@ export function cleanupTaskDir(taskDir: string) {
   try { fs.rmSync(taskDir, { recursive: true, force: true }) } catch { /* best effort */ }
 }
 
+// ─── Read-only source mirror ─────────────────────────────────────────────────
+//
+// In Tier-2 we let the agent Read / Glob / Grep source files so it can verify
+// validation rules and field semantics before answering. To bound that
+// access surface — and especially to keep .env / credentials / build output
+// out of reach — we maintain a separate directory containing only symlinks
+// to whitelisted source subtrees. The mirror is what gets passed to
+// `--add-dir`; cwd for the spawn is the mirror root.
+const MIRROR_TARGETS: Array<{ src: string; dst: string }> = [
+  // Server source — most "why does X fail" questions live here.
+  { src: 'apps/api/src',                        dst: 'apps/api/src' },
+  // Web source — for UI-flow questions.
+  { src: 'apps/web/src',                        dst: 'apps/web/src' },
+  // Schema is the canonical source of truth for fields / enums.
+  { src: 'packages/db/prisma/schema.prisma',    dst: 'packages/db/prisma/schema.prisma' },
+  // Shared types / constants the agent might want to reference.
+  { src: 'packages/shared/src',                 dst: 'packages/shared/src' },
+]
+
+/**
+ * Idempotently set up READONLY_MIRROR_DIR with symlinks to whitelisted source
+ * subdirs. Re-running is safe — we replace any existing symlinks.
+ */
+export function ensureReadonlyMirror(): string {
+  fs.mkdirSync(READONLY_MIRROR_DIR, { recursive: true })
+  for (const { src, dst } of MIRROR_TARGETS) {
+    const absSrc = path.resolve(REPO_ROOT, src)
+    const absDst = path.join(READONLY_MIRROR_DIR, dst)
+    fs.mkdirSync(path.dirname(absDst), { recursive: true })
+    try {
+      const lst = fs.lstatSync(absDst)
+      if (lst.isSymbolicLink() || lst.isFile() || lst.isDirectory()) {
+        // Re-resolve to make sure it points where we expect. If not, replace.
+        try {
+          const cur = fs.readlinkSync(absDst)
+          if (path.resolve(path.dirname(absDst), cur) === absSrc) continue
+        } catch { /* not a symlink */ }
+        fs.rmSync(absDst, { recursive: true, force: true })
+      }
+    } catch { /* doesn't exist, fall through */ }
+    if (fs.existsSync(absSrc)) {
+      fs.symlinkSync(absSrc, absDst)
+    }
+    // If the src doesn't exist (e.g. partial checkout), skip silently. Better
+    // to give the agent fewer dirs to look at than to error out at boot.
+  }
+  return READONLY_MIRROR_DIR
+}
+
 export interface ClaudeEnvelope {
   type: string
   subtype?: string
@@ -84,28 +151,62 @@ export interface RunResult {
 }
 
 export interface RunOptions {
-  /** If set, Read tool is enabled and --add-dir is bounded to this directory. */
+  /** If set, the Read tool can see this file (added to --add-dir scope). */
   imagePath?: string
+  /**
+   * 'fast' (default): no tools, fastest path for text-only / refusal cases.
+   * 'investigator': Read/Glob/Grep on a curated source-code mirror, plus
+   * Bash locked to the RPC scripts in {@link RPC_DIR}. Multi-turn; use when
+   * the question requires actually verifying data or code (e.g. when the
+   * user attached an image / a screenshot).
+   */
+  mode?: 'fast' | 'investigator'
+  /**
+   * Required for investigator mode — RPC scripts read TENANT_ID from env to
+   * scope every DB query to the asking user's tenant. The agent has no
+   * syntactic way to override this.
+   */
+  tenantId?: string
+  /**
+   * Passed through to the spawn env so the RPC scripts can talk to Postgres.
+   * In investigator mode this MUST be set; in fast mode it's ignored.
+   */
+  databaseUrl?: string
 }
 
 /**
- * Spawn `claude -p` in headless mode against an EMS-scoped system prompt,
- * with all tools disabled and the dangerous side-effects of normal Claude
- * Code execution stripped (no session persistence, no slash commands, no
- * project/user settings, no dynamic system prompt sections).
+ * Spawn `claude -p` in headless mode against an EMS-scoped system prompt.
  *
- * When `opts.imagePath` is provided, the Read tool is enabled and the cwd
- * + --add-dir are scoped to that file's parent directory only. The model
- * can therefore see the image but cannot read anything else on the host.
+ * - **fast mode**: no tools, just vision + reasoning. ~3-10s. Used for plain
+ *   text Q&A and refusals.
+ * - **investigator mode**: Read/Glob/Grep on a source-code mirror + a fixed
+ *   set of tenant-scoped RPC scripts callable via Bash. ~20-90s, multi-turn.
+ *   The agent can verify hypotheses against the user's actual data before
+ *   answering, instead of guessing from a screenshot alone.
+ *
+ * In both modes the dangerous side-effects of normal Claude Code execution
+ * are stripped (no session persistence, no slash commands, no project/user
+ * settings, no dynamic system prompt sections).
  *
  * Auth: relies on the host's claude.ai subscription via OAuth. The local
  * machine must have ANTHROPIC_API_KEY unset when running this — see the
- * env scrubbing below. (We verified during design that `--bare` cannot be
- * used because it forces ANTHROPIC_API_KEY auth and ignores OAuth.)
+ * env scrubbing below. (`--bare` cannot be used because it forces API-key
+ * auth and ignores OAuth.)
  */
 export async function runClaude(systemPrompt: string, userMessage: string, opts: RunOptions = {}): Promise<RunResult> {
   const t0 = Date.now()
-  const sandbox = opts.imagePath ? path.dirname(opts.imagePath) : ensureSandboxRoot()
+  const mode = opts.mode ?? 'fast'
+  const isInvestigator = mode === 'investigator'
+
+  // cwd selection:
+  // - investigator: source-code mirror dir, so the agent's "home" is the
+  //   thing it can read. Image (if any) lives in its own dir, surfaced via
+  //   an additional --add-dir.
+  // - fast: image's parent dir (so Read can see the image) or the shared
+  //   sandbox root for text-only.
+  const cwd = isInvestigator
+    ? ensureReadonlyMirror()
+    : (opts.imagePath ? path.dirname(opts.imagePath) : ensureSandboxRoot())
 
   // Scrub env aggressively. Pass through only what `claude` reasonably needs
   // for OAuth + macOS keychain + Node IO. Critically, drop ANTHROPIC_API_KEY
@@ -115,37 +216,60 @@ export async function runClaude(systemPrompt: string, userMessage: string, opts:
   for (const k of passThrough) {
     if (process.env[k]) env[k] = process.env[k] as string
   }
-  // macOS keychain unlock prompts can hang headless processes; the keychain
-  // is normally already unlocked when the agent runs interactively (your
-  // terminal session), so leave it alone.
+  if (isInvestigator) {
+    // RPC scripts read TENANT_ID + DATABASE_URL from env. Set here so the
+    // agent literally cannot specify a different tenant — it has no syntax
+    // for env overrides, and the Bash pattern below disallows any prefix
+    // other than `node <rpc>/*.mjs *`.
+    if (!opts.tenantId) throw new Error('investigator mode requires tenantId')
+    env.TENANT_ID = opts.tenantId
+    if (opts.databaseUrl) env.DATABASE_URL = opts.databaseUrl
+    else if (process.env.DATABASE_URL) env.DATABASE_URL = process.env.DATABASE_URL
+  }
 
-  const args = [
+  const args: string[] = [
     '-p', userMessage,
     '--system-prompt', systemPrompt,
     '--output-format', 'json',
-    // When an image is attached we MUST enable Read so the model can view it.
-    // The image lives alone in a per-task sandbox dir, and --add-dir bounds
-    // the file access surface to that one directory. Without an image we
-    // disable all tools.
-    '--tools', opts.imagePath ? 'Read' : '',
     '--no-session-persistence',                        // don't write ~/.claude/sessions
     '--disable-slash-commands',                        // no /skill expansion
     '--setting-sources', '',                           // ignore user/project/local settings
     '--exclude-dynamic-system-prompt-sections',        // strip cwd/env/git from system prompt
     '--model', MODEL,
   ]
-  if (opts.imagePath) {
-    args.push('--add-dir', sandbox)
+
+  if (isInvestigator) {
+    // Read/Glob/Grep over the source mirror, Bash bound to RPC binary path.
+    // The Bash pattern's `*` after `.mjs` is the wildcard for arguments —
+    // Claude Code's allowedTools matcher tokenizes the command and only
+    // matches a single binary + arg pattern, so the agent can't append
+    // `; rm -rf /` or pipe to anything else.
+    args.push('--tools', 'Read,Glob,Grep,Bash')
+    args.push('--allowedTools',
+      `Read`,
+      `Glob`,
+      `Grep`,
+      `Bash(node ${path.join(RPC_DIR, '*.mjs')} *)`,
+    )
+    args.push('--add-dir', cwd)
+    if (opts.imagePath) args.push('--add-dir', path.dirname(opts.imagePath))
+  } else {
+    // Fast mode: no tools, except Read when there's an image. (Read is the
+    // only way the model receives the image content in headless mode.)
+    args.push('--tools', opts.imagePath ? 'Read' : '')
+    if (opts.imagePath) args.push('--add-dir', cwd)
   }
 
+  const timeoutMs = isInvestigator ? INVESTIGATOR_TIMEOUT_MS : TIMEOUT_MS
+
   return await new Promise<RunResult>((resolve) => {
-    const proc = spawn(CLAUDE_BIN, args, { cwd: sandbox, env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const proc = spawn(CLAUDE_BIN, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
 
     let stdout = ''
     let stderr = ''
     const timer = setTimeout(() => {
       proc.kill('SIGKILL')
-    }, TIMEOUT_MS)
+    }, timeoutMs)
 
     proc.stdout.on('data', (c) => { stdout += c.toString('utf8') })
     proc.stderr.on('data', (c) => { stderr += c.toString('utf8') })
