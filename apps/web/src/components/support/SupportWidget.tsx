@@ -1,8 +1,9 @@
 import React from 'react'
-import { Drawer, Tabs, Button, Input, List, Form, Select, message, Spin, Empty, Tooltip } from 'antd'
-import { CommentOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Drawer, Tabs, Button, Input, Form, Select, message, Spin, Empty, Tooltip } from 'antd'
+import { CommentOutlined, PlusOutlined, DeleteOutlined, PaperClipOutlined, CloseCircleFilled, PictureOutlined } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { create } from 'zustand'
 import dayjs from 'dayjs'
 import { api } from '../../lib/api'
 import { useConsoleErrors } from './console-errors'
@@ -30,8 +31,36 @@ interface ChatMessage {
   latencyMs: number | null
   aiTaskId: string | null
   createdAt: string
+  attachmentMimeType: string | null
+  attachmentSizeBytes: number | null
 }
 interface PendingTask { id: string; status: 'PENDING' | 'RUNNING'; createdAt: string }
+
+// 2MB / image (server-enforced too). 20 uploads / 24h rolling window per user.
+const IMAGE_MAX_BYTES = 2 * 1024 * 1024
+const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif'
+
+/**
+ * In-memory blob URL map keyed by chat_messages.id. Populated only after a
+ * successful upload so the user sees their image in the bubble during this
+ * browser session. NOT persisted — on reload these URLs are gone and the
+ * bubble falls back to a "🖼️ 图片不再可见" placeholder (per spec, images are
+ * session-scoped only).
+ */
+interface AttachmentBlobsState {
+  byMessageId: Map<string, string>
+  add: (messageId: string, blobUrl: string) => void
+  get: (messageId: string) => string | undefined
+}
+const useAttachmentBlobs = create<AttachmentBlobsState>((set, get) => ({
+  byMessageId: new Map(),
+  add: (messageId, blobUrl) => {
+    const next = new Map(get().byMessageId)
+    next.set(messageId, blobUrl)
+    set({ byMessageId: next })
+  },
+  get: (messageId) => get().byMessageId.get(messageId),
+}))
 
 export function SupportWidget() {
   const { t } = useTranslation()
@@ -98,12 +127,23 @@ function ChatPanel({ open, switchToBug }: { open: boolean; switchToBug: () => vo
   const queryClient = useQueryClient()
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [draft, setDraft] = React.useState('')
+  const [pendingImage, setPendingImage] = React.useState<{ file: File; previewUrl: string } | null>(null)
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const addBlob = useAttachmentBlobs((s) => s.add)
 
   const sessionsQ = useQuery({
     queryKey: ['support', 'sessions'],
     queryFn: async () => (await api.get('/support/chat/sessions')).data.data as ChatSession[],
     enabled: open,
     refetchInterval: open ? 15_000 : false,
+  })
+
+  const quotaQ = useQuery({
+    queryKey: ['support', 'imageQuota'],
+    queryFn: async () =>
+      (await api.get('/support/chat/quota/image')).data.data as { used: number; limit: number; maxBytes: number },
+    enabled: open,
+    refetchInterval: open ? 60_000 : false,
   })
 
   // Auto-select the most recent session when the panel opens.
@@ -132,7 +172,7 @@ function ChatPanel({ open, switchToBug }: { open: boolean; switchToBug: () => vo
   const newSession = useMutation({
     mutationFn: async (initial?: string) => {
       const r = await api.post('/support/chat/sessions', initial ? { initialMessage: initial } : {})
-      return r.data.data as { session: ChatSession; userMessageId: string | null }
+      return r.data.data as { session: ChatSession; userMessageId: string | null; aiTaskId: string | null }
     },
     onSuccess: ({ session }) => {
       setActiveSessionId(session.id)
@@ -142,13 +182,47 @@ function ChatPanel({ open, switchToBug }: { open: boolean; switchToBug: () => vo
   })
 
   const send = useMutation({
-    mutationFn: async ({ sessionId, content }: { sessionId: string; content: string }) => {
-      return (await api.post(`/support/chat/sessions/${sessionId}/messages`, { content })).data.data
+    mutationFn: async ({ sessionId, content, image }: { sessionId: string; content: string; image: File | null }) => {
+      if (image) {
+        const fd = new FormData()
+        fd.append('content', content)
+        fd.append('image', image, image.name || 'image')
+        const r = await api.post(`/support/chat/sessions/${sessionId}/messages`, fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        return r.data.data as { userMessageId: string; aiTaskId: string }
+      }
+      return (await api.post(`/support/chat/sessions/${sessionId}/messages`, { content })).data.data as {
+        userMessageId: string
+        aiTaskId: string
+      }
     },
-    onSuccess: (_, vars) => {
+    onSuccess: (data, vars) => {
+      // Carry the local blob URL forward so the message bubble can render the
+      // image we just sent. The server doesn't echo bytes back; this is
+      // session-scoped only (cleared on reload — see spec).
+      if (vars.image && pendingImage) {
+        addBlob(data.userMessageId, pendingImage.previewUrl)
+        setPendingImage(null)
+      }
       queryClient.invalidateQueries({ queryKey: ['support', 'session', vars.sessionId] })
+      queryClient.invalidateQueries({ queryKey: ['support', 'imageQuota'] })
     },
-    onError: () => {
+    onError: (err: unknown) => {
+      const resp = (err as { response?: { status?: number; data?: { error?: string; data?: { used?: number; limit?: number } } } })?.response
+      if (resp?.status === 429 && resp.data?.error === 'IMAGE_QUOTA_EXCEEDED') {
+        message.warning(t('support.imageQuotaExceeded', { used: resp.data.data?.used, limit: resp.data.data?.limit }))
+        queryClient.invalidateQueries({ queryKey: ['support', 'imageQuota'] })
+        return
+      }
+      if (resp?.status === 413) {
+        message.error(t('support.imageTooLarge'))
+        return
+      }
+      if (resp?.status === 415) {
+        message.error(t('support.imageUnsupportedType'))
+        return
+      }
       message.error(t('support.sendFailed'))
     },
   })
@@ -169,13 +243,54 @@ function ChatPanel({ open, switchToBug }: { open: boolean; switchToBug: () => vo
   function handleSend() {
     const content = draft.trim()
     if (!content) return
+    const image = pendingImage?.file ?? null
+
     if (activeSessionId) {
-      send.mutate({ sessionId: activeSessionId, content })
+      send.mutate({ sessionId: activeSessionId, content, image })
+    } else if (image) {
+      // First send with an image needs two steps: create the session, then
+      // post the multipart message — POST /sessions doesn't accept files.
+      newSession.mutate(undefined, {
+        onSuccess: ({ session }) => {
+          send.mutate({ sessionId: session.id, content, image })
+        },
+      })
     } else {
       newSession.mutate(content)
     }
     setDraft('')
   }
+
+  function handlePickImage(file: File | null) {
+    if (!file) return
+    if (!file.type || !IMAGE_ACCEPT.split(',').includes(file.type)) {
+      message.error(t('support.imageUnsupportedType'))
+      return
+    }
+    if (file.size > IMAGE_MAX_BYTES) {
+      message.error(t('support.imageTooLarge'))
+      return
+    }
+    // Revoke any previous preview URL before swapping to avoid leaking memory.
+    if (pendingImage) URL.revokeObjectURL(pendingImage.previewUrl)
+    setPendingImage({ file, previewUrl: URL.createObjectURL(file) })
+  }
+
+  function clearPendingImage() {
+    if (pendingImage) URL.revokeObjectURL(pendingImage.previewUrl)
+    setPendingImage(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  // Free the preview URL when ChatPanel unmounts.
+  React.useEffect(() => () => {
+    if (pendingImage) URL.revokeObjectURL(pendingImage.previewUrl)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const quotaUsed = quotaQ.data?.used ?? 0
+  const quotaLimit = quotaQ.data?.limit ?? 20
+  const quotaExhausted = quotaUsed >= quotaLimit
 
   const messages = detailQ.data?.messages ?? []
   const pending = detailQ.data?.pendingTask
@@ -239,6 +354,35 @@ function ChatPanel({ open, switchToBug }: { open: boolean; switchToBug: () => vo
 
       {/* Composer */}
       <div style={{ borderTop: '1px solid var(--border-light)', padding: '10px 0', flexShrink: 0 }}>
+        {pendingImage && (
+          <div style={{
+            position: 'relative',
+            display: 'inline-block',
+            marginBottom: 8,
+            borderRadius: 8,
+            overflow: 'hidden',
+            border: '1px solid var(--border-light)',
+          }}>
+            <img
+              src={pendingImage.previewUrl}
+              alt="preview"
+              style={{ display: 'block', maxHeight: 80, maxWidth: 120 }}
+            />
+            <Tooltip title={t('support.imageRemove')}>
+              <button
+                onClick={clearPendingImage}
+                aria-label={t('support.imageRemove') ?? 'remove'}
+                style={{
+                  position: 'absolute', top: 2, right: 2,
+                  background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+                  color: '#fff', textShadow: '0 0 3px rgba(0,0,0,0.6)',
+                }}
+              >
+                <CloseCircleFilled style={{ fontSize: 18 }} />
+              </button>
+            </Tooltip>
+          </div>
+        )}
         <Input.TextArea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -252,8 +396,40 @@ function ChatPanel({ open, switchToBug }: { open: boolean; switchToBug: () => vo
           autoSize={{ minRows: 2, maxRows: 5 }}
           disabled={inputDisabled}
         />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-          <Button type="primary" loading={send.isPending || newSession.isPending} disabled={inputDisabled || !draft.trim()} onClick={handleSend}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={IMAGE_ACCEPT}
+              style={{ display: 'none' }}
+              onChange={(e) => handlePickImage(e.target.files?.[0] ?? null)}
+            />
+            <Tooltip
+              title={
+                quotaExhausted
+                  ? t('support.imageQuotaExhaustedTooltip', { limit: quotaLimit })
+                  : pendingImage
+                    ? t('support.imageReplace')
+                    : t('support.imageAdd', { used: quotaUsed, limit: quotaLimit })
+              }
+            >
+              <Button
+                icon={<PaperClipOutlined />}
+                disabled={quotaExhausted || inputDisabled}
+                onClick={() => fileInputRef.current?.click()}
+              />
+            </Tooltip>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              {t('support.imageQuotaLabel', { used: quotaUsed, limit: quotaLimit })}
+            </span>
+          </div>
+          <Button
+            type="primary"
+            loading={send.isPending || newSession.isPending}
+            disabled={inputDisabled || !draft.trim()}
+            onClick={handleSend}
+          >
             {t('support.send')}
           </Button>
         </div>
@@ -265,6 +441,8 @@ function ChatPanel({ open, switchToBug }: { open: boolean; switchToBug: () => vo
 function MessageBubble({ m, onSwitchToBug }: { m: ChatMessage; onSwitchToBug: () => void }) {
   const { t } = useTranslation()
   const isUser = m.role === 'USER'
+  const blobUrl = useAttachmentBlobs((s) => (m.attachmentMimeType ? s.byMessageId.get(m.id) : undefined))
+  const hasAttachment = !!m.attachmentMimeType
 
   return (
     <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', padding: '4px 0' }}>
@@ -282,6 +460,33 @@ function MessageBubble({ m, onSwitchToBug }: { m: ChatMessage; onSwitchToBug: ()
           lineHeight: 1.5,
         }}
       >
+        {/* Image attachment, if any. Browser-local blob URL only — after a
+           page reload we just show a placeholder, matching the design
+           decision to keep images session-scoped. */}
+        {hasAttachment && (
+          <div style={{ marginBottom: m.content ? 6 : 0 }}>
+            {blobUrl ? (
+              <img
+                src={blobUrl}
+                alt="attached"
+                style={{ display: 'block', maxWidth: '100%', maxHeight: 220, borderRadius: 8 }}
+              />
+            ) : (
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 10px',
+                borderRadius: 8,
+                background: isUser ? 'rgba(255,255,255,0.18)' : 'rgba(127,127,127,0.12)',
+                fontSize: 12,
+              }}>
+                <PictureOutlined /> {t('support.imageNoLongerVisible')}
+              </div>
+            )}
+          </div>
+        )}
+
         {m.errorReason ? (
           <span style={{ color: '#dc2626' }}>{m.content}</span>
         ) : (
