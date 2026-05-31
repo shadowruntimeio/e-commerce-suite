@@ -15,6 +15,7 @@ import { api } from '../../lib/api'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { useAuthStore, hasCapability, type UserRole, type Capability } from '../../store/auth.store'
+import { SupportWidget } from '../support/SupportWidget'
 import { useSettingsStore } from '../../store/settings.store'
 import { useTranslation } from 'react-i18next'
 
@@ -553,6 +554,9 @@ export function AppLayout() {
           <Outlet />
         </Content>
       </Layout>
+
+      {/* Floating support widget — chat + bug report, visible on every page */}
+      <SupportWidget />
     </Layout>
   )
 }

@@ -6,6 +6,9 @@ import { RouterProvider } from 'react-router-dom'
 import { router } from './router'
 import { useSettingsStore } from './store/settings.store'
 import './lib/i18n'
+import { installConsoleErrorCapture } from './components/support/console-errors'
+
+installConsoleErrorCapture()
 
 const queryClient = new QueryClient({
   defaultOptions: {
