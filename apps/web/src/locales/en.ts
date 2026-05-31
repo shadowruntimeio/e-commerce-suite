@@ -906,6 +906,11 @@ export default {
       autoConsole: '{{count}} console error(s)',
       autoUA: 'Browser & OS info',
       submit: 'Submit bug',
+      screenshots: 'Screenshots (max {{max}})',
+      screenshotHint: 'PNG / JPEG / WebP / GIF, ≤ 1MB each',
+      addScreenshot: 'Add',
+      tooManyImages: 'Max {{max}} images',
+      imageTooLarge: 'Image too large (max 1MB)',
     },
   },
 } as const

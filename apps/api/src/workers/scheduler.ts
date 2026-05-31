@@ -9,6 +9,12 @@ const RESTOCKING_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 const ETL_INTERVAL_MS = 24 * 60 * 60 * 1000    // 24 hours
 const AUTO_CONFIRM_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
 const RETURNS_SYNC_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
+const BUG_IMAGE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000 // 1 hour
+
+// Once a bug has been in a terminal state for this long, its attached
+// screenshots can be deleted. The bug row itself stays — we still want
+// the analysis text + fix commit for audit. Default: 7 days.
+const BUG_IMAGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
 async function scheduleOrderSyncs() {
   try {
@@ -135,6 +141,28 @@ async function autoConfirmExpiredOrders() {
   }
 }
 
+// Delete bug-report screenshots whose parent bug has been in a terminal
+// state for ≥ BUG_IMAGE_RETENTION_MS. We keep the BugReport row (with
+// claudeNotes, fixCommitSha) for audit — just free the BYTEA pixels.
+async function cleanupResolvedBugImages() {
+  try {
+    const cutoff = new Date(Date.now() - BUG_IMAGE_RETENTION_MS)
+    const result = await prisma.bugReportImage.deleteMany({
+      where: {
+        bugReport: {
+          status: { in: ['FIXED', 'WONTFIX', 'DUPLICATE'] },
+          resolvedAt: { lt: cutoff },
+        },
+      },
+    })
+    if (result.count > 0) {
+      console.log(`[scheduler] cleanupResolvedBugImages: deleted ${result.count} images`)
+    }
+  } catch (err) {
+    console.error('[scheduler] cleanupResolvedBugImages failed:', err)
+  }
+}
+
 async function scheduleEtl() {
   try {
     console.log('[scheduler] Scheduling nightly ETL run')
@@ -158,6 +186,7 @@ export function startScheduler() {
   void scheduleRestocking()
   void scheduleEtl()
   void autoConfirmExpiredOrders()
+  void cleanupResolvedBugImages()
 
   const syncInterval = setInterval(() => {
     void scheduleOrderSyncs()
@@ -183,6 +212,10 @@ export function startScheduler() {
     void scheduleReturnSyncs()
   }, RETURNS_SYNC_INTERVAL_MS)
 
+  const bugImageCleanupInterval = setInterval(() => {
+    void cleanupResolvedBugImages()
+  }, BUG_IMAGE_CLEANUP_INTERVAL_MS)
+
   // Allow the process to exit cleanly (unref intervals)
   syncInterval.unref()
   refreshInterval.unref()
@@ -190,6 +223,7 @@ export function startScheduler() {
   etlInterval.unref()
   autoConfirmInterval.unref()
   returnsSyncInterval.unref()
+  bugImageCleanupInterval.unref()
 
   return {
     stop() {
@@ -199,6 +233,7 @@ export function startScheduler() {
       clearInterval(etlInterval)
       clearInterval(autoConfirmInterval)
       clearInterval(returnsSyncInterval)
+      clearInterval(bugImageCleanupInterval)
       console.log('[scheduler] Stopped')
     },
   }

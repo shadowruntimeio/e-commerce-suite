@@ -1063,12 +1063,35 @@ model BugReport {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  user   User   @relation(fields: [userId], references: [id])
+  tenant Tenant            @relation(fields: [tenantId], references: [id])
+  user   User              @relation(fields: [userId], references: [id])
+  images BugReportImage[]
 
   @@index([tenantId, status, createdAt])
   @@index([status, severity, createdAt]) // worker queue scan
+  // For the hourly image-cleanup sweep — find FIXED/WONTFIX/DUPLICATE bugs
+  // whose images can be released.
+  @@index([status, resolvedAt])
   @@map("bug_reports")
+}
+
+// One-to-many images attached to a BugReport (max 2 enforced at the API).
+// Bytes are persisted, unlike chat attachments, because the dev workflow
+// needs them while the bug is open. They get auto-deleted by a scheduled
+// sweep once the bug has been FIXED / WONTFIX / DUPLICATE for ≥ 7 days
+// (see apps/api/src/workers/scheduler.ts).
+model BugReportImage {
+  id           String   @id @default(cuid())
+  bugReportId  String
+  mimeType     String
+  sizeBytes    Int
+  data         Bytes
+  createdAt    DateTime @default(now())
+
+  bugReport BugReport @relation(fields: [bugReportId], references: [id], onDelete: Cascade)
+
+  @@index([bugReportId])
+  @@map("bug_report_images")
 }
 
 model AiTask {

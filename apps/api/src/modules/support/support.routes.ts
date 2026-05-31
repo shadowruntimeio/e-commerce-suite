@@ -26,6 +26,12 @@ const IMAGE_MAX_BYTES = 2 * 1024 * 1024
 const IMAGE_DAILY_QUOTA = 20
 const ALLOWED_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
+// Bug-report image constraints. Tighter than chat (1MB) since these are
+// persisted, and capped at 2 per report (matches the "screenshot of the
+// issue + one of the console" common case).
+const BUG_IMAGE_MAX_BYTES = 1 * 1024 * 1024
+const BUG_IMAGES_PER_REPORT = 2
+
 // A task that's still PENDING/RUNNING after this much time is almost
 // certainly stuck — the worker is either offline or its host crashed
 // mid-task. Worker max-attempt budget is 3 × 90s = 4.5min, so 5min gives
@@ -89,10 +95,11 @@ const newBugSchema = z.object({
 export async function supportRoutes(app: FastifyInstance) {
   // Per-route multipart so the image-upload size cap is scoped to this
   // module and doesn't bleed into other routes (inventory has its own 5MB
-  // limit for xlsx). Reading parts as a stream lets us short-circuit on
-  // size violations before buffering everything in memory.
+  // limit for xlsx). Limits here are the LOOSEST any support endpoint
+  // needs (chat = 1 image × 2MB; bug = 2 images × 1MB); each route then
+  // enforces its own tighter constraints in handler code.
   await app.register(multipart, {
-    limits: { fileSize: IMAGE_MAX_BYTES, files: 1, fields: 4 },
+    limits: { fileSize: IMAGE_MAX_BYTES, files: BUG_IMAGES_PER_REPORT, fields: 8 },
   })
   app.addHook('preHandler', authenticate)
 
@@ -348,10 +355,58 @@ export async function supportRoutes(app: FastifyInstance) {
 
   // ─── Bug reports ───────────────────────────────────────────────────────────
 
-  // POST /support/bugs — user submits a bug. consoleErrors is whatever the
-  // ring-buffer captured in the browser; we don't parse it server-side.
+  // POST /support/bugs — multipart. Up to 2 images (≤1MB each) + the usual
+  // bug fields. JSON-only requests still work for backwards compat (no
+  // images attached).
   app.post('/bugs', async (request, reply) => {
-    const parsed = newBugSchema.safeParse(request.body)
+    let parsedFields: Record<string, unknown> = {}
+    const images: { mimeType: string; bytes: Buffer }[] = []
+
+    if (request.isMultipart()) {
+      try {
+        for await (const part of request.parts()) {
+          if (part.type === 'file') {
+            if (part.fieldname !== 'image') continue
+            if (images.length >= BUG_IMAGES_PER_REPORT) {
+              return reply.status(400).send({
+                success: false,
+                error: `Too many images (max ${BUG_IMAGES_PER_REPORT})`,
+              })
+            }
+            if (!ALLOWED_IMAGE_MIMES.has(part.mimetype)) {
+              return reply.status(415).send({ success: false, error: 'Unsupported image type' })
+            }
+            const bytes = await part.toBuffer()
+            if (bytes.length > BUG_IMAGE_MAX_BYTES) {
+              return reply.status(413).send({ success: false, error: 'Image too large (max 1MB)' })
+            }
+            images.push({ mimeType: part.mimetype, bytes })
+          } else {
+            // Multipart non-file fields come in as strings; consoleErrors +
+            // metadata are JSON-encoded by the client.
+            const raw = String(part.value ?? '')
+            if (part.fieldname === 'consoleErrors' || part.fieldname === 'metadata') {
+              try { parsedFields[part.fieldname] = JSON.parse(raw) } catch { /* ignore */ }
+            } else {
+              parsedFields[part.fieldname] = raw
+            }
+          }
+        }
+      } catch (err) {
+        const code = (err as { code?: string })?.code
+        if (code === 'FST_REQ_FILE_TOO_LARGE') {
+          return reply.status(413).send({ success: false, error: 'Image too large (max 1MB)' })
+        }
+        if (code === 'FST_FILES_LIMIT') {
+          return reply.status(400).send({ success: false, error: `Too many images (max ${BUG_IMAGES_PER_REPORT})` })
+        }
+        return reply.status(400).send({ success: false, error: `Upload failed: ${(err as Error).message}` })
+      }
+    } else {
+      parsedFields = (request.body ?? {}) as Record<string, unknown>
+    }
+
+    const parsed = newBugSchema.safeParse(parsedFields)
     if (!parsed.success) {
       return reply.status(400).send({ success: false, error: 'Invalid input' })
     }
@@ -366,22 +421,41 @@ export async function supportRoutes(app: FastifyInstance) {
       shopId = shop?.id ?? null
     }
 
-    const bug = await prisma.bugReport.create({
-      data: {
-        tenantId: request.user.tenantId,
-        userId: request.user.userId,
-        shopId,
-        summary: parsed.data.summary,
-        description: parsed.data.description ?? null,
-        severity: parsed.data.severity ?? 'MEDIUM',
-        route: parsed.data.route ?? null,
-        consoleErrors: (parsed.data.consoleErrors as any) ?? null,
-        userAgent: parsed.data.userAgent ?? null,
-        emsCommitSha: parsed.data.emsCommitSha ?? null,
-        metadata: (parsed.data.metadata as any) ?? null,
-      },
-      select: { id: true, status: true, createdAt: true },
+    // Insert bug + images in one transaction so a partial write can't leave
+    // an orphaned bug with no attachments.
+    const bug = await prisma.$transaction(async (tx) => {
+      const created = await tx.bugReport.create({
+        data: {
+          tenantId: request.user.tenantId,
+          userId: request.user.userId,
+          shopId,
+          summary: parsed.data.summary,
+          description: parsed.data.description ?? null,
+          severity: parsed.data.severity ?? 'MEDIUM',
+          route: parsed.data.route ?? null,
+          consoleErrors: (parsed.data.consoleErrors as any) ?? null,
+          userAgent: parsed.data.userAgent ?? null,
+          emsCommitSha: parsed.data.emsCommitSha ?? null,
+          metadata: (parsed.data.metadata as any) ?? null,
+        },
+        select: { id: true, status: true, createdAt: true },
+      })
+      if (images.length > 0) {
+        await tx.bugReportImage.createMany({
+          data: images.map((img) => ({
+            bugReportId: created.id,
+            mimeType: img.mimeType,
+            sizeBytes: img.bytes.length,
+            // Buffer.from gives us a Buffer<ArrayBuffer> the Prisma generated
+            // type wants (multipart returns Buffer<ArrayBufferLike> from a
+            // pooled allocator, which doesn't unify with the strict type).
+            data: Buffer.from(img.bytes),
+          })),
+        })
+      }
+      return { ...created, imageCount: images.length }
     })
+
     return { success: true, data: bug }
   })
 
@@ -399,9 +473,46 @@ export async function supportRoutes(app: FastifyInstance) {
         id: true, summary: true, status: true, severity: true,
         route: true, createdAt: true, resolvedAt: true,
         fixCommitSha: true,
+        _count: { select: { images: true } },
       },
     })
-    return { success: true, data: items }
+    return {
+      success: true,
+      data: items.map((i) => {
+        const { _count, ...rest } = i
+        return { ...rest, imageCount: _count.images }
+      }),
+    }
+  })
+
+  // GET /support/bugs/:id/images/:idx — serve image bytes. Tenant-scoped:
+  // any user in the same tenant can view the images. (Admin staff want to
+  // see them when triaging via the audit log / future admin UI.)
+  app.get('/bugs/:id/images/:idx', async (request, reply) => {
+    const { id, idx } = request.params as { id: string; idx: string }
+    const i = Number(idx)
+    if (!Number.isInteger(i) || i < 0 || i >= BUG_IMAGES_PER_REPORT) {
+      return reply.status(400).send({ success: false, error: 'Invalid image index' })
+    }
+    // Confirm the bug belongs to this tenant and load the i-th image by
+    // creation order. Cheaper than a self-join — just ORDER + OFFSET.
+    const bug = await prisma.bugReport.findFirst({
+      where: { id, tenantId: request.user.tenantId },
+      select: { id: true },
+    })
+    if (!bug) return reply.status(404).send({ success: false, error: 'Bug not found' })
+
+    const img = await prisma.bugReportImage.findFirst({
+      where: { bugReportId: id },
+      orderBy: { createdAt: 'asc' },
+      skip: i,
+      select: { mimeType: true, data: true },
+    })
+    if (!img) return reply.status(404).send({ success: false, error: 'Image not found' })
+
+    reply.header('Content-Type', img.mimeType)
+    reply.header('Cache-Control', 'private, max-age=86400, immutable')
+    return reply.send(img.data)
   })
 }
 

@@ -906,6 +906,11 @@ export default {
       autoConsole: '浏览器报错 {{count}} 条',
       autoUA: '浏览器与操作系统信息',
       submit: '提交反馈',
+      screenshots: '截图（最多 {{max}} 张）',
+      screenshotHint: '支持 PNG / JPEG / WebP / GIF，每张不超过 1MB',
+      addScreenshot: '添加',
+      tooManyImages: '最多 {{max}} 张图片',
+      imageTooLarge: '图片过大，单张上限 1MB',
     },
   },
 } as const

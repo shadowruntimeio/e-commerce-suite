@@ -602,13 +602,69 @@ function renderInlineMd(src: string): string {
 
 // ─── Bug report ─────────────────────────────────────────────────────────────
 
+// Bug-report image constraints — mirrored from the API. Keep in sync.
+const BUG_IMAGE_MAX_BYTES = 1 * 1024 * 1024
+const BUG_IMAGES_PER_REPORT = 2
+
 function BugPanel({ onSubmitted }: { onSubmitted: () => void }) {
   const { t } = useTranslation()
   const [form] = Form.useForm()
+  const [images, setImages] = React.useState<{ file: File; previewUrl: string }[]>([])
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+
+  // Revoke any blob URLs we created when the panel unmounts.
+  React.useEffect(() => () => {
+    images.forEach((i) => URL.revokeObjectURL(i.previewUrl))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function handlePickImages(files: FileList | null) {
+    if (!files || files.length === 0) return
+    const accepted = IMAGE_ACCEPT.split(',')
+    const next = [...images]
+    for (const f of Array.from(files)) {
+      if (next.length >= BUG_IMAGES_PER_REPORT) {
+        message.warning(t('support.bug.tooManyImages', { max: BUG_IMAGES_PER_REPORT }))
+        break
+      }
+      if (!accepted.includes(f.type)) {
+        message.error(t('support.imageUnsupportedType'))
+        continue
+      }
+      if (f.size > BUG_IMAGE_MAX_BYTES) {
+        message.error(t('support.bug.imageTooLarge'))
+        continue
+      }
+      next.push({ file: f, previewUrl: URL.createObjectURL(f) })
+    }
+    setImages(next)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function removeImage(idx: number) {
+    URL.revokeObjectURL(images[idx].previewUrl)
+    setImages(images.filter((_, i) => i !== idx))
+  }
 
   const submit = useMutation({
     mutationFn: async (values: { summary: string; description?: string; severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' }) => {
       const consoleErrors = useConsoleErrors.getState().snapshot()
+      // Multipart when there's at least one image; JSON otherwise (smaller
+      // payload, easier to debug).
+      if (images.length > 0) {
+        const fd = new FormData()
+        fd.append('summary', values.summary)
+        if (values.description) fd.append('description', values.description)
+        fd.append('severity', values.severity)
+        fd.append('route', window.location.href)
+        fd.append('consoleErrors', JSON.stringify(consoleErrors))
+        fd.append('userAgent', navigator.userAgent)
+        if (import.meta.env.VITE_COMMIT_SHA) fd.append('emsCommitSha', import.meta.env.VITE_COMMIT_SHA)
+        for (const img of images) fd.append('image', img.file, img.file.name || 'image')
+        return (await api.post('/support/bugs', fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })).data.data
+      }
       return (await api.post('/support/bugs', {
         ...values,
         route: window.location.href,
@@ -620,9 +676,22 @@ function BugPanel({ onSubmitted }: { onSubmitted: () => void }) {
     onSuccess: () => {
       message.success(t('support.bugSubmitted'))
       form.resetFields()
+      images.forEach((i) => URL.revokeObjectURL(i.previewUrl))
+      setImages([])
       onSubmitted()
     },
-    onError: () => message.error(t('support.bugSubmitFailed')),
+    onError: (err: unknown) => {
+      const resp = (err as { response?: { status?: number } })?.response
+      if (resp?.status === 413) {
+        message.error(t('support.bug.imageTooLarge'))
+        return
+      }
+      if (resp?.status === 415) {
+        message.error(t('support.imageUnsupportedType'))
+        return
+      }
+      message.error(t('support.bugSubmitFailed'))
+    },
   })
 
   const errorCount = useConsoleErrors((s) => s.errors.length)
@@ -648,6 +717,63 @@ function BugPanel({ onSubmitted }: { onSubmitted: () => void }) {
         </Form.Item>
         <Form.Item name="description" label={t('support.bug.description')}>
           <Input.TextArea rows={5} placeholder={t('support.bug.descriptionPlaceholder')} maxLength={4000} showCount />
+        </Form.Item>
+
+        {/* Screenshot picker — up to 2 images. */}
+        <Form.Item label={t('support.bug.screenshots', { max: BUG_IMAGES_PER_REPORT })}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={IMAGE_ACCEPT}
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => handlePickImages(e.target.files)}
+          />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {images.map((img, idx) => (
+              <div key={idx} style={{
+                position: 'relative',
+                borderRadius: 8,
+                overflow: 'hidden',
+                border: '1px solid var(--border-light)',
+                width: 80,
+                height: 80,
+              }}>
+                <img
+                  src={img.previewUrl}
+                  alt={`screenshot-${idx + 1}`}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+                <Tooltip title={t('support.imageRemove')}>
+                  <button
+                    onClick={() => removeImage(idx)}
+                    type="button"
+                    aria-label={t('support.imageRemove') ?? 'remove'}
+                    style={{
+                      position: 'absolute', top: 2, right: 2,
+                      background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+                      color: '#fff', textShadow: '0 0 3px rgba(0,0,0,0.6)',
+                    }}
+                  >
+                    <CloseCircleFilled style={{ fontSize: 18 }} />
+                  </button>
+                </Tooltip>
+              </div>
+            ))}
+            {images.length < BUG_IMAGES_PER_REPORT && (
+              <Button
+                icon={<PaperClipOutlined />}
+                onClick={() => fileInputRef.current?.click()}
+                type="dashed"
+                style={{ height: 80, width: 80 }}
+              >
+                {t('support.bug.addScreenshot')}
+              </Button>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+            {t('support.bug.screenshotHint')}
+          </div>
         </Form.Item>
 
         <div style={{
