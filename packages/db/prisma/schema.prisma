@@ -491,6 +491,7 @@ model Order {
   items             OrderItem[]
   afterSalesTickets AfterSalesTicket[]
   waveItems         OutboundWaveItem[]
+  manualImages      ManualOrderImage[]
 
   @@unique([shopId, platformOrderId])
   @@index([tenantId, status])
@@ -499,6 +500,23 @@ model Order {
   @@index([tenantId, isManual])
   @@index([merchantConfirmStatus, merchantConfirmExpiresAt])
   @@map("orders")
+}
+
+// Photos of product parts attached to a manual order's notes by the merchant
+// at creation time. Stored inline (like BugReportImage) — max 3 per order,
+// 2MB each, so the worst case per order is bounded at 6MB.
+model ManualOrderImage {
+  id        String   @id @default(cuid())
+  orderId   String
+  mimeType  String
+  sizeBytes Int
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("manual_order_images")
 }
 
 model OrderItem {

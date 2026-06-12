@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import multipart from '@fastify/multipart'
 import { prisma } from '@ems/db'
 import { authenticate } from '../../middleware/authenticate'
 import { requireCapabilities } from '../../middleware/authorize'
@@ -17,15 +18,64 @@ function formatAttributes(attrs: Record<string, unknown> | null | undefined): st
   return parts.length > 0 ? parts.join(' / ') : null
 }
 
+// Manual-order note images (photos of product parts). Persisted to Postgres
+// alongside the order, so keep them bounded: 3 per order × 2MB each.
+const MANUAL_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+const MANUAL_IMAGES_PER_ORDER = 3
+const ALLOWED_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+
 export async function orderRoutes(app: FastifyInstance) {
+  // Per-module multipart (same pattern as support routes) so the image size
+  // cap stays scoped to order endpoints.
+  await app.register(multipart, {
+    limits: { fileSize: MANUAL_IMAGE_MAX_BYTES, files: MANUAL_IMAGES_PER_ORDER, fields: 8 },
+  })
   app.addHook('preHandler', authenticate)
 
-  // POST /manual — create a manual order (merchant / admin only)
+  // POST /manual — create a manual order (merchant / admin only).
+  // Accepts plain JSON, or multipart/form-data when note images are attached
+  // (`items` arrives as a JSON string field, files under fieldname `image`).
   app.post('/manual', async (request, reply) => {
     if (request.user.role !== 'MERCHANT' && request.user.role !== 'ADMIN') {
       return reply.status(403).send({ success: false, error: 'Forbidden' })
     }
-    const { items, buyerName, buyerPhone, shippingAddress, notes } = (request.body ?? {}) as {
+
+    let body: Record<string, unknown> = (request.body ?? {}) as Record<string, unknown>
+    const images: { mimeType: string; bytes: Buffer }[] = []
+    if (request.isMultipart()) {
+      const fields: Record<string, string> = {}
+      try {
+        for await (const part of request.parts()) {
+          if (part.type === 'file') {
+            if (part.fieldname !== 'image') continue
+            if (images.length >= MANUAL_IMAGES_PER_ORDER) {
+              return reply.status(400).send({ success: false, error: `Too many images (max ${MANUAL_IMAGES_PER_ORDER})` })
+            }
+            if (!ALLOWED_IMAGE_MIMES.has(part.mimetype)) {
+              return reply.status(415).send({ success: false, error: 'Unsupported image type' })
+            }
+            const bytes = await part.toBuffer()
+            if (bytes.length > MANUAL_IMAGE_MAX_BYTES) {
+              return reply.status(413).send({ success: false, error: 'Image too large (max 2MB)' })
+            }
+            images.push({ mimeType: part.mimetype, bytes })
+          } else {
+            fields[part.fieldname] = String(part.value ?? '')
+          }
+        }
+      } catch (err) {
+        return reply.status(400).send({ success: false, error: `Invalid upload: ${(err as Error).message}` })
+      }
+      let parsedItems: unknown
+      try {
+        parsedItems = fields.items ? JSON.parse(fields.items) : undefined
+      } catch {
+        return reply.status(400).send({ success: false, error: 'items must be valid JSON' })
+      }
+      body = { ...fields, items: parsedItems }
+    }
+
+    const { items, buyerName, buyerPhone, shippingAddress, notes } = body as {
       items?: Array<{ sku: string; quantity: number; productName?: string }>
       buyerName?: string
       buyerPhone?: string
@@ -33,37 +83,57 @@ export async function orderRoutes(app: FastifyInstance) {
       notes?: string
     }
     if (!items?.length) return reply.status(400).send({ success: false, error: 'items required' })
+    if (items.some((i) => !i?.sku || !Number.isFinite(Number(i.quantity)) || Number(i.quantity) < 1)) {
+      return reply.status(400).send({ success: false, error: 'each item requires a sku and quantity >= 1' })
+    }
     if (!buyerPhone?.trim()) return reply.status(400).send({ success: false, error: 'buyerPhone required' })
     if (!shippingAddress?.trim()) return reply.status(400).send({ success: false, error: 'shippingAddress required' })
 
     const platformOrderId = `MANUAL-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
 
-    const order = await prisma.order.create({
-      data: {
-        tenantId: request.user.tenantId,
-        platformOrderId,
-        status: 'TO_SHIP',
-        buyerName: buyerName?.trim() || null,
-        buyerPhone: buyerPhone.trim(),
-        shippingAddress: shippingAddress ? { address: shippingAddress } : undefined,
-        platformMetadata: notes ? { notes } : {},
-        merchantConfirmStatus: 'CONFIRMED',
-        merchantConfirmedAt: new Date(),
-        isManual: true,
-        manualStatus: 'PENDING',
-        createdByUserId: request.user.userId,
-        firstSellerSku: items[0]?.sku ?? null,
-        items: {
-          create: items.map((item) => ({
-            platformSkuId: item.sku,
-            sellerSku: item.sku,
-            productName: item.productName?.trim() || item.sku,
-            quantity: item.quantity,
-            unitPrice: 0,
-          })),
+    const order = await prisma.$transaction(async (tx) => {
+      const created = await tx.order.create({
+        data: {
+          tenantId: request.user.tenantId,
+          platformOrderId,
+          status: 'TO_SHIP',
+          buyerName: buyerName?.trim() || null,
+          buyerPhone: buyerPhone.trim(),
+          shippingAddress: shippingAddress ? { address: shippingAddress } : undefined,
+          platformMetadata: notes ? { notes } : {},
+          merchantConfirmStatus: 'CONFIRMED',
+          merchantConfirmedAt: new Date(),
+          isManual: true,
+          manualStatus: 'PENDING',
+          createdByUserId: request.user.userId,
+          firstSellerSku: items[0]?.sku ?? null,
+          items: {
+            create: items.map((item) => ({
+              platformSkuId: item.sku,
+              sellerSku: item.sku,
+              productName: item.productName?.trim() || item.sku,
+              // Multipart round-trips quantities through JSON.stringify of
+              // form values, which may yield strings — coerce before Prisma.
+              quantity: Number(item.quantity),
+              unitPrice: 0,
+            })),
+          },
         },
-      },
-      include: { items: true },
+        include: { items: true },
+      })
+      if (images.length > 0) {
+        await tx.manualOrderImage.createMany({
+          data: images.map((img) => ({
+            orderId: created.id,
+            mimeType: img.mimeType,
+            sizeBytes: img.bytes.length,
+            // Buffer.from re-wraps onto a plain ArrayBuffer, which is what
+            // Prisma's Bytes input type expects (same dance as bug reports).
+            data: Buffer.from(img.bytes),
+          })),
+        })
+      }
+      return created
     })
 
     // Notify all active warehouse staff in the tenant
@@ -360,10 +430,37 @@ export async function orderRoutes(app: FastifyInstance) {
         shop: { include: { owner: { select: { id: true, name: true, email: true } } } },
         items: { include: { systemSku: { include: { systemProduct: true } } } },
         afterSalesTickets: true,
+        // ids only — bytes are served per-image via GET /:id/images/:imageId
+        manualImages: { select: { id: true, mimeType: true }, orderBy: { createdAt: 'asc' } },
       },
     })
     if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
     return { success: true, data: order }
+  })
+
+  // GET /:id/images/:imageId — serve a manual-order note image. Visibility
+  // rules mirror the detail endpoint (merchants only see their own orders).
+  app.get('/:id/images/:imageId', async (request, reply) => {
+    const { id, imageId } = request.params as { id: string; imageId: string }
+    const where: Record<string, unknown> = { id, tenantId: request.user.tenantId }
+    if (request.user.role === 'MERCHANT') {
+      where.OR = [
+        { shop: { ownerUserId: request.user.userId } },
+        { isManual: true, createdByUserId: request.user.userId },
+      ]
+    }
+    const order = await prisma.order.findFirst({ where, select: { id: true } })
+    if (!order) return reply.status(404).send({ success: false, error: 'Order not found' })
+
+    const img = await prisma.manualOrderImage.findFirst({
+      where: { id: imageId, orderId: id },
+      select: { mimeType: true, data: true },
+    })
+    if (!img) return reply.status(404).send({ success: false, error: 'Image not found' })
+
+    reply.header('Content-Type', img.mimeType)
+    reply.header('Cache-Control', 'private, max-age=86400, immutable')
+    return reply.send(img.data)
   })
 
   app.patch('/:id/status', { preHandler: requireCapabilities(['ORDER_PROCESS']) }, async (request, reply) => {

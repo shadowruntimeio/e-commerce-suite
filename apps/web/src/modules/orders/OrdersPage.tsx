@@ -1,9 +1,9 @@
-import { Table, Input, Select, Space, DatePicker, Button, Modal, Tag, Popconfirm, Form, Tooltip } from 'antd'
+import { Table, Input, Select, Space, DatePicker, Button, Modal, Tag, Popconfirm, Form, Tooltip, Image } from 'antd'
 import {
   SyncOutlined, DownloadOutlined, EyeOutlined, ShoppingCartOutlined,
   PrinterOutlined, CheckOutlined, CloseOutlined, SearchOutlined,
   PlusOutlined, CarOutlined, MinusCircleOutlined, DeleteOutlined,
-  SwapOutlined, CopyOutlined,
+  SwapOutlined, CopyOutlined, PaperClipOutlined, CloseCircleFilled,
 } from '@ant-design/icons'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -1648,6 +1648,23 @@ function OrderDetailModal({ id, onClose }: { id: string | null; onClose: () => v
             )}
           </div>
 
+          {/* Manual-order notes + attached part photos */}
+          {order.isManual && (order.platformMetadata?.notes || (order.manualImages?.length ?? 0) > 0) && (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
+                {t('orders.detailNotes')}
+              </div>
+              {order.platformMetadata?.notes && (
+                <div style={{ fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'pre-wrap', marginBottom: (order.manualImages?.length ?? 0) > 0 ? 8 : 0 }}>
+                  {order.platformMetadata.notes}
+                </div>
+              )}
+              {(order.manualImages?.length ?? 0) > 0 && (
+                <ManualOrderImageGallery orderId={order.id} imageIds={order.manualImages.map((i: { id: string }) => i.id)} />
+              )}
+            </div>
+          )}
+
           {/* Items */}
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
@@ -1724,6 +1741,53 @@ function DetailField({ label, value, span = 1 }: { label: string; value: React.R
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
       <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>{value}</div>
     </div>
+  )
+}
+
+// Thumbnails for the part photos attached to a manual order's notes. The API
+// requires a Bearer token, so a plain <img src> won't authenticate — fetch
+// each image as a blob through the axios client and render object URLs.
+function ManualOrderImageGallery({ orderId, imageIds }: { orderId: string; imageIds: string[] }) {
+  const [urls, setUrls] = useState<string[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    const created: string[] = []
+    void Promise.all(
+      imageIds.map((imageId) =>
+        api.get(`/orders/${orderId}/images/${imageId}`, { responseType: 'blob' }).then((r) => {
+          const url = URL.createObjectURL(r.data)
+          created.push(url)
+          return url
+        }),
+      ),
+    )
+      .then((loaded) => { if (!cancelled) setUrls(loaded) })
+      .catch(() => { /* a failed thumbnail is non-fatal — the rest of the detail stays usable */ })
+    return () => {
+      cancelled = true
+      created.forEach((u) => URL.revokeObjectURL(u))
+    }
+    // imageIds comes fresh from the detail query each render; orderId is the stable key
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId, imageIds.join(',')])
+
+  if (urls.length === 0) return null
+  return (
+    <Image.PreviewGroup>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {urls.map((url, idx) => (
+          <Image
+            key={url}
+            src={url}
+            alt={`note-image-${idx + 1}`}
+            width={80}
+            height={80}
+            style={{ objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border-light)' }}
+          />
+        ))}
+      </div>
+    </Image.PreviewGroup>
   )
 }
 
@@ -1974,23 +2038,71 @@ function ManualShipModal({
 
 // ─── Create Manual Order Modal ────────────────────────────────────────────────
 
+// Note-image constraints — keep in lockstep with order.routes.ts on the API.
+const MANUAL_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+const MANUAL_IMAGES_PER_ORDER = 3
+const MANUAL_IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif'
+
 function CreateManualOrderModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
   const { t } = useTranslation()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
+  const [images, setImages] = useState<{ file: File; previewUrl: string }[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function handlePickImages(files: FileList | null) {
+    if (!files || files.length === 0) return
+    const accepted = MANUAL_IMAGE_ACCEPT.split(',')
+    const next = [...images]
+    for (const f of Array.from(files)) {
+      if (next.length >= MANUAL_IMAGES_PER_ORDER) {
+        void message.warning(t('orders.manualImageTooMany', { max: MANUAL_IMAGES_PER_ORDER }))
+        break
+      }
+      if (!accepted.includes(f.type)) {
+        void message.error(t('orders.manualImageUnsupported'))
+        continue
+      }
+      if (f.size > MANUAL_IMAGE_MAX_BYTES) {
+        void message.error(t('orders.manualImageTooLarge'))
+        continue
+      }
+      next.push({ file: f, previewUrl: URL.createObjectURL(f) })
+    }
+    setImages(next)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function removeImage(idx: number) {
+    URL.revokeObjectURL(images[idx].previewUrl)
+    setImages(images.filter((_, i) => i !== idx))
+  }
 
   async function handleSubmit() {
     const values = await form.validateFields()
     setLoading(true)
     try {
-      await api.post('/orders/manual', {
-        items: values.items,
-        buyerName: values.buyerName || undefined,
-        buyerPhone: values.buyerPhone,
-        shippingAddress: values.shippingAddress || undefined,
-        notes: values.notes || undefined,
-      })
+      if (images.length > 0) {
+        const fd = new FormData()
+        fd.append('items', JSON.stringify(values.items))
+        if (values.buyerName) fd.append('buyerName', values.buyerName)
+        fd.append('buyerPhone', values.buyerPhone)
+        if (values.shippingAddress) fd.append('shippingAddress', values.shippingAddress)
+        if (values.notes) fd.append('notes', values.notes)
+        for (const img of images) fd.append('image', img.file, img.file.name || 'image')
+        await api.post('/orders/manual', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      } else {
+        await api.post('/orders/manual', {
+          items: values.items,
+          buyerName: values.buyerName || undefined,
+          buyerPhone: values.buyerPhone,
+          shippingAddress: values.shippingAddress || undefined,
+          notes: values.notes || undefined,
+        })
+      }
       void message.success(t('orders.manualCreateSuccess'))
+      images.forEach((i) => URL.revokeObjectURL(i.previewUrl))
+      setImages([])
       onSuccess()
     } catch (err: any) {
       void message.error(err?.response?.data?.error ?? t('returns.failed'))
@@ -2085,6 +2197,59 @@ function CreateManualOrderModal({ onClose, onSuccess }: { onClose: () => void; o
         </Form.Item>
         <Form.Item name="notes" label={t('orders.manualNotes')}>
           <Input.TextArea rows={2} />
+        </Form.Item>
+        <Form.Item label={t('orders.manualImages', { max: MANUAL_IMAGES_PER_ORDER })} style={{ marginBottom: 0 }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={MANUAL_IMAGE_ACCEPT}
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => handlePickImages(e.target.files)}
+          />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {images.map((img, idx) => (
+              <div
+                key={img.previewUrl}
+                style={{
+                  position: 'relative',
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  border: '1px solid var(--border-light)',
+                  width: 80,
+                  height: 80,
+                }}
+              >
+                <img
+                  src={img.previewUrl}
+                  alt={`note-image-${idx + 1}`}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+                <Tooltip title={t('orders.manualImageRemove')}>
+                  <button
+                    onClick={() => removeImage(idx)}
+                    style={{
+                      position: 'absolute', top: 2, right: 2,
+                      background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+                      color: '#fff', textShadow: '0 0 3px rgba(0,0,0,0.6)',
+                    }}
+                  >
+                    <CloseCircleFilled style={{ fontSize: 18 }} />
+                  </button>
+                </Tooltip>
+              </div>
+            ))}
+            {images.length < MANUAL_IMAGES_PER_ORDER && (
+              <Button
+                icon={<PaperClipOutlined />}
+                onClick={() => fileInputRef.current?.click()}
+                type="dashed"
+                style={{ height: 80, width: 80 }}
+              >
+                {t('orders.manualAddImage')}
+              </Button>
+            )}
+          </div>
         </Form.Item>
       </Form>
     </Modal>
