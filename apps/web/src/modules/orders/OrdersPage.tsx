@@ -2231,22 +2231,26 @@ function CreateManualOrderModal({ onClose, onSuccess }: { onClose: () => void; o
                     style={{
                       position: 'absolute', top: 2, right: 2,
                       background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
-                      color: '#fff', textShadow: '0 0 3px rgba(0,0,0,0.6)',
+                      lineHeight: 0,
                     }}
                   >
-                    <CloseCircleFilled style={{ fontSize: 18 }} />
+                    {/* dark glyph on a white disc so it stays visible on light images */}
+                    <CloseCircleFilled style={{ fontSize: 18, color: 'rgba(0,0,0,0.65)', background: '#fff', borderRadius: '50%' }} />
                   </button>
                 </Tooltip>
               </div>
             ))}
             {images.length < MANUAL_IMAGES_PER_ORDER && (
               <Button
-                icon={<PaperClipOutlined />}
                 onClick={() => fileInputRef.current?.click()}
                 type="dashed"
-                style={{ height: 80, width: 80 }}
+                style={{
+                  height: 80, width: 80, padding: 10,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}
               >
-                {t('orders.manualAddImage')}
+                <PaperClipOutlined style={{ fontSize: 16 }} />
+                <span style={{ fontSize: 12 }}>{t('orders.manualAddImage')}</span>
               </Button>
             )}
           </div>
