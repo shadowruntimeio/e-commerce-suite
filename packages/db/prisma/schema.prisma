@@ -503,6 +503,28 @@ model Order {
   @@map("orders")
 }
 
+// Per-SKU product cost entered by a merchant, keyed by the seller's SKU code
+// (the same code that arrives on order line items as sellerSku). Decoupled from
+// the SystemProduct catalog so a merchant can set costs for exactly the SKUs
+// that appear in their orders. The profit report reads this live (by sellerSku)
+// to compute COGS, so an edited cost takes effect immediately — including for
+// historical orders — without re-syncing or snapshotting.
+model SkuCost {
+  id          String   @id @default(cuid())
+  tenantId    String
+  ownerUserId String // MERCHANT who owns this cost row
+  skuCode     String // matches OrderItem.sellerSku
+  cost        Decimal  @default(0) @db.Decimal(12, 4)
+  currency    String   @default("USD")
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ownerUserId, skuCode])
+  @@index([tenantId])
+  @@map("sku_costs")
+}
+
 // Settlement / transaction-detail data pulled from the TikTok Shop Finance API
 // (GET /finance/202309/orders/{order_id}/statement_transactions). One row per
 // order, holding the net of its statement transactions (an order may have an

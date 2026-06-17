@@ -15,6 +15,7 @@ import { purchaseRoutes } from './modules/purchase/purchase.routes'
 import { restockingRoutes } from './modules/purchase/restocking.routes'
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes'
 import { reportsRoutes } from './modules/reports/reports.routes'
+import { costRoutes } from './modules/cost/cost.routes'
 import { adsRoutes } from './modules/ads/ads.routes'
 import { csRoutes } from './modules/cs/cs.routes'
 import { supportRoutes } from './modules/support/support.routes'
@@ -61,6 +62,7 @@ export async function buildApp() {
   await app.register(restockingRoutes, { prefix: '/api/v1/purchase/suggestions' })
   await app.register(dashboardRoutes, { prefix: '/api/v1/dashboard' })
   await app.register(reportsRoutes, { prefix: '/api/v1/reports' })
+  await app.register(costRoutes, { prefix: '/api/v1/costs' })
   await app.register(adsRoutes, { prefix: '/api/v1/ads' })
   await app.register(csRoutes, { prefix: '/api/v1/cs' })
   await app.register(supportRoutes, { prefix: '/api/v1/support' })

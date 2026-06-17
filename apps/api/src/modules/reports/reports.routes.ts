@@ -305,22 +305,36 @@ export async function reportsRoutes(app: FastifyInstance) {
     // order-time payment estimate otherwise. Order volumes per window are modest;
     // the cap is a backstop against a pathologically wide filter.
     const ROW_CAP = 10000
-    const [orders, total] = await Promise.all([
+    // Live COGS source: merchant-entered SkuCost keyed by sellerSku. Read at
+    // query time so edited costs reflect immediately (incl. historical orders),
+    // falling back to the order-time snapshot (costPriceAtOrder) when unset.
+    const costOwnerId = request.user.role === 'MERCHANT' ? request.user.userId : undefined
+    const [orders, total, skuCosts] = await Promise.all([
       prisma.order.findMany({
         where,
         include: {
           shop: { select: { name: true, platform: true } },
-          items: { select: { quantity: true, costPriceAtOrder: true } },
+          items: { select: { quantity: true, costPriceAtOrder: true, sellerSku: true } },
           settlement: true,
         },
         take: ROW_CAP,
         orderBy: [{ platformCreatedAt: 'desc' }, { createdAt: 'desc' }],
       }),
       prisma.order.count({ where }),
+      prisma.skuCost.findMany({
+        where: costOwnerId ? { ownerUserId: costOwnerId } : { tenantId },
+        select: { skuCode: true, cost: true },
+      }),
     ])
+    const costBySku = new Map(skuCosts.map((c) => [c.skuCode, Number(c.cost)]))
 
     const computeRow = (o: typeof orders[number]) => {
-      const cogs = o.items.reduce((s, it) => s + Number(it.costPriceAtOrder) * it.quantity, 0)
+      const cogs = o.items.reduce((s, it) => {
+        const unit = (it.sellerSku && costBySku.has(it.sellerSku))
+          ? costBySku.get(it.sellerSku)!
+          : Number(it.costPriceAtOrder)
+        return s + unit * it.quantity
+      }, 0)
       const s = o.settlement
       const settled = !!s
 

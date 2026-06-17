@@ -8,7 +8,7 @@ import {
   MoonOutlined, SunOutlined, TranslationOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined, MenuOutlined,
   TeamOutlined, AuditOutlined, RollbackOutlined,
-  BellOutlined,
+  BellOutlined, DollarOutlined,
 } from '@ant-design/icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
@@ -84,9 +84,10 @@ const navGroups: NavGroup[] = [
   {
     groupKey: 'analytics',
     items: [
-      // Merchant finance — order-level profit report. Merchant + admin only;
-      // warehouse staff never see merchant finances (item.roles omits them).
+      // Merchant finance — order-level profit report + SKU cost entry. Merchant
+      // + admin only; warehouse staff never see merchant finances.
       { key: '/reports/profit-orders', icon: <BarChartOutlined />, labelKey: 'nav.profitReport', roles: ['MERCHANT'] },
+      { key: '/costs', icon: <DollarOutlined />, labelKey: 'nav.costManagement', roles: ['MERCHANT'] },
     ],
   },
   {
@@ -112,6 +113,7 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   '/inventory': 'pageTitles.inventory',
   '/reports/sales': 'pageTitles.salesReport',
   '/reports/profit-orders': 'pageTitles.profitReport',
+  '/costs': 'pageTitles.costManagement',
   '/shops': 'pageTitles.shops',
   '/logistics': 'pageTitles.logistics',
   '/warehouses': 'pageTitles.warehouses',
