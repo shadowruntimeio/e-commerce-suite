@@ -492,6 +492,7 @@ model Order {
   afterSalesTickets AfterSalesTicket[]
   waveItems         OutboundWaveItem[]
   manualImages      ManualOrderImage[]
+  settlement        OrderSettlement?
 
   @@unique([shopId, platformOrderId])
   @@index([tenantId, status])
@@ -500,6 +501,54 @@ model Order {
   @@index([tenantId, isManual])
   @@index([merchantConfirmStatus, merchantConfirmExpiresAt])
   @@map("orders")
+}
+
+// Settlement / transaction-detail data pulled from the TikTok Shop Finance API
+// (GET /finance/202309/orders/{order_id}/statement_transactions). One row per
+// order, holding the net of its statement transactions (an order may have an
+// original settlement plus refund adjustments — we sum them). `raw` keeps the
+// full API payload so columns we don't surface yet can be derived later without
+// a re-sync. Populated by the settlement sync worker once a settle-able order
+// (delivered/completed) appears in a statement; absent until then.
+model OrderSettlement {
+  id                       String   @id @default(cuid())
+  tenantId                 String
+  orderId                  String   @unique
+  currency                 String   @default("USD")
+  // Headline figures
+  settlementAmount         Decimal  @default(0) @db.Decimal(14, 4)
+  revenueAmount            Decimal  @default(0) @db.Decimal(14, 4)
+  feeAmount                Decimal  @default(0) @db.Decimal(14, 4)
+  adjustmentAmount         Decimal  @default(0) @db.Decimal(14, 4)
+  // Revenue breakdown
+  grossSalesAmount         Decimal  @default(0) @db.Decimal(14, 4)
+  afterDiscountSubtotal    Decimal  @default(0) @db.Decimal(14, 4)
+  sellerDiscountAmount     Decimal  @default(0) @db.Decimal(14, 4)
+  platformDiscountAmount   Decimal  @default(0) @db.Decimal(14, 4)
+  customerPaymentAmount    Decimal  @default(0) @db.Decimal(14, 4)
+  customerPaidShippingFee  Decimal  @default(0) @db.Decimal(14, 4)
+  // Fee breakdown
+  platformCommissionAmount Decimal  @default(0) @db.Decimal(14, 4)
+  referralFeeAmount        Decimal  @default(0) @db.Decimal(14, 4)
+  transactionFeeAmount     Decimal  @default(0) @db.Decimal(14, 4)
+  affiliateCommission      Decimal  @default(0) @db.Decimal(14, 4)
+  affiliateCommissionBeforePit Decimal @default(0) @db.Decimal(14, 4)
+  affiliatePartnerCommission   Decimal @default(0) @db.Decimal(14, 4)
+  refundAdminFeeAmount     Decimal  @default(0) @db.Decimal(14, 4)
+  shippingFeeAmount        Decimal  @default(0) @db.Decimal(14, 4)
+  salesTaxAmount           Decimal  @default(0) @db.Decimal(14, 4)
+  // Provenance
+  statementId              String?
+  statementTime            DateTime?
+  raw                      Json     @default("{}")
+  syncedAt                 DateTime @default(now())
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("order_settlements")
 }
 
 // Photos of product parts attached to a manual order's notes by the merchant

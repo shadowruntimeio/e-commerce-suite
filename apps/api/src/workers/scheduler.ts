@@ -1,5 +1,5 @@
 import { prisma } from '@ems/db'
-import { syncOrdersQueue, syncProductsQueue, refreshTokensQueue, restockingQueue, etlQueue, syncReturnsQueue } from '../lib/queues'
+import { syncOrdersQueue, syncProductsQueue, refreshTokensQueue, restockingQueue, etlQueue, syncReturnsQueue, syncSettlementsQueue } from '../lib/queues'
 import { recordAudit, AuditAction } from '../lib/audit'
 import { reserveStockForOrder } from '../modules/inventory/inventory.service'
 
@@ -9,6 +9,7 @@ const RESTOCKING_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 const ETL_INTERVAL_MS = 24 * 60 * 60 * 1000    // 24 hours
 const AUTO_CONFIRM_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
 const RETURNS_SYNC_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
+const SETTLEMENTS_SYNC_INTERVAL_MS = 10 * 60 * 1000 // 10 minutes
 const BUG_IMAGE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000 // 1 hour
 
 // Once a bug has been in a terminal state for this long, its attached
@@ -57,6 +58,26 @@ async function scheduleReturnSyncs() {
     }
   } catch (err) {
     console.error('[scheduler] Failed to schedule return syncs:', err)
+  }
+}
+
+async function scheduleSettlementSyncs() {
+  try {
+    const activeShops = await prisma.shop.findMany({
+      where: { status: 'ACTIVE', platform: 'TIKTOK' },
+      select: { id: true, tenantId: true },
+    })
+    if (activeShops.length === 0) return
+    console.log(`[scheduler] Scheduling sync-settlements for ${activeShops.length} active TikTok shops`)
+    for (const shop of activeShops) {
+      await syncSettlementsQueue.add(
+        'sync-settlements',
+        { shopId: shop.id, tenantId: shop.tenantId },
+        { jobId: `scheduled-settlements-${shop.id}-${Math.floor(Date.now() / SETTLEMENTS_SYNC_INTERVAL_MS)}` },
+      )
+    }
+  } catch (err) {
+    console.error('[scheduler] Failed to schedule settlement syncs:', err)
   }
 }
 
@@ -182,6 +203,7 @@ export function startScheduler() {
   // Run immediately on startup, then on interval
   void scheduleOrderSyncs()
   void scheduleReturnSyncs()
+  void scheduleSettlementSyncs()
   void scheduleTokenRefreshes()
   void scheduleRestocking()
   void scheduleEtl()
@@ -212,6 +234,10 @@ export function startScheduler() {
     void scheduleReturnSyncs()
   }, RETURNS_SYNC_INTERVAL_MS)
 
+  const settlementsSyncInterval = setInterval(() => {
+    void scheduleSettlementSyncs()
+  }, SETTLEMENTS_SYNC_INTERVAL_MS)
+
   const bugImageCleanupInterval = setInterval(() => {
     void cleanupResolvedBugImages()
   }, BUG_IMAGE_CLEANUP_INTERVAL_MS)
@@ -223,6 +249,7 @@ export function startScheduler() {
   etlInterval.unref()
   autoConfirmInterval.unref()
   returnsSyncInterval.unref()
+  settlementsSyncInterval.unref()
   bugImageCleanupInterval.unref()
 
   return {
@@ -233,6 +260,7 @@ export function startScheduler() {
       clearInterval(etlInterval)
       clearInterval(autoConfirmInterval)
       clearInterval(returnsSyncInterval)
+      clearInterval(settlementsSyncInterval)
       clearInterval(bugImageCleanupInterval)
       console.log('[scheduler] Stopped')
     },

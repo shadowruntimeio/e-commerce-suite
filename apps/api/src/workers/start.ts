@@ -8,6 +8,7 @@ import { syncAdsProcessor } from './sync-ads.worker'
 import { syncMessagesProcessor } from './sync-messages.worker'
 import { syncProductsProcessor } from './sync-products.worker'
 import { syncReturnsProcessor } from './sync-returns.worker'
+import { syncSettlementsProcessor } from './sync-settlements.worker'
 
 export function startWorkers() {
   console.log('[workers] Starting BullMQ workers...')
@@ -63,6 +64,15 @@ export function startWorkers() {
   })
   returnsWorker.on('failed', (job, err) => {
     console.error(`[sync-returns] Job ${job?.id} FAILED:`, err.message)
+  })
+
+  const settlementsWorker = new Worker('sync-settlements', syncSettlementsProcessor, {
+    connection: redis,
+    concurrency: 2,
+    limiter: { max: 600, duration: 3_600_000 }, // 600/hr — one API call per order
+  })
+  settlementsWorker.on('failed', (job, err) => {
+    console.error(`[sync-settlements] Job ${job?.id} FAILED:`, err.message)
   })
 
   console.log('[workers] All workers running')

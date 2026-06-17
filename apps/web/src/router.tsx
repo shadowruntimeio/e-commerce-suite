@@ -22,6 +22,7 @@ const WarehousesPage = lazyWithRetry(() => import('./modules/warehouses/Warehous
 const ShopsPage = lazyWithRetry(() => import('./modules/shops/ShopsPage'))
 const SalesReportPage = lazyWithRetry(() => import('./modules/reports/SalesReportPage'))
 const ProfitReportPage = lazyWithRetry(() => import('./modules/reports/ProfitReportPage'))
+const ProfitOrdersPage = lazyWithRetry(() => import('./modules/reports/ProfitOrdersPage'))
 const AdsPage = lazyWithRetry(() => import('./modules/ads/AdsPage'))
 const InboxPage = lazyWithRetry(() => import('./modules/cs/InboxPage'))
 const LogisticsPage = lazyWithRetry(() => import('./modules/logistics/LogisticsPage'))
@@ -64,6 +65,7 @@ export const router = createBrowserRouter([
       { path: 'shops', element: <Suspense fallback={<Loading />}><ShopsPage /></Suspense> },
       { path: 'reports/sales', element: <Suspense fallback={<Loading />}><SalesReportPage /></Suspense> },
       { path: 'reports/profit', element: <Suspense fallback={<Loading />}><ProfitReportPage /></Suspense> },
+      { path: 'reports/profit-orders', element: <Suspense fallback={<Loading />}><ProfitOrdersPage /></Suspense> },
       { path: 'ads', element: <Suspense fallback={<Loading />}><AdsPage /></Suspense> },
       { path: 'cs', element: <Suspense fallback={<Loading />}><InboxPage /></Suspense> },
       { path: 'logistics', element: <Suspense fallback={<Loading />}><LogisticsPage /></Suspense> },

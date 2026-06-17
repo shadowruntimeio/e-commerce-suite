@@ -388,6 +388,77 @@ interface TikTokReturnGetResponse {
   data: TikTokReturn
 }
 
+// ─── Finance / settlement (V202309) ────────────────────────────────────────────
+// GET /finance/202309/orders/{order_id}/statement_transactions. Amounts are
+// decimal currency strings (e.g. "272.44") — NOT the minor-unit encoding the
+// order API uses. Field names mirror the official OpenAPI spec.
+interface TikTokStatementTxn {
+  id?: string
+  statement_id?: string
+  statement_time?: number
+  status?: string
+  currency?: string
+  settlement_amount?: string
+  revenue_amount?: string
+  fee_amount?: string
+  adjustment_amount?: string
+  gross_sales_amount?: string
+  after_seller_discounts_subtotal_amount?: string
+  net_sales_amount?: string
+  seller_discount_amount?: string
+  platform_discount_amount?: string
+  customer_payment_amount?: string
+  customer_paid_shipping_fee_amount?: string
+  platform_commission_amount?: string
+  referral_fee_amount?: string
+  transaction_fee_amount?: string
+  affiliate_commission_amount?: string
+  affiliate_commission_before_pit?: string
+  affiliate_partner_commission_amount?: string
+  refund_administration_fee_amount?: string
+  shipping_fee_amount?: string
+  sales_tax_amount?: string
+}
+
+interface TikTokOrderStatementResponse {
+  code: number
+  message?: string
+  data?: {
+    order_id?: string
+    order_create_time?: number
+    statement_transactions?: TikTokStatementTxn[]
+  }
+}
+
+/** Normalized per-order settlement, summed across an order's statement
+ *  transactions (original settlement + any refund adjustments). */
+export interface TikTokOrderSettlement {
+  orderId: string
+  currency: string
+  settlementAmount: number
+  revenueAmount: number
+  feeAmount: number
+  adjustmentAmount: number
+  grossSalesAmount: number
+  afterDiscountSubtotal: number
+  sellerDiscountAmount: number
+  platformDiscountAmount: number
+  customerPaymentAmount: number
+  customerPaidShippingFee: number
+  platformCommissionAmount: number
+  referralFeeAmount: number
+  transactionFeeAmount: number
+  affiliateCommission: number
+  affiliateCommissionBeforePit: number
+  affiliatePartnerCommission: number
+  refundAdminFeeAmount: number
+  shippingFeeAmount: number
+  salesTaxAmount: number
+  statementId?: string
+  statementTime?: Date
+  raw: unknown
+}
+
 // ─── Adapter ──────────────────────────────────────────────────────────────────
 
 export class TikTokAdapter implements PlatformAdapter {
@@ -962,9 +1033,65 @@ export class TikTokAdapter implements PlatformAdapter {
       throw new Error(failed.fail_reason ?? `TikTok refused to cancel order ${orderId}`)
     }
   }
+
+  // GET /finance/202309/orders/{order_id}/statement_transactions — settlement
+  // detail for one order. Returns null when the order isn't settled yet (no
+  // statement transactions). An order may carry multiple transactions (original
+  // settlement + refund adjustments); we sum the numeric fields so the row
+  // reflects the net settled position. Requires the seller to have authorized
+  // the app's Finance permission.
+  async getOrderSettlement(shop: ShopRecord, orderId: string): Promise<TikTokOrderSettlement | null> {
+    const { accessToken, shopCipher } = getCredentials(shop)
+    const resp = await tiktokRequest<TikTokOrderStatementResponse>(
+      'GET',
+      `/finance/202309/orders/${orderId}/statement_transactions`,
+      accessToken, shopCipher, {}, undefined, this.appCreds,
+    )
+    const txns = resp.data?.statement_transactions ?? []
+    if (txns.length === 0) return null
+
+    const sum = (key: keyof TikTokStatementTxn) =>
+      txns.reduce((s, t) => s + parseAmount(t[key] as string | undefined), 0)
+    const latest = txns[txns.length - 1]
+
+    return {
+      orderId,
+      currency: latest.currency ?? 'USD',
+      settlementAmount: sum('settlement_amount'),
+      revenueAmount: sum('revenue_amount'),
+      feeAmount: sum('fee_amount'),
+      adjustmentAmount: sum('adjustment_amount'),
+      grossSalesAmount: sum('gross_sales_amount'),
+      afterDiscountSubtotal: sum('after_seller_discounts_subtotal_amount'),
+      sellerDiscountAmount: sum('seller_discount_amount'),
+      platformDiscountAmount: sum('platform_discount_amount'),
+      customerPaymentAmount: sum('customer_payment_amount'),
+      customerPaidShippingFee: sum('customer_paid_shipping_fee_amount'),
+      platformCommissionAmount: sum('platform_commission_amount'),
+      referralFeeAmount: sum('referral_fee_amount'),
+      transactionFeeAmount: sum('transaction_fee_amount'),
+      affiliateCommission: sum('affiliate_commission_amount'),
+      affiliateCommissionBeforePit: sum('affiliate_commission_before_pit'),
+      affiliatePartnerCommission: sum('affiliate_partner_commission_amount'),
+      refundAdminFeeAmount: sum('refund_administration_fee_amount'),
+      shippingFeeAmount: sum('shipping_fee_amount'),
+      salesTaxAmount: sum('sales_tax_amount'),
+      statementId: latest.statement_id,
+      statementTime: latest.statement_time ? new Date(latest.statement_time * 1000) : undefined,
+      raw: resp.data,
+    }
+  }
 }
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
+
+/** Parse TikTok Finance API amounts — plain decimal currency strings ("272.44"),
+ *  not minor units. Use this for /finance/* responses (cf. parsePrice). */
+function parseAmount(value?: string | number): number {
+  if (value === undefined || value === null) return 0
+  const num = typeof value === 'string' ? Number(value) : value
+  return isNaN(num) ? 0 : num
+}
 
 /** Parse TikTok price strings (minor units as string, e.g. "1999" = 19.99) to number. */
 function parsePrice(value?: string | number): number {

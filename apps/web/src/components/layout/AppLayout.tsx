@@ -82,6 +82,14 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    groupKey: 'analytics',
+    items: [
+      // Merchant finance — order-level profit report. Merchant + admin only;
+      // warehouse staff never see merchant finances (item.roles omits them).
+      { key: '/reports/profit-orders', icon: <BarChartOutlined />, labelKey: 'nav.profitReport', roles: ['MERCHANT'] },
+    ],
+  },
+  {
     groupKey: 'operations',
     items: [
       { key: '/warehouses', icon: <BankOutlined />, labelKey: 'nav.warehouses', roles: ['ADMIN', 'WAREHOUSE_STAFF'] },
@@ -103,6 +111,7 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   '/products': 'pageTitles.products',
   '/inventory': 'pageTitles.inventory',
   '/reports/sales': 'pageTitles.salesReport',
+  '/reports/profit-orders': 'pageTitles.profitReport',
   '/shops': 'pageTitles.shops',
   '/logistics': 'pageTitles.logistics',
   '/warehouses': 'pageTitles.warehouses',

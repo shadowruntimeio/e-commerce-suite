@@ -80,3 +80,13 @@ export const syncReturnsQueue = new Queue('sync-returns', {
     removeOnFail: { count: 200 },
   },
 })
+
+export const syncSettlementsQueue = new Queue('sync-settlements', {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 5000 },
+    removeOnComplete: { count: 100 },
+    removeOnFail: { count: 200 },
+  },
+})

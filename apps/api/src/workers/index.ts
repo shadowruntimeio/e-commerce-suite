@@ -9,6 +9,7 @@ import { syncAdsProcessor } from './sync-ads.worker'
 import { syncMessagesProcessor } from './sync-messages.worker'
 import { syncProductsProcessor } from './sync-products.worker'
 import { syncReturnsProcessor } from './sync-returns.worker'
+import { syncSettlementsProcessor } from './sync-settlements.worker'
 
 console.log('Starting BullMQ workers...')
 
@@ -51,6 +52,12 @@ new Worker('sync-products', syncProductsProcessor, {
 new Worker('sync-returns', syncReturnsProcessor, {
   connection: redis,
   concurrency: 3,
+})
+
+new Worker('sync-settlements', syncSettlementsProcessor, {
+  connection: redis,
+  concurrency: 2,
+  limiter: { max: 600, duration: 3_600_000 }, // 600/hr — one API call per order
 })
 
 console.log('Workers running')
