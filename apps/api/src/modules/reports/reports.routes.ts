@@ -255,6 +255,7 @@ export async function reportsRoutes(app: FastifyInstance) {
       platform?: string
       sku?: string
       search?: string
+      settled?: string
       page?: string
       pageSize?: string
     }
@@ -290,6 +291,12 @@ export async function reportsRoutes(app: FastifyInstance) {
         ? { items: { some: { sellerSku: { contains: q.sku, mode: 'insensitive' as const } } } }
         : {}),
       ...(q.search ? { platformOrderId: { contains: q.search } } : {}),
+      // Settlement filter: settled = has an OrderSettlement row; unsettled = none.
+      ...(q.settled === 'true'
+        ? { settlement: { isNot: null } }
+        : q.settled === 'false'
+          ? { settlement: { is: null } }
+          : {}),
     }
 
     // Load the full matched set (capped) so per-row figures, totals, and the

@@ -125,6 +125,9 @@ export default {
     totalRow: 'Total',
     totalRecords: '{{count}} records',
     empty: 'No profit data yet',
+    settleStatus: 'Settle status',
+    settled: 'Settled',
+    unsettled: 'Unsettled',
   },
   shops: {
     title: 'Connected Shops',

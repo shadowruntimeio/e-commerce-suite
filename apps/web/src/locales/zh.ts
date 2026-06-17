@@ -125,6 +125,9 @@ export default {
     totalRow: '合计',
     totalRecords: '共 {{count}} 条',
     empty: '暂无利润数据',
+    settleStatus: '结算状态',
+    settled: '已结算',
+    unsettled: '未结算',
   },
   shops: {
     title: '已连接店铺',

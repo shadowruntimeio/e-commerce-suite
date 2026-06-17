@@ -72,6 +72,7 @@ export default function ProfitOrdersPage() {
   const [platform, setPlatform] = useState<'TIKTOK' | 'SHOPEE'>('TIKTOK')
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([dayjs().subtract(30, 'day'), dayjs()])
   const [shopId, setShopId] = useState<string | undefined>(undefined)
+  const [settled, setSettled] = useState<'true' | 'false' | undefined>(undefined)
   const [sku, setSku] = useState('')
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState({ sku: '', search: '' })
@@ -84,7 +85,7 @@ export default function ProfitOrdersPage() {
   })
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['reports-profit-orders', platform, dateRange[0].format('YYYY-MM-DD'), dateRange[1].format('YYYY-MM-DD'), shopId, applied.sku, applied.search, page, pageSize],
+    queryKey: ['reports-profit-orders', platform, dateRange[0].format('YYYY-MM-DD'), dateRange[1].format('YYYY-MM-DD'), shopId, settled, applied.sku, applied.search, page, pageSize],
     queryFn: () =>
       api.get('/reports/profit-orders', {
         params: {
@@ -92,6 +93,7 @@ export default function ProfitOrdersPage() {
           dateFrom: dateRange[0].startOf('day').toISOString(),
           dateTo: dateRange[1].endOf('day').toISOString(),
           shopId,
+          settled,
           sku: applied.sku || undefined,
           search: applied.search || undefined,
           page,
@@ -108,7 +110,7 @@ export default function ProfitOrdersPage() {
   const applyFilters = () => { setPage(1); setApplied({ sku: sku.trim(), search: search.trim() }) }
   const resetFilters = () => {
     setDateRange([dayjs().subtract(30, 'day'), dayjs()])
-    setShopId(undefined); setSku(''); setSearch(''); setApplied({ sku: '', search: '' }); setPage(1)
+    setShopId(undefined); setSettled(undefined); setSku(''); setSearch(''); setApplied({ sku: '', search: '' }); setPage(1)
   }
 
   const numCol = (key: MoneyKey, opts: { strong?: boolean } = {}) => ({
@@ -171,6 +173,17 @@ export default function ProfitOrdersPage() {
         <Space wrap size={12}>
           <RangePicker value={dateRange} allowClear={false} onChange={(vals) => { if (vals && vals[0] && vals[1]) { setDateRange([vals[0], vals[1]]); setPage(1) } }} />
           <Select allowClear placeholder={t('profitReport.allShops')} style={{ minWidth: 200 }} value={shopId} onChange={(v) => { setShopId(v); setPage(1) }} options={platformShops.map((s) => ({ value: s.id, label: s.name }))} />
+          <Select
+            allowClear
+            placeholder={t('profitReport.settleStatus')}
+            style={{ minWidth: 140 }}
+            value={settled}
+            onChange={(v) => { setSettled(v); setPage(1) }}
+            options={[
+              { value: 'true', label: t('profitReport.settled') },
+              { value: 'false', label: t('profitReport.unsettled') },
+            ]}
+          />
           <Input placeholder={t('profitReport.skuPlaceholder')} style={{ width: 160 }} value={sku} onChange={(e) => setSku(e.target.value)} onPressEnter={applyFilters} allowClear />
           <Input placeholder={t('profitReport.orderPlaceholder')} style={{ width: 200 }} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={applyFilters} allowClear />
           <Button type="primary" icon={<SearchOutlined />} onClick={applyFilters}>{t('common.search')}</Button>

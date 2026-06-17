@@ -270,23 +270,28 @@ interface TikTokOrderLineItem {
   product_name: string
   sku_name?: string
   quantity: number
-  sale_price: string       // V202309 returns prices as string with minor units
+  sale_price: string       // decimal currency string, e.g. "14.89"
   original_price?: string
   sku_image?: string
+}
+
+// V202309 order amounts live under `payment` (decimal currency strings, e.g.
+// "14.89"). Older/other payloads used `payment_info` — kept as a fallback.
+interface TikTokPayment {
+  currency?: string
+  sub_total?: string
+  platform_discount?: string
+  seller_discount?: string
+  shipping_fee?: string
+  total_amount?: string
 }
 
 interface TikTokOrder {
   id: string
   status: string
   buyer_message?: string
-  payment_info?: {
-    currency: string
-    sub_total?: string
-    platform_discount?: string
-    seller_discount?: string
-    shipping_fee?: string
-    total_amount?: string
-  }
+  payment?: TikTokPayment
+  payment_info?: TikTokPayment
   recipient_address?: {
     full_address?: string
     name?: string
@@ -687,8 +692,8 @@ export class TikTokAdapter implements PlatformAdapter {
 
   private mapOrder(o: TikTokOrder): PlatformOrder {
     const items: PlatformOrderItem[] = (o.line_items ?? []).map((item) => {
-      const salePrice = parsePrice(item.sale_price)
-      const originalPrice = item.original_price ? parsePrice(item.original_price) : salePrice
+      const salePrice = parseAmount(item.sale_price)
+      const originalPrice = item.original_price ? parseAmount(item.original_price) : salePrice
       return {
         platformSkuId: item.sku_id ?? item.id,
         sellerSku: item.seller_sku,
@@ -700,13 +705,15 @@ export class TikTokAdapter implements PlatformAdapter {
       }
     })
 
-    const pay = o.payment_info ?? {} as Partial<NonNullable<TikTokOrder['payment_info']>>
+    // V202309 returns amounts under `payment` (decimal strings); `payment_info`
+    // is a legacy fallback. parseAmount keeps decimals as-is (no /100).
+    const pay: TikTokPayment = o.payment ?? o.payment_info ?? {}
     const currency = pay.currency ?? 'USD'
-    const subtotal = parsePrice(pay.sub_total)
-    const platformDiscount = parsePrice(pay.platform_discount)
-    const sellerDiscount = parsePrice(pay.seller_discount)
-    const shippingFeeBuyer = parsePrice(pay.shipping_fee)
-    const totalAmount = parsePrice(pay.total_amount)
+    const subtotal = parseAmount(pay.sub_total)
+    const platformDiscount = parseAmount(pay.platform_discount)
+    const sellerDiscount = parseAmount(pay.seller_discount)
+    const shippingFeeBuyer = parseAmount(pay.shipping_fee)
+    const totalAmount = parseAmount(pay.total_amount)
 
     return {
       platformOrderId: o.id,
