@@ -185,7 +185,9 @@ export default function ProfitOrdersPage() {
         <KpiCard title={t('profitReport.grossMargin')} value={`${(totals?.grossMargin ?? 0).toFixed(2)}%`} prefix={<PercentageOutlined />} accent={(totals?.grossMargin ?? 0) >= 20 ? '#10B981' : (totals?.grossMargin ?? 0) >= 10 ? '#F59E0B' : '#EF4444'} />
       </div>
 
-      <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
+      {/* No overflow:hidden here — a clipping ancestor would break the table's
+          position:sticky header. Corner rounding is handled by the inner Table. */}
+      <div style={{ background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border)' }}>
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: '80px 0' }}><Spin size="large" /></div>
         ) : (
@@ -196,6 +198,9 @@ export default function ProfitOrdersPage() {
             size="middle"
             loading={isFetching}
             scroll={{ x: 'max-content' }}
+            // Pin the (grouped) header below the app's 64px sticky top bar while
+            // the page scrolls. Window is the scroll container here.
+            sticky={{ offsetHeader: 64 }}
             pagination={{
               current: data?.page ?? 1,
               pageSize: data?.pageSize ?? pageSize,
