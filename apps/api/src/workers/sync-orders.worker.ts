@@ -322,6 +322,19 @@ async function upsertOrder(
     await deductInventoryForOrder(order.id, tenantId, platformOrder.platformMetadata, 'TIKTOK')
   }
 
+  // Release the merchant-confirm reservation when an order is cancelled.
+  // Confirming an order (manual or auto) reserves stock; nothing released it on
+  // cancel, so the quantity stayed in quantityReserved and leaked out of the
+  // available count forever. TikTok freezes update_time at the cancellation, so
+  // this is effectively the last sync that will ever see the order — release
+  // here or never. Idempotent: nets RESERVED vs UNRESERVED, no-ops if already
+  // released (so periodic re-syncs of the same CANCELLED order are safe).
+  if (platformOrder.status === 'CANCELLED') {
+    await releaseStockForOrder(order.id, tenantId, null).catch((err) => {
+      console.warn(`[sync-orders] releaseStockForOrder (cancel) failed for ${order.id}:`, (err as Error).message)
+    })
+  }
+
 }
 
 // Deduct only after pickup — the goods have actually left the warehouse.
