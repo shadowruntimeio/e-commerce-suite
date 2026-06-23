@@ -149,9 +149,17 @@ export async function syncOrdersProcessor(job: Job<SyncOrdersJob>) {
   }
 
   // ─── Update lastSyncAt atomically ────────────────────────────────────────────
+  // Advance to the window's actual upper bound (`timeTo`), NOT a fresh
+  // `new Date()`. The fetch+upsert loop above can take several seconds, so
+  // `new Date()` here would be strictly later than `timeTo` — leaving the
+  // interval [timeTo, completionTime) permanently unscanned (next run starts
+  // at this stamp). Orders whose `update_time` landed in that blind window are
+  // never re-fetched, because once an order reaches a terminal state like
+  // CANCELLED its `update_time` freezes and never advances again. (This is
+  // exactly how 8 buyer-cancelled orders stayed stuck on AWAITING_SHIPMENT.)
   await prisma.shop.update({
     where: { id: shop.id },
-    data: { lastSyncAt: new Date() },
+    data: { lastSyncAt: new Date(timeTo * 1000) },
   })
 
   console.log(`[sync-orders] Completed sync for shop ${shop.id}: ${platformOrders.length} orders processed`)
@@ -312,6 +320,19 @@ async function upsertOrder(
   // Idempotent — re-syncs skip when an OUTBOUND event already exists.
   if (shouldDeductForStatus(platformOrder.status)) {
     await deductInventoryForOrder(order.id, tenantId, platformOrder.platformMetadata, 'TIKTOK')
+  }
+
+  // Release the merchant-confirm reservation when an order is cancelled.
+  // Confirming an order (manual or auto) reserves stock; nothing released it on
+  // cancel, so the quantity stayed in quantityReserved and leaked out of the
+  // available count forever. TikTok freezes update_time at the cancellation, so
+  // this is effectively the last sync that will ever see the order — release
+  // here or never. Idempotent: nets RESERVED vs UNRESERVED, no-ops if already
+  // released (so periodic re-syncs of the same CANCELLED order are safe).
+  if (platformOrder.status === 'CANCELLED') {
+    await releaseStockForOrder(order.id, tenantId, null).catch((err) => {
+      console.warn(`[sync-orders] releaseStockForOrder (cancel) failed for ${order.id}:`, (err as Error).message)
+    })
   }
 
 }
