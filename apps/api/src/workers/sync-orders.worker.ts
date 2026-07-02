@@ -16,6 +16,19 @@ interface SyncOrdersJob {
 
 const LOOKBACK_SECONDS = 24 * 60 * 60 // 24 hours as first-sync default
 
+// Re-scan this far behind the watermark on every incremental sync. TikTok's
+// `orders/search` is eventually consistent: a status change (e.g. a buyer
+// cancellation) freezes the order's `update_time` at that instant, but the
+// change can take minutes to become visible in update_time-filtered search.
+// With a bare `timeFrom = lastSyncAt` watermark, if the change surfaces only
+// after the window covering its update_time has already elapsed, every later
+// window starts past that update_time and the order is skipped forever —
+// stuck on its pre-cancellation status. Overlapping backwards re-scans recent
+// history each run so late-indexed changes are still caught. Upsert (and the
+// deduction / reservation-release paths) are idempotent, so re-processing the
+// same orders is harmless. Must comfortably exceed TikTok's search index lag.
+const WATERMARK_OVERLAP_SECONDS = 15 * 60 // 15 minutes
+
 async function getAdapter(shop: { id: string; platform: string }): Promise<PlatformAdapter> {
   switch (shop.platform) {
     case 'SHOPEE': return new ShopeeAdapter()
@@ -117,7 +130,7 @@ export async function syncOrdersProcessor(job: Job<SyncOrdersJob>) {
   // ─── Determine sync window ───────────────────────────────────────────────────
   const timeTo = Math.floor(Date.now() / 1000)
   const timeFrom = shop.lastSyncAt
-    ? Math.floor(shop.lastSyncAt.getTime() / 1000)
+    ? Math.floor(shop.lastSyncAt.getTime() / 1000) - WATERMARK_OVERLAP_SECONDS
     : timeTo - LOOKBACK_SECONDS
 
   console.log(
